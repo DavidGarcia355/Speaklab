@@ -135,6 +135,7 @@ export default function StudentAssignmentPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
   const [studentEmail, setStudentEmail] = useState("");
+  const [localAuthBypass, setLocalAuthBypass] = useState(false);
   const [callbackUrl, setCallbackUrl] = useState("/");
 
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -173,6 +174,8 @@ export default function StudentAssignmentPage() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       setCallbackUrl(window.location.href);
+      const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      setLocalAuthBypass(process.env.NODE_ENV !== "production" && isLocalHost);
     }
   }, []);
 
@@ -309,7 +312,7 @@ export default function StudentAssignmentPage() {
 
   async function submitResponse() {
     if (!assignment) return;
-    if (!studentEmail) {
+    if (!studentEmail && !localAuthBypass) {
       setErrorMsg("Please sign in with your school Google account before submitting.");
       return;
     }
@@ -466,7 +469,7 @@ export default function StudentAssignmentPage() {
                   type="button"
                   onClick={startRecording}
                   disabled={
-                    !studentEmail ||
+                    (!studentEmail && !localAuthBypass) ||
                     !micSupported ||
                     recorderState === "requesting-permission" ||
                     recorderState === "submitting"
@@ -485,7 +488,7 @@ export default function StudentAssignmentPage() {
                 type="button"
                 onClick={submitResponse}
                 disabled={
-                  !studentEmail ||
+                  (!studentEmail && !localAuthBypass) ||
                   recorderState === "submitting" ||
                   !recordingBlob ||
                   submittedCurrentRecording

@@ -22,15 +22,24 @@ async function enforce(
   key: string,
   message: string
 ) {
-  getEnv();
+  const env = getEnv();
   const map = {
     submission: (submissionLimiter ??= limiter("rl:submission", 5)),
     auth: (authLimiter ??= limiter("rl:auth", 10)),
     gradebook: (gradebookLimiter ??= limiter("rl:gradebook", 10)),
   } as const;
-  const result = await map[bucket].limit(key);
-  if (!result.success) {
-    throw new HttpError(429, message);
+  try {
+    const result = await map[bucket].limit(key);
+    if (!result.success) {
+      throw new HttpError(429, message);
+    }
+  } catch (error) {
+    // Local development can run without reachable Upstash.
+    if (env.isDev) {
+      console.warn("Rate limit backend unavailable in development; skipping limiter.", error);
+      return;
+    }
+    throw error;
   }
 }
 

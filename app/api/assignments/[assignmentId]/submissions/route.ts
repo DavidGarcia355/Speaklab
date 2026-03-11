@@ -4,6 +4,7 @@ import { uploadSubmissionAudio } from "@/lib/audio-storage";
 import { createSubmission, findAssignmentById } from "@/lib/db";
 import { withApiHandler } from "@/lib/http";
 import { enforceSubmissionRateLimit } from "@/lib/rate-limit";
+import { getEnv } from "@/lib/env";
 import { parseAudioDataUrl, parseOrThrow400, submissionCreateSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -26,12 +27,22 @@ export async function POST(
     const studentName = body.studentName ?? "";
     const parsedAudio = parseAudioDataUrl(body.audioData);
     const submissionId = `sub_${crypto.randomUUID()}`;
-    const audioBlobUrl = await uploadSubmissionAudio({
-      assignmentId,
-      submissionId,
-      mimeType: parsedAudio.mimeType,
-      buffer: parsedAudio.buffer,
-    });
+    let audioBlobUrl = "";
+    try {
+      audioBlobUrl = await uploadSubmissionAudio({
+        assignmentId,
+        submissionId,
+        mimeType: parsedAudio.mimeType,
+        buffer: parsedAudio.buffer,
+      });
+    } catch (error) {
+      if (getEnv().isDev) {
+        // Local dev fallback when Blob is not configured.
+        audioBlobUrl = body.audioData;
+      } else {
+        throw error;
+      }
+    }
 
     const created = await createSubmission({
       assignmentId,

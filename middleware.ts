@@ -30,6 +30,9 @@ function jsonError(status: number, error: string) {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  if (process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true") {
+    return NextResponse.next();
+  }
   if (!teacherRequiredPath(pathname)) {
     return NextResponse.next();
   }
@@ -67,4 +70,3 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: ["/teacher/:path*", "/api/classes/:path*", "/api/assignments/:path*", "/api/submissions/:path*"],
 };
-

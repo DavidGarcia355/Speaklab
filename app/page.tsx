@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Clock3, FileSpreadsheet, MicVocal, ShieldCheck } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
+import { APP_NAME, CONTACT_LINKS } from "@/app/constants";
 
 export default function Home() {
   return (
@@ -70,6 +71,35 @@ export default function Home() {
           <p className="meta">
             Export clean CSV data that is easy to move into school grading systems.
           </p>
+        </article>
+      </section>
+
+      <section className="grid cols-2 section-gap">
+        <article className="card home-feature">
+          <h2 className="title-row">Pilot FAQ</h2>
+          <p className="meta"><strong>Who is this for?</strong> Language teachers running speaking checks in class.</p>
+          <p className="meta"><strong>How do students submit?</strong> Open one link, sign in, record, submit.</p>
+          <p className="meta"><strong>How are grades exported?</strong> CSV export is available in the teacher class workspace.</p>
+          <p className="meta"><strong>Can I test before rollout?</strong> Yes, request pilot access below.</p>
+        </article>
+
+        <article className="card home-feature">
+          <h2 className="title-row">Request Pilot Access</h2>
+          <p className="meta">Trying {APP_NAME} with your class? Contact us and we&apos;ll help you get set up.</p>
+          <div className="actions">
+            <a className="btn btn-ghost" href={CONTACT_LINKS.linkedin} target="_blank" rel="noreferrer">
+              LinkedIn
+            </a>
+            <a className="btn btn-ghost" href={CONTACT_LINKS.email}>
+              Email
+            </a>
+            <a className="btn btn-ghost" href={CONTACT_LINKS.github} target="_blank" rel="noreferrer">
+              GitHub
+            </a>
+            <a className="btn btn-ghost" href={CONTACT_LINKS.phone}>
+              Phone
+            </a>
+          </div>
         </article>
       </section>
     </main>

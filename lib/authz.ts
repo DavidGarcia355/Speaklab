@@ -4,6 +4,10 @@ import { authOptions } from "@/auth";
 import { getEnv } from "@/lib/env";
 import { HttpError } from "@/lib/http";
 
+function isLocalAuthBypassEnabled() {
+  return process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH !== "false";
+}
+
 export function isAllowedSchoolEmail(email: string) {
   const normalized = email.trim().toLowerCase();
   const { schoolGoogleDomain } = getEnv();
@@ -11,10 +15,16 @@ export function isAllowedSchoolEmail(email: string) {
 }
 
 export function isTeacherEmail(email: string) {
+  if (isLocalAuthBypassEnabled()) {
+    return true;
+  }
   return getEnv().teacherEmails.has(email.trim().toLowerCase());
 }
 
 export async function requireAuthenticatedEmail() {
+  if (isLocalAuthBypassEnabled()) {
+    return "dev-teacher@local.test";
+  }
   const session = await getServerSession(authOptions);
   const email = session?.user?.email?.trim().toLowerCase();
   if (!email) {
@@ -24,6 +34,9 @@ export async function requireAuthenticatedEmail() {
 }
 
 export async function requireSchoolStudentEmail() {
+  if (isLocalAuthBypassEnabled()) {
+    return "dev-student@gmail.com";
+  }
   const email = await requireAuthenticatedEmail();
   if (!isAllowedSchoolEmail(email)) {
     throw new HttpError(403, "School Google account is required.");
@@ -32,10 +45,12 @@ export async function requireSchoolStudentEmail() {
 }
 
 export async function requireTeacherEmail() {
+  if (isLocalAuthBypassEnabled()) {
+    return "dev-teacher@local.test";
+  }
   const email = await requireAuthenticatedEmail();
   if (!isTeacherEmail(email)) {
     throw new HttpError(403, "Teacher access only.");
   }
   return email;
 }
-

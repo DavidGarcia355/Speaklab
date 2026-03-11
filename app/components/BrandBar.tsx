@@ -12,7 +12,7 @@ export default function BrandBar({ label }: BrandBarProps) {
     <header className="brand-bar">
       <Link href="/" className="brand-link" aria-label={`${APP_NAME} home`}>
         <span className="brand-mark" aria-hidden="true">
-          <span className="brand-mark-text">SL</span>
+          <span className="brand-mark-text">H</span>
         </span>
         <span className="brand-text">{APP_NAME}</span>
       </Link>

@@ -57,7 +57,7 @@ foreach ($key in $requiredKeys) {
   }
 }
 if ($missing.Count -gt 0) {
-  Write-Error "Missing required env values in $EnvFile: $($missing -join ', ')"
+  Write-Error "Missing required env values in ${EnvFile}: $($missing -join ', ')"
 }
 
 foreach ($target in $Targets) {
@@ -80,4 +80,3 @@ foreach ($target in $Targets) {
 }
 
 Write-Host "Vercel env sync complete."
-
