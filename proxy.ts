@@ -2,16 +2,6 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
-function parseTeacherEmails() {
-  const raw = process.env.TEACHER_EMAILS || "";
-  return new Set(
-    raw
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean)
-  );
-}
-
 function teacherRequiredPath(pathname: string) {
   if (pathname.startsWith("/teacher")) return true;
   if (pathname.startsWith("/api/classes")) return true;
@@ -38,9 +28,8 @@ export async function proxy(request: NextRequest) {
   }
 
   const authSecret = process.env.AUTH_SECRET;
-  const teacherEmails = parseTeacherEmails();
-  if (!authSecret || teacherEmails.size === 0) {
-    console.error("Missing AUTH_SECRET or TEACHER_EMAILS for middleware auth.");
+  if (!authSecret) {
+    console.error("Missing AUTH_SECRET for middleware auth.");
     if (pathname.startsWith("/api/")) {
       return jsonError(500, "Something went wrong.");
     }
@@ -57,13 +46,6 @@ export async function proxy(request: NextRequest) {
     signInUrl.searchParams.set("callbackUrl", request.url);
     return NextResponse.redirect(signInUrl);
   }
-  if (!teacherEmails.has(email)) {
-    if (pathname.startsWith("/api/")) {
-      return jsonError(403, "Teacher access only.");
-    }
-    return new NextResponse("Forbidden", { status: 403 });
-  }
-
   return NextResponse.next();
 }
 

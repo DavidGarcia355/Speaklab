@@ -4,7 +4,6 @@ type EnvConfig = {
   authGoogleId: string;
   authGoogleSecret: string;
   authSecret: string;
-  teacherEmails: Set<string>;
   tursoDatabaseUrl: string;
   tursoAuthToken: string;
   upstashRedisRestUrl: string;
@@ -28,7 +27,6 @@ export function getEnv() {
     "AUTH_GOOGLE_ID",
     "AUTH_GOOGLE_SECRET",
     "AUTH_SECRET",
-    "TEACHER_EMAILS",
     "UPSTASH_REDIS_REST_URL",
     "UPSTASH_REDIS_REST_TOKEN",
     "BLOB_READ_WRITE_TOKEN",
@@ -52,15 +50,6 @@ export function getEnv() {
     throw new Error("TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are required in production.");
   }
 
-  const teacherEmails = new Set(
-    process.env.TEACHER_EMAILS!.split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean)
-  );
-  if (teacherEmails.size === 0) {
-    throw new Error("TEACHER_EMAILS must include at least one email.");
-  }
-
   const productionOriginRaw =
     process.env.NEXTAUTH_URL ||
     (process.env.VERCEL_PROJECT_PRODUCTION_URL
@@ -76,7 +65,6 @@ export function getEnv() {
     authGoogleId: process.env.AUTH_GOOGLE_ID!.trim(),
     authGoogleSecret: process.env.AUTH_GOOGLE_SECRET!.trim(),
     authSecret: process.env.AUTH_SECRET!.trim(),
-    teacherEmails,
     tursoDatabaseUrl,
     tursoAuthToken,
     upstashRedisRestUrl: process.env.UPSTASH_REDIS_REST_URL!.trim(),

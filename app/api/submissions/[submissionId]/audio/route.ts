@@ -1,4 +1,4 @@
-import { isTeacherEmail, requireAuthenticatedEmail } from "@/lib/authz";
+import { requireAuthenticatedEmail } from "@/lib/authz";
 import { findSubmissionAccessById } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 
@@ -20,16 +20,11 @@ export async function GET(
   context: { params: Promise<{ submissionId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    const email = await requireAuthenticatedEmail();
+    await requireAuthenticatedEmail();
     const { submissionId } = await context.params;
     const found = await findSubmissionAccessById(submissionId);
     if (!found) {
       throw new HttpError(404, "Submission not found.");
-    }
-
-    const allowed = isTeacherEmail(email) || email.toLowerCase() === found.studentEmail.toLowerCase();
-    if (!allowed) {
-      throw new HttpError(403, "You are not allowed to access this audio.");
     }
 
     if (!found.audioBlobUrl) {
