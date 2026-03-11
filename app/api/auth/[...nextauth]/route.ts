@@ -7,7 +7,7 @@ const handler = NextAuth(authOptions);
 
 function isSignInAttempt(request: Request) {
   const { pathname } = new URL(request.url);
-  return pathname.includes("/api/auth/signin");
+  return /^\/api\/auth\/signin\/[^/]+$/.test(pathname);
 }
 
 export async function GET(request: Request) {
