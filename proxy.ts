@@ -45,9 +45,9 @@ export async function proxy(request: NextRequest) {
   if (!authSecret) {
     console.error("Missing AUTH_SECRET for auth.");
     if (pathname.startsWith("/api/")) {
-      return jsonError(500, "Something went wrong — try refreshing the page.");
+      return jsonError(500, "Something went wrong - try refreshing the page.");
     }
-    return new NextResponse("Something went wrong — try refreshing the page.", { status: 500 });
+    return new NextResponse("Something went wrong - try refreshing the page.", { status: 500 });
   }
 
   const token = await getToken({ req: request, secret: authSecret });
@@ -66,7 +66,7 @@ export async function proxy(request: NextRequest) {
     if (pathname.startsWith("/api/")) {
       return jsonError(403, "You don't have access to this page.");
     }
-    return NextResponse.redirect(new URL("/onboarding", request.url));
+    return NextResponse.redirect(new URL("/unauthorized", request.url));
   }
 
   return NextResponse.next();

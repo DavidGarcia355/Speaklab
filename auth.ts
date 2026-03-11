@@ -1,6 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import Google from "next-auth/providers/google";
-import { getUserRoleByEmail } from "@/lib/db";
+import { getUserRoleByEmail, upsertGoogleUserAndGetRole } from "@/lib/db";
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.AUTH_SECRET,
@@ -17,7 +17,7 @@ export const authOptions: NextAuthOptions = {
       const emailVerified = (profile as { email_verified?: boolean } | null)?.email_verified;
       if (!email) return false;
       if (emailVerified === false) return false;
-      await getUserRoleByEmail(email);
+      await upsertGoogleUserAndGetRole(email);
       return true;
     },
     async jwt({ token }) {

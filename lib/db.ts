@@ -72,12 +72,6 @@ type SubmissionAccessRow = {
   audioBlobUrl: string;
 };
 
-type TeacherCodeRow = {
-  code: string;
-  usedBy: string | null;
-  usedAt: number | null;
-};
-
 function createDbClient(): Client {
   const tursoUrl = process.env.TURSO_DATABASE_URL?.trim() || "";
   const tursoToken = process.env.TURSO_AUTH_TOKEN?.trim() || "";
@@ -178,12 +172,6 @@ async function ensureInitialized() {
           role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('teacher', 'student')),
           created_at INTEGER NOT NULL
         )`,
-        `CREATE TABLE IF NOT EXISTS teacher_codes (
-          code TEXT PRIMARY KEY,
-          created_at INTEGER NOT NULL,
-          used_by TEXT,
-          used_at INTEGER
-        )`,
         "CREATE INDEX IF NOT EXISTS idx_assignments_class_id ON assignments(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_deleted_at ON assignments(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON submissions(assignment_id)",
@@ -192,7 +180,6 @@ async function ensureInitialized() {
         "CREATE INDEX IF NOT EXISTS idx_submissions_deleted_at ON submissions(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_feedback_messages_created_at ON feedback_messages(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)",
-        "CREATE INDEX IF NOT EXISTS idx_teacher_codes_used_by ON teacher_codes(used_by)",
         `CREATE TRIGGER IF NOT EXISTS trg_classes_delete_assignments
           AFTER DELETE ON classes
           FOR EACH ROW
@@ -214,16 +201,6 @@ async function ensureInitialized() {
       await ensureColumn("submissions", "student_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
-
-      const onboardingCode = process.env.TEACHER_ONBOARDING_CODE?.trim();
-      if (onboardingCode) {
-        await rawExecute(
-          `INSERT INTO teacher_codes (code, created_at, used_by, used_at)
-          VALUES (?, ?, NULL, NULL)
-          ON CONFLICT(code) DO NOTHING`,
-          [onboardingCode, Date.now()]
-        );
-      }
     })();
   }
   return initPromise;
@@ -733,11 +710,11 @@ export async function createFeedbackMessage(input: {
   return item;
 }
 
-export async function upsertUserAndGetRole(email: string): Promise<UserRole> {
+export async function upsertGoogleUserAndGetRole(email: string): Promise<UserRole> {
   const normalized = email.trim().toLowerCase();
   await query(
     `INSERT INTO users (email, role, created_at)
-    VALUES (?, 'student', ?)
+    VALUES (?, 'teacher', ?)
     ON CONFLICT(email) DO NOTHING`,
     [normalized, Date.now()]
   );
@@ -753,7 +730,16 @@ export async function upsertUserAndGetRole(email: string): Promise<UserRole> {
 }
 
 export async function getUserRoleByEmail(email: string): Promise<UserRole> {
-  return upsertUserAndGetRole(email);
+  const normalized = email.trim().toLowerCase();
+  const result = await query(
+    `SELECT role
+    FROM users
+    WHERE LOWER(email) = LOWER(?)
+    LIMIT 1`,
+    [normalized]
+  );
+  const role = toStringValue(result.rows[0]?.role).toLowerCase();
+  return role === "teacher" ? "teacher" : "student";
 }
 
 export async function setUserRoleTeacher(email: string): Promise<void> {
@@ -764,51 +750,4 @@ export async function setUserRoleTeacher(email: string): Promise<void> {
     ON CONFLICT(email) DO UPDATE SET role = 'teacher'`,
     [normalized, Date.now()]
   );
-}
-
-export async function redeemTeacherOnboardingCode(
-  code: string,
-  email: string
-): Promise<"ok" | "invalid" | "used"> {
-  const normalizedCode = code.trim();
-  const normalizedEmail = email.trim().toLowerCase();
-
-  const foundResult = await query(
-    `SELECT code, used_by as usedBy, used_at as usedAt
-    FROM teacher_codes
-    WHERE code = ?
-    LIMIT 1`,
-    [normalizedCode]
-  );
-
-  const row = foundResult.rows[0];
-  if (!row) {
-    return "invalid";
-  }
-
-  const codeRow: TeacherCodeRow = {
-    code: toStringValue(row.code),
-    usedBy: row.usedBy ? toStringValue(row.usedBy) : null,
-    usedAt: row.usedAt ? toNumber(row.usedAt) : null,
-  };
-
-  if (codeRow.usedBy && codeRow.usedBy.toLowerCase() !== normalizedEmail) {
-    return "used";
-  }
-
-  const now = Date.now();
-  const updateCode = await query(
-    `UPDATE teacher_codes
-    SET used_by = ?, used_at = COALESCE(used_at, ?)
-    WHERE code = ?
-      AND (used_by IS NULL OR LOWER(used_by) = LOWER(?))`,
-    [normalizedEmail, now, normalizedCode, normalizedEmail]
-  );
-
-  if (toNumber(updateCode.rowsAffected) === 0) {
-    return "used";
-  }
-
-  await setUserRoleTeacher(normalizedEmail);
-  return "ok";
 }
