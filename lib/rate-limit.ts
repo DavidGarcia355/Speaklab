@@ -25,7 +25,7 @@ async function enforce(
   const env = getEnv();
   const map = {
     submission: (submissionLimiter ??= limiter("rl:submission", 5)),
-    auth: (authLimiter ??= limiter("rl:auth", 10)),
+    auth: (authLimiter ??= limiter("rl:auth", 100)),
     gradebook: (gradebookLimiter ??= limiter("rl:gradebook", 10)),
   } as const;
   try {
@@ -55,7 +55,7 @@ export async function enforceAuthRateLimit(ipAddress: string) {
   await enforce(
     "auth",
     ipAddress,
-    "Rate limit exceeded. Maximum 10 sign-in attempts per hour."
+    "Rate limit exceeded. Maximum 100 sign-in attempts per hour."
   );
 }
 
