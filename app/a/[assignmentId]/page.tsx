@@ -63,7 +63,7 @@ function getRecorderBanner(options: {
     return {
       tone: "state-success",
       icon: <CheckCircle2 size={16} aria-hidden="true" />,
-      text: "Submission complete. Your response was received.",
+      text: "You're all set — we got your recording!",
     };
   }
 
@@ -347,13 +347,14 @@ export default function StudentAssignmentPage() {
       });
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
-        throw new Error(data.error || "Submission failed.");
+        throw new Error(data.error || "Something went wrong — try refreshing the page.");
       }
       setSubmittedCurrentRecording(true);
-      setStatusMsg("Submission received. You can record again if your teacher asks for a new take.");
+      setStatusMsg("You're all set — we got your recording!");
       setRecorderState("ready");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Submission failed.";
+      const message =
+        error instanceof Error ? error.message : "Something went wrong — try refreshing the page.";
       setErrorMsg(message);
       setRecorderState("ready");
     } finally {

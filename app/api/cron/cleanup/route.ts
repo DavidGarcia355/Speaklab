@@ -15,7 +15,7 @@ function isAuthorized(request: Request) {
 export async function GET(request: Request) {
   return withApiHandler(request, async () => {
     if (!isAuthorized(request)) {
-      throw new HttpError(403, "Forbidden");
+      throw new HttpError(403, "You don't have access to this page.");
     }
 
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;

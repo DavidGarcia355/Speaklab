@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 function decodeLegacyDataUrl(dataUrl: string) {
   const match = dataUrl.match(/^data:([^;]+);base64,([a-z0-9+/=]+)$/i);
   if (!match) {
-    throw new HttpError(500, "Something went wrong.");
+    throw new HttpError(500, "Something went wrong — try refreshing the page.");
   }
   return {
     contentType: match[1],

@@ -1,6 +1,7 @@
 import "server-only";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
+import { getUserRoleByEmail } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 
 function isLocalAuthBypassEnabled() {
@@ -14,7 +15,7 @@ export async function requireAuthenticatedEmail() {
   const session = await getServerSession(authOptions);
   const email = session?.user?.email?.trim().toLowerCase();
   if (!email) {
-    throw new HttpError(401, "Authentication required.");
+    throw new HttpError(401, "You'll need to sign in first.");
   }
   return email;
 }
@@ -30,5 +31,10 @@ export async function requireTeacherEmail() {
   if (isLocalAuthBypassEnabled()) {
     return "dev-teacher@local.test";
   }
-  return requireAuthenticatedEmail();
+  const email = await requireAuthenticatedEmail();
+  const role = await getUserRoleByEmail(email);
+  if (role !== "teacher") {
+    throw new HttpError(403, "You don't have access to this page.");
+  }
+  return email;
 }

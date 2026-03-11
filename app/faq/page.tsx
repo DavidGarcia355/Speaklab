@@ -20,7 +20,7 @@ const FAQ_ITEMS = [
   {
     question: "Is student data protected?",
     answer:
-      "Yes. Teacher routes are protected, school-domain auth is enforced for submissions, and audio access is restricted.",
+      "Yes. Teacher routes are protected, Google sign-in is required for submissions, and audio access is restricted.",
   },
   {
     question: "Can I pilot this before schoolwide rollout?",

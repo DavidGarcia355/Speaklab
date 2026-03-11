@@ -1,5 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import Google from "next-auth/providers/google";
+import { getUserRoleByEmail } from "@/lib/db";
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.AUTH_SECRET,
@@ -16,11 +17,22 @@ export const authOptions: NextAuthOptions = {
       const emailVerified = (profile as { email_verified?: boolean } | null)?.email_verified;
       if (!email) return false;
       if (emailVerified === false) return false;
+      await getUserRoleByEmail(email);
       return true;
     },
-    async session({ session }) {
+    async jwt({ token }) {
+      if (typeof token.email === "string" && token.email) {
+        token.role = await getUserRoleByEmail(token.email);
+      }
+      return token;
+    },
+    async session({ session, token }) {
       if (session.user?.email) {
         session.user.email = session.user.email.toLowerCase();
+      }
+      if (session.user) {
+        (session.user as { role?: "teacher" | "student" }).role =
+          (token as { role?: "teacher" | "student" }).role;
       }
       return session;
     },

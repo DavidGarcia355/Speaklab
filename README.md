@@ -84,6 +84,8 @@ Expected response:
 - `/` Home
 - `/faq` Teacher FAQ
 - `/feedback` Pilot request and feedback form (writes to `feedback_messages` table)
+- `/onboarding` Teacher role setup with access code
+- `/unauthorized` Friendly access message page
 
 ## Production Checklist
 
@@ -95,6 +97,7 @@ Set all values below in Vercel project settings (or `.env.local` for local testi
 AUTH_GOOGLE_ID=...
 AUTH_GOOGLE_SECRET=...
 AUTH_SECRET=...
+TEACHER_ONBOARDING_CODE=...
 TURSO_DATABASE_URL=...
 TURSO_AUTH_TOKEN=...
 UPSTASH_REDIS_REST_URL=...
@@ -106,7 +109,7 @@ NEXTAUTH_URL=https://your-app.vercel.app
 
 Notes:
 - If required vars are missing, APIs fail closed and return server configuration errors.
-- If you see `Server misconfiguration` in the deployed app, at least one required env is missing in Vercel.
+- `TEACHER_ONBOARDING_CODE` is the code teachers redeem on `/onboarding` to unlock teacher access.
 
 ### Google OAuth Setup
 
@@ -134,7 +137,7 @@ Notes:
    - `UPSTASH_REDIS_REST_TOKEN`
 3. Rate limits enforced:
    - Submission API: 5/hour per student email
-   - Auth sign-in: 10/hour per IP
+   - Auth sign-in: 100/hour per IP
    - Gradebook export: 10/hour per teacher email
 
 ### Storage Setup
@@ -165,12 +168,13 @@ Run after every production deploy:
 1. Home page loads at `https://tryhabla.com`.
 2. `/faq` renders and links to `/feedback`.
 3. `/feedback` submits a valid form and returns success message.
-4. Teacher sign-in works on `/teacher` with any Google email.
-5. Unauthenticated users are redirected to sign in for teacher APIs/pages.
-6. Student assignment link requires Google sign-in before submission.
-7. Student can record, submit, and teacher can play back audio.
-8. Grade save + CSV export still work.
-9. `GET /api/health` returns `200` and `status: ok`.
+4. Signed-in non-teachers are redirected from `/teacher` to `/onboarding`.
+5. Redeeming `TEACHER_ONBOARDING_CODE` upgrades user role to teacher and grants `/teacher` access.
+6. Unauthenticated users are redirected to sign in for teacher APIs/pages.
+7. Student assignment link requires Google sign-in before submission.
+8. Student can record, submit, and teacher can play back audio.
+9. Grade save + CSV export still work.
+10. `GET /api/health` returns `200` and `status: ok`.
 
 ## Contact Links
 

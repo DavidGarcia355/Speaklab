@@ -4,6 +4,7 @@ type EnvConfig = {
   authGoogleId: string;
   authGoogleSecret: string;
   authSecret: string;
+  teacherOnboardingCode: string;
   tursoDatabaseUrl: string;
   tursoAuthToken: string;
   upstashRedisRestUrl: string;
@@ -27,6 +28,7 @@ export function getEnv() {
     "AUTH_GOOGLE_ID",
     "AUTH_GOOGLE_SECRET",
     "AUTH_SECRET",
+    "TEACHER_ONBOARDING_CODE",
     "UPSTASH_REDIS_REST_URL",
     "UPSTASH_REDIS_REST_TOKEN",
     "BLOB_READ_WRITE_TOKEN",
@@ -65,6 +67,7 @@ export function getEnv() {
     authGoogleId: process.env.AUTH_GOOGLE_ID!.trim(),
     authGoogleSecret: process.env.AUTH_GOOGLE_SECRET!.trim(),
     authSecret: process.env.AUTH_SECRET!.trim(),
+    teacherOnboardingCode: process.env.TEACHER_ONBOARDING_CODE!.trim(),
     tursoDatabaseUrl,
     tursoAuthToken,
     upstashRedisRestUrl: process.env.UPSTASH_REDIS_REST_URL!.trim(),

@@ -81,6 +81,10 @@ export const feedbackCreateSchema = z.object({
   message: cleanTextSchema("Message", 10, 1000),
 });
 
+export const onboardingRedeemSchema = z.object({
+  code: cleanTextSchema("Access code", 4, 80),
+});
+
 export type ParsedAudio = {
   mimeType: "audio/webm" | "audio/ogg" | "audio/mp4" | "audio/wav";
   buffer: Buffer;
