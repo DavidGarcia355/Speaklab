@@ -808,7 +808,7 @@ export async function upsertGoogleUserAndGetRole(email: string): Promise<UserRol
   await query(
     `INSERT INTO users (email, role, created_at)
     VALUES (?, 'teacher', ?)
-    ON CONFLICT(email) DO NOTHING`,
+    ON CONFLICT(email) DO UPDATE SET role = 'teacher'`,
     [normalized, Date.now()]
   );
   const result = await query(
