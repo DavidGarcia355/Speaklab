@@ -6,7 +6,7 @@ const csp = [
   "frame-ancestors 'none'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://apis.google.com",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://lh3.googleusercontent.com",
+  "img-src 'self' data: blob: https://lh3.googleusercontent.com https://authjs.dev",
   "connect-src 'self' https://accounts.google.com https://*.googleapis.com https://*.upstash.io https://*.vercel-storage.com",
   "media-src 'self' blob: data: https://*.public.blob.vercel-storage.com",
   "frame-src 'self' https://accounts.google.com",
