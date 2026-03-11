@@ -84,7 +84,6 @@ Expected response:
 - `/` Home
 - `/faq` Teacher FAQ
 - `/feedback` Pilot request and feedback form (writes to `feedback_messages` table)
-- `/onboarding` Teacher sign-in helper page
 - `/unauthorized` Friendly access message page
 
 ## Production Checklist

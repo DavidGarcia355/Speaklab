@@ -55,6 +55,6 @@ export async function withApiHandler(request: Request, handler: Handler) {
     }
 
     console.error("Unhandled API error", error);
-    return NextResponse.json({ error: "Something went wrong — try refreshing the page." }, { status: 500 });
+    return NextResponse.json({ error: "Something went wrong - try refreshing the page." }, { status: 500 });
   }
 }

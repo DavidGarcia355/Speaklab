@@ -17,15 +17,15 @@ export async function GET(
   context: { params: Promise<{ classId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    await requireTeacherEmail();
+    const teacherEmail = await requireTeacherEmail();
     const { classId } = await context.params;
-    const found = await findClassById(classId);
+    const found = await findClassById(classId, teacherEmail);
     if (!found) {
       return NextResponse.json({ error: "Class not found." }, { status: 404 });
     }
 
-    const assignments = await listAssignmentsByClassId(classId);
-    const submissions = await listSubmissionsByClassId(classId);
+    const assignments = await listAssignmentsByClassId(classId, teacherEmail);
+    const submissions = await listSubmissionsByClassId(classId, teacherEmail);
     const submissionCount = assignments.reduce((sum, item) => sum + item.submissionCount, 0);
 
     return NextResponse.json({
@@ -45,16 +45,16 @@ export async function PATCH(
   context: { params: Promise<{ classId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    await requireTeacherEmail();
+    const teacherEmail = await requireTeacherEmail();
     const { classId } = await context.params;
-    const found = await findClassById(classId);
+    const found = await findClassById(classId, teacherEmail);
     if (!found) {
       return NextResponse.json({ error: "Class not found." }, { status: 404 });
     }
 
     const body = parseOrThrow400(classUpdateSchema, await request.json());
     const name = body.name ?? "";
-    const updated = await updateClassName(classId, name);
+    const updated = await updateClassName(classId, name, teacherEmail);
     if (!updated) {
       return NextResponse.json({ error: "Class not found." }, { status: 404 });
     }
@@ -67,14 +67,14 @@ export async function DELETE(
   context: { params: Promise<{ classId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    await requireTeacherEmail();
+    const teacherEmail = await requireTeacherEmail();
     const { classId } = await context.params;
-    const found = await findClassById(classId);
+    const found = await findClassById(classId, teacherEmail);
     if (!found) {
       return NextResponse.json({ error: "Class not found." }, { status: 404 });
     }
 
-    const deleted = await deleteClassCascade(classId);
+    const deleted = await deleteClassCascade(classId, teacherEmail);
     if (!deleted) {
       return NextResponse.json({ error: "Unable to delete class." }, { status: 400 });
     }

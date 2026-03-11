@@ -11,9 +11,9 @@ export async function POST(
   context: { params: Promise<{ classId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    await requireTeacherEmail();
+    const teacherEmail = await requireTeacherEmail();
     const { classId } = await context.params;
-    const foundClass = await findClassById(classId);
+    const foundClass = await findClassById(classId, teacherEmail);
     if (!foundClass) {
       return NextResponse.json({ error: "Class not found." }, { status: 404 });
     }
@@ -25,6 +25,7 @@ export async function POST(
 
     const created = await createAssignment({
       classId,
+      ownerEmail: teacherEmail,
       title,
       description,
       instructions,

@@ -68,7 +68,7 @@ export default function FeedbackPage() {
         <p className="pill">Pilot request</p>
         <h1>Request access or share feedback</h1>
         <p>
-          Tell us about your school and what you need. We use this to prioritize testing and onboarding.
+          Tell us about your school and what you need. We use this to prioritize testing.
         </p>
       </section>
 

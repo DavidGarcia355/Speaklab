@@ -22,12 +22,12 @@ export async function GET(
     await enforceGradebookRateLimit(teacherEmail);
 
     const { classId } = await context.params;
-    const found = await findClassById(classId);
+    const found = await findClassById(classId, teacherEmail);
     if (!found) {
       return new Response("Class not found.", { status: 404 });
     }
 
-    const rows = await listGradebookRowsByClassId(classId);
+    const rows = await listGradebookRowsByClassId(classId, teacherEmail);
     const header = ["Student Name", "Student Email", "Assignment", "Grade", "Feedback", "Submitted At"];
     const csvLines = [header.join(",")];
 

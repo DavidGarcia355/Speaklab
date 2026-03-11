@@ -11,9 +11,9 @@ export async function PATCH(
   context: { params: Promise<{ submissionId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    await requireTeacherEmail();
+    const teacherEmail = await requireTeacherEmail();
     const { submissionId } = await context.params;
-    const existing = await findSubmissionById(submissionId);
+    const existing = await findSubmissionById(submissionId, teacherEmail);
     if (!existing) {
       return NextResponse.json({ error: "Submission not found." }, { status: 404 });
     }
@@ -26,7 +26,7 @@ export async function PATCH(
     const studentName = hasStudentName ? body.studentName! : existing.studentName;
     const grade = hasGrade ? body.grade ?? null : existing.grade;
     const feedback = hasFeedback ? body.feedback ?? "" : existing.feedback;
-    const updated = await updateSubmission(submissionId, { studentName, grade, feedback });
+    const updated = await updateSubmission(submissionId, teacherEmail, { studentName, grade, feedback });
     return NextResponse.json({ item: updated });
   });
 }
@@ -36,14 +36,14 @@ export async function DELETE(
   context: { params: Promise<{ submissionId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    await requireTeacherEmail();
+    const teacherEmail = await requireTeacherEmail();
     const { submissionId } = await context.params;
-    const existing = await findSubmissionById(submissionId);
+    const existing = await findSubmissionById(submissionId, teacherEmail);
     if (!existing) {
       return NextResponse.json({ error: "Submission not found." }, { status: 404 });
     }
 
-    const deleted = await deleteSubmission(submissionId);
+    const deleted = await deleteSubmission(submissionId, teacherEmail);
     if (!deleted) {
       return NextResponse.json({ error: "Unable to delete submission." }, { status: 400 });
     }

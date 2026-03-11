@@ -11,9 +11,9 @@ export async function GET(
   context: { params: Promise<{ assignmentId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    await requireTeacherEmail();
+    const teacherEmail = await requireTeacherEmail();
     const { assignmentId } = await context.params;
-    const found = await findAssignmentById(assignmentId);
+    const found = await findAssignmentById(assignmentId, teacherEmail);
     if (!found) {
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
     }
@@ -27,9 +27,9 @@ export async function PATCH(
   context: { params: Promise<{ assignmentId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    await requireTeacherEmail();
+    const teacherEmail = await requireTeacherEmail();
     const { assignmentId } = await context.params;
-    const found = await findAssignmentById(assignmentId);
+    const found = await findAssignmentById(assignmentId, teacherEmail);
     if (!found) {
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
     }
@@ -37,7 +37,7 @@ export async function PATCH(
     const body = parseOrThrow400(assignmentUpdateSchema, await request.json());
     const title = body.title ?? "";
     const instructions = body.instructions ?? "";
-    const updated = await updateAssignment(assignmentId, { title, instructions });
+    const updated = await updateAssignment(assignmentId, teacherEmail, { title, instructions });
     if (!updated) {
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
     }
@@ -50,14 +50,14 @@ export async function DELETE(
   context: { params: Promise<{ assignmentId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    await requireTeacherEmail();
+    const teacherEmail = await requireTeacherEmail();
     const { assignmentId } = await context.params;
-    const found = await findAssignmentById(assignmentId);
+    const found = await findAssignmentById(assignmentId, teacherEmail);
     if (!found) {
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
     }
 
-    const deleted = await deleteAssignmentCascade(assignmentId);
+    const deleted = await deleteAssignmentCascade(assignmentId, teacherEmail);
     if (!deleted) {
       return NextResponse.json({ error: "Unable to delete assignment." }, { status: 400 });
     }

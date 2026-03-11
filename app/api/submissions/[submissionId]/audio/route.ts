@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 function decodeLegacyDataUrl(dataUrl: string) {
   const match = dataUrl.match(/^data:([^;]+);base64,([a-z0-9+/=]+)$/i);
   if (!match) {
-    throw new HttpError(500, "Something went wrong — try refreshing the page.");
+    throw new HttpError(500, "Something went wrong - try refreshing the page.");
   }
   return {
     contentType: match[1],
@@ -20,11 +20,16 @@ export async function GET(
   context: { params: Promise<{ submissionId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    await requireAuthenticatedEmail();
+    const email = await requireAuthenticatedEmail();
     const { submissionId } = await context.params;
-    const found = await findSubmissionAccessById(submissionId);
+
+    let found = await findSubmissionAccessById(submissionId, email);
     if (!found) {
-      throw new HttpError(404, "Submission not found.");
+      const ownSubmission = await findSubmissionAccessById(submissionId);
+      if (!ownSubmission || ownSubmission.studentEmail.toLowerCase() !== email.toLowerCase()) {
+        throw new HttpError(403, "You don't have access to this page.");
+      }
+      found = ownSubmission;
     }
 
     if (!found.audioBlobUrl) {

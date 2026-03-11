@@ -8,6 +8,7 @@ const QUERY_TIMEOUT_MS = 5000;
 export type ClassRow = {
   id: string;
   name: string;
+  ownerEmail: string;
   createdAt: number;
 };
 
@@ -31,6 +32,7 @@ export type AssignmentSummaryRow = AssignmentRow & {
 
 export type AssignmentDetailRow = AssignmentRow & {
   className: string;
+  ownerEmail: string;
 };
 
 export type SubmissionRow = {
@@ -116,7 +118,11 @@ async function rawExecute(sql: string, args: InValue[] = []) {
   return db.execute({ sql, args });
 }
 
-async function ensureColumn(tableName: "classes" | "assignments" | "submissions", columnName: string, definition: string) {
+async function ensureColumn(
+  tableName: "classes" | "assignments" | "submissions",
+  columnName: string,
+  definition: string
+) {
   const pragma = await rawExecute(`PRAGMA table_info(${tableName})`);
   const columns = pragma.rows.map((row) => String((row as Row).name));
   if (!columns.includes(columnName)) {
@@ -132,6 +138,7 @@ async function ensureInitialized() {
         `CREATE TABLE IF NOT EXISTS classes (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
+          owner_email TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL,
           deleted_at INTEGER
         )`,
@@ -197,6 +204,7 @@ async function ensureInitialized() {
         await rawExecute(sql);
       }
       await ensureColumn("classes", "deleted_at", "INTEGER");
+      await ensureColumn("classes", "owner_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "deleted_at", "INTEGER");
       await ensureColumn("submissions", "student_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
@@ -233,10 +241,15 @@ function toProtectedAudioPath(id: string) {
 }
 
 export async function listClasses(): Promise<ClassSummaryRow[]> {
+  return listClassesByTeacher("");
+}
+
+export async function listClassesByTeacher(ownerEmail: string): Promise<ClassSummaryRow[]> {
   const result = await query(
     `SELECT
       c.id as id,
       c.name as name,
+      c.owner_email as ownerEmail,
       c.created_at as createdAt,
       COUNT(DISTINCT a.id) as assignmentCount,
       COUNT(s.id) as submissionCount
@@ -244,43 +257,49 @@ export async function listClasses(): Promise<ClassSummaryRow[]> {
     LEFT JOIN assignments a ON a.class_id = c.id AND a.deleted_at IS NULL
     LEFT JOIN submissions s ON s.assignment_id = a.id AND s.deleted_at IS NULL
     WHERE c.deleted_at IS NULL
+      AND (? = '' OR LOWER(c.owner_email) = LOWER(?))
     GROUP BY c.id
-    ORDER BY c.created_at DESC`
+    ORDER BY c.created_at DESC`,
+    [ownerEmail, ownerEmail]
   );
   return result.rows.map((row) => ({
     id: toStringValue(row.id),
     name: toStringValue(row.name),
+    ownerEmail: toStringValue(row.ownerEmail),
     createdAt: toNumber(row.createdAt),
     assignmentCount: toNumber(row.assignmentCount),
     submissionCount: toNumber(row.submissionCount),
   }));
 }
 
-export async function findClassById(classId: string): Promise<ClassRow | null> {
+export async function findClassById(classId: string, ownerEmail?: string): Promise<ClassRow | null> {
   const result = await query(
-    `SELECT id, name, created_at as createdAt
+    `SELECT id, name, owner_email as ownerEmail, created_at as createdAt
     FROM classes
     WHERE id = ?
       AND deleted_at IS NULL
+      AND (? IS NULL OR LOWER(owner_email) = LOWER(?))
     LIMIT 1`,
-    [classId]
+    [classId, ownerEmail ?? null, ownerEmail ?? null]
   );
   const row = result.rows[0];
   if (!row) return null;
   return {
     id: toStringValue(row.id),
     name: toStringValue(row.name),
+    ownerEmail: toStringValue(row.ownerEmail),
     createdAt: toNumber(row.createdAt),
   };
 }
 
-export async function createClass(name: string): Promise<ClassRow> {
+export async function createClass(name: string, ownerEmail: string): Promise<ClassRow> {
   const duplicate = await query(
     `SELECT id FROM classes
     WHERE LOWER(name) = LOWER(?)
+      AND LOWER(owner_email) = LOWER(?)
       AND deleted_at IS NULL
     LIMIT 1`,
-    [name]
+    [name, ownerEmail]
   );
   if (duplicate.rows.length > 0) {
     throw new Error("Class name already exists.");
@@ -289,24 +308,30 @@ export async function createClass(name: string): Promise<ClassRow> {
   const item: ClassRow = {
     id: makeId("class"),
     name,
+    ownerEmail: ownerEmail.toLowerCase(),
     createdAt: Date.now(),
   };
   await query(
-    `INSERT INTO classes (id, name, created_at, deleted_at)
-    VALUES (?, ?, ?, NULL)`,
-    [item.id, item.name, item.createdAt]
+    `INSERT INTO classes (id, name, owner_email, created_at, deleted_at)
+    VALUES (?, ?, ?, ?, NULL)`,
+    [item.id, item.name, item.ownerEmail, item.createdAt]
   );
   return item;
 }
 
-export async function updateClassName(classId: string, name: string): Promise<ClassRow | null> {
+export async function updateClassName(
+  classId: string,
+  name: string,
+  ownerEmail: string
+): Promise<ClassRow | null> {
   const duplicate = await query(
     `SELECT id FROM classes
     WHERE LOWER(name) = LOWER(?)
+      AND LOWER(owner_email) = LOWER(?)
       AND id <> ?
       AND deleted_at IS NULL
     LIMIT 1`,
-    [name, classId]
+    [name, ownerEmail, classId]
   );
   if (duplicate.rows.length > 0) {
     throw new Error("Class name already exists.");
@@ -316,14 +341,15 @@ export async function updateClassName(classId: string, name: string): Promise<Cl
     `UPDATE classes
     SET name = ?
     WHERE id = ?
+      AND LOWER(owner_email) = LOWER(?)
       AND deleted_at IS NULL`,
-    [name, classId]
+    [name, classId, ownerEmail]
   );
   if (toNumber(result.rowsAffected) === 0) return null;
-  return findClassById(classId);
+  return findClassById(classId, ownerEmail);
 }
 
-export async function deleteClassCascade(classId: string): Promise<boolean> {
+export async function deleteClassCascade(classId: string, ownerEmail: string): Promise<boolean> {
   const deletedAt = Date.now();
   await query(
     `UPDATE submissions
@@ -333,28 +359,33 @@ export async function deleteClassCascade(classId: string): Promise<boolean> {
       FROM assignments a
       JOIN classes c ON c.id = a.class_id
       WHERE c.id = ?
+        AND LOWER(c.owner_email) = LOWER(?)
     )
       AND deleted_at IS NULL`,
-    [deletedAt, classId]
+    [deletedAt, classId, ownerEmail]
   );
   await query(
     `UPDATE assignments
     SET deleted_at = ?
     WHERE class_id = ?
+      AND class_id IN (
+        SELECT id FROM classes WHERE id = ? AND LOWER(owner_email) = LOWER(?)
+      )
       AND deleted_at IS NULL`,
-    [deletedAt, classId]
+    [deletedAt, classId, classId, ownerEmail]
   );
   const result = await query(
     `UPDATE classes
     SET deleted_at = ?
     WHERE id = ?
+      AND LOWER(owner_email) = LOWER(?)
       AND deleted_at IS NULL`,
-    [deletedAt, classId]
+    [deletedAt, classId, ownerEmail]
   );
   return toNumber(result.rowsAffected) > 0;
 }
 
-export async function listAssignmentsByClassId(classId: string): Promise<AssignmentSummaryRow[]> {
+export async function listAssignmentsByClassId(classId: string, ownerEmail?: string): Promise<AssignmentSummaryRow[]> {
   const result = await query(
     `SELECT
       a.id as id,
@@ -370,9 +401,10 @@ export async function listAssignmentsByClassId(classId: string): Promise<Assignm
     WHERE a.class_id = ?
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
+      AND (? IS NULL OR LOWER(c.owner_email) = LOWER(?))
     GROUP BY a.id
     ORDER BY a.created_at DESC`,
-    [classId]
+    [classId, ownerEmail ?? null, ownerEmail ?? null]
   );
   return result.rows.map((row) => ({
     id: toStringValue(row.id),
@@ -387,6 +419,7 @@ export async function listAssignmentsByClassId(classId: string): Promise<Assignm
 
 export async function createAssignment(input: {
   classId: string;
+  ownerEmail: string;
   title: string;
   description: string;
   instructions: string;
@@ -401,18 +434,25 @@ export async function createAssignment(input: {
   };
   await query(
     `INSERT INTO assignments (id, class_id, title, description, instructions, created_at, deleted_at)
-    VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-    [item.id, item.classId, item.title, item.description, item.instructions, item.createdAt]
+    SELECT ?, ?, ?, ?, ?, ?, NULL
+    WHERE EXISTS (
+      SELECT 1 FROM classes c
+      WHERE c.id = ?
+        AND c.deleted_at IS NULL
+        AND LOWER(c.owner_email) = LOWER(?)
+    )`,
+    [item.id, item.classId, item.title, item.description, item.instructions, item.createdAt, input.classId, input.ownerEmail]
   );
   return item;
 }
 
-export async function findAssignmentById(assignmentId: string): Promise<AssignmentDetailRow | null> {
+export async function findAssignmentById(assignmentId: string, ownerEmail?: string): Promise<AssignmentDetailRow | null> {
   const result = await query(
     `SELECT
       a.id as id,
       a.class_id as classId,
       c.name as className,
+      c.owner_email as ownerEmail,
       a.title as title,
       a.description as description,
       a.instructions as instructions,
@@ -422,8 +462,9 @@ export async function findAssignmentById(assignmentId: string): Promise<Assignme
     WHERE a.id = ?
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
+      AND (? IS NULL OR LOWER(c.owner_email) = LOWER(?))
     LIMIT 1`,
-    [assignmentId]
+    [assignmentId, ownerEmail ?? null, ownerEmail ?? null]
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -431,6 +472,7 @@ export async function findAssignmentById(assignmentId: string): Promise<Assignme
     id: toStringValue(row.id),
     classId: toStringValue(row.classId),
     className: toStringValue(row.className),
+    ownerEmail: toStringValue(row.ownerEmail),
     title: toStringValue(row.title),
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
@@ -440,34 +482,59 @@ export async function findAssignmentById(assignmentId: string): Promise<Assignme
 
 export async function updateAssignment(
   assignmentId: string,
+  ownerEmail: string,
   input: { title: string; instructions: string }
 ): Promise<AssignmentDetailRow | null> {
   const result = await query(
     `UPDATE assignments
     SET title = ?, instructions = ?
     WHERE id = ?
-      AND deleted_at IS NULL`,
-    [input.title, input.instructions, assignmentId]
+      AND deleted_at IS NULL
+      AND id IN (
+        SELECT a.id
+        FROM assignments a
+        JOIN classes c ON c.id = a.class_id
+        WHERE a.id = ?
+          AND c.deleted_at IS NULL
+          AND LOWER(c.owner_email) = LOWER(?)
+      )`,
+    [input.title, input.instructions, assignmentId, assignmentId, ownerEmail]
   );
   if (toNumber(result.rowsAffected) === 0) return null;
-  return findAssignmentById(assignmentId);
+  return findAssignmentById(assignmentId, ownerEmail);
 }
 
-export async function deleteAssignmentCascade(assignmentId: string): Promise<boolean> {
+export async function deleteAssignmentCascade(assignmentId: string, ownerEmail: string): Promise<boolean> {
   const deletedAt = Date.now();
   await query(
     `UPDATE submissions
     SET deleted_at = ?
     WHERE assignment_id = ?
+      AND assignment_id IN (
+        SELECT a.id
+        FROM assignments a
+        JOIN classes c ON c.id = a.class_id
+        WHERE a.id = ?
+          AND c.deleted_at IS NULL
+          AND LOWER(c.owner_email) = LOWER(?)
+      )
       AND deleted_at IS NULL`,
-    [deletedAt, assignmentId]
+    [deletedAt, assignmentId, assignmentId, ownerEmail]
   );
   const result = await query(
     `UPDATE assignments
     SET deleted_at = ?
     WHERE id = ?
+      AND id IN (
+        SELECT a.id
+        FROM assignments a
+        JOIN classes c ON c.id = a.class_id
+        WHERE a.id = ?
+          AND c.deleted_at IS NULL
+          AND LOWER(c.owner_email) = LOWER(?)
+      )
       AND deleted_at IS NULL`,
-    [deletedAt, assignmentId]
+    [deletedAt, assignmentId, assignmentId, ownerEmail]
   );
   return toNumber(result.rowsAffected) > 0;
 }
@@ -517,7 +584,7 @@ export async function createSubmission(input: {
   return item;
 }
 
-export async function listSubmissionsByClassId(classId: string): Promise<SubmissionRow[]> {
+export async function listSubmissionsByClassId(classId: string, ownerEmail?: string): Promise<SubmissionRow[]> {
   const result = await query(
     `SELECT
       s.id as id,
@@ -535,8 +602,9 @@ export async function listSubmissionsByClassId(classId: string): Promise<Submiss
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
+      AND (? IS NULL OR LOWER(c.owner_email) = LOWER(?))
     ORDER BY s.submitted_at DESC`,
-    [classId]
+    [classId, ownerEmail ?? null, ownerEmail ?? null]
   );
   return result.rows.map((row) => ({
     id: toStringValue(row.id),
@@ -551,7 +619,7 @@ export async function listSubmissionsByClassId(classId: string): Promise<Submiss
   }));
 }
 
-export async function findSubmissionById(submissionId: string): Promise<SubmissionRow | null> {
+export async function findSubmissionById(submissionId: string, ownerEmail?: string): Promise<SubmissionRow | null> {
   const result = await query(
     `SELECT
       s.id as id,
@@ -569,8 +637,9 @@ export async function findSubmissionById(submissionId: string): Promise<Submissi
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
+      AND (? IS NULL OR LOWER(c.owner_email) = LOWER(?))
     LIMIT 1`,
-    [submissionId]
+    [submissionId, ownerEmail ?? null, ownerEmail ?? null]
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -587,7 +656,10 @@ export async function findSubmissionById(submissionId: string): Promise<Submissi
   };
 }
 
-export async function findSubmissionAccessById(submissionId: string): Promise<SubmissionAccessRow | null> {
+export async function findSubmissionAccessById(
+  submissionId: string,
+  ownerEmail?: string
+): Promise<SubmissionAccessRow | null> {
   const result = await query(
     `SELECT
       s.id as id,
@@ -600,8 +672,9 @@ export async function findSubmissionAccessById(submissionId: string): Promise<Su
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
+      AND (? IS NULL OR LOWER(c.owner_email) = LOWER(?))
     LIMIT 1`,
-    [submissionId]
+    [submissionId, ownerEmail ?? null, ownerEmail ?? null]
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -614,30 +687,49 @@ export async function findSubmissionAccessById(submissionId: string): Promise<Su
 
 export async function updateSubmission(
   submissionId: string,
+  ownerEmail: string,
   input: { studentName: string; grade: number | null; feedback: string }
 ) {
   await query(
     `UPDATE submissions
     SET student_name = ?, grade = ?, feedback = ?
     WHERE id = ?
+      AND id IN (
+        SELECT s.id
+        FROM submissions s
+        JOIN assignments a ON a.id = s.assignment_id
+        JOIN classes c ON c.id = a.class_id
+        WHERE s.id = ?
+          AND c.deleted_at IS NULL
+          AND LOWER(c.owner_email) = LOWER(?)
+      )
       AND deleted_at IS NULL`,
-    [input.studentName, input.grade, input.feedback, submissionId]
+    [input.studentName, input.grade, input.feedback, submissionId, submissionId, ownerEmail]
   );
-  return findSubmissionById(submissionId);
+  return findSubmissionById(submissionId, ownerEmail);
 }
 
-export async function deleteSubmission(submissionId: string): Promise<boolean> {
+export async function deleteSubmission(submissionId: string, ownerEmail: string): Promise<boolean> {
   const result = await query(
     `UPDATE submissions
     SET deleted_at = ?
     WHERE id = ?
+      AND id IN (
+        SELECT s.id
+        FROM submissions s
+        JOIN assignments a ON a.id = s.assignment_id
+        JOIN classes c ON c.id = a.class_id
+        WHERE s.id = ?
+          AND c.deleted_at IS NULL
+          AND LOWER(c.owner_email) = LOWER(?)
+      )
       AND deleted_at IS NULL`,
-    [Date.now(), submissionId]
+    [Date.now(), submissionId, submissionId, ownerEmail]
   );
   return toNumber(result.rowsAffected) > 0;
 }
 
-export async function listGradebookRowsByClassId(classId: string): Promise<GradebookRow[]> {
+export async function listGradebookRowsByClassId(classId: string, ownerEmail?: string): Promise<GradebookRow[]> {
   const result = await query(
     `SELECT
       s.student_name as studentName,
@@ -653,8 +745,9 @@ export async function listGradebookRowsByClassId(classId: string): Promise<Grade
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
+      AND (? IS NULL OR LOWER(c.owner_email) = LOWER(?))
     ORDER BY LOWER(s.student_name), a.created_at DESC, s.submitted_at DESC`,
-    [classId]
+    [classId, ownerEmail ?? null, ownerEmail ?? null]
   );
   return result.rows.map((row) => ({
     studentName: toStringValue(row.studentName),
