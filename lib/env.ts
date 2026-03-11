@@ -4,7 +4,6 @@ type EnvConfig = {
   authGoogleId: string;
   authGoogleSecret: string;
   authSecret: string;
-  schoolGoogleDomain: string;
   teacherEmails: Set<string>;
   tursoDatabaseUrl: string;
   tursoAuthToken: string;
@@ -29,7 +28,6 @@ export function getEnv() {
     "AUTH_GOOGLE_ID",
     "AUTH_GOOGLE_SECRET",
     "AUTH_SECRET",
-    "SCHOOL_GOOGLE_DOMAIN",
     "TEACHER_EMAILS",
     "UPSTASH_REDIS_REST_URL",
     "UPSTASH_REDIS_REST_TOKEN",
@@ -52,11 +50,6 @@ export function getEnv() {
     }
   } else if (!isDev) {
     throw new Error("TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are required in production.");
-  }
-
-  const schoolGoogleDomain = process.env.SCHOOL_GOOGLE_DOMAIN!.trim().toLowerCase().replace(/^@/, "");
-  if (!schoolGoogleDomain || schoolGoogleDomain.includes(" ")) {
-    throw new Error("SCHOOL_GOOGLE_DOMAIN must be a valid domain like myschool.org");
   }
 
   const teacherEmails = new Set(
@@ -83,7 +76,6 @@ export function getEnv() {
     authGoogleId: process.env.AUTH_GOOGLE_ID!.trim(),
     authGoogleSecret: process.env.AUTH_GOOGLE_SECRET!.trim(),
     authSecret: process.env.AUTH_SECRET!.trim(),
-    schoolGoogleDomain,
     teacherEmails,
     tursoDatabaseUrl,
     tursoAuthToken,

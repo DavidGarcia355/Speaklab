@@ -10,7 +10,7 @@ const FAQ_ITEMS = [
   {
     question: "How do students submit recordings?",
     answer:
-      "Students open one assignment link, sign in with their school Google account, record audio, and submit.",
+      "Students open one assignment link, sign in with Google, record audio, and submit.",
   },
   {
     question: "Can teachers control grading?",

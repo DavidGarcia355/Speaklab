@@ -8,12 +8,6 @@ function isLocalAuthBypassEnabled() {
   return process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH !== "false";
 }
 
-export function isAllowedSchoolEmail(email: string) {
-  const normalized = email.trim().toLowerCase();
-  const { schoolGoogleDomain } = getEnv();
-  return normalized.endsWith(`@${schoolGoogleDomain}`);
-}
-
 export function isTeacherEmail(email: string) {
   if (isLocalAuthBypassEnabled()) {
     return true;
@@ -37,11 +31,7 @@ export async function requireSchoolStudentEmail() {
   if (isLocalAuthBypassEnabled()) {
     return "dev-student@gmail.com";
   }
-  const email = await requireAuthenticatedEmail();
-  if (!isAllowedSchoolEmail(email)) {
-    throw new HttpError(403, "School Google account is required.");
-  }
-  return email;
+  return requireAuthenticatedEmail();
 }
 
 export async function requireTeacherEmail() {

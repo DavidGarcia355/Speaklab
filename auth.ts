@@ -1,11 +1,5 @@
 import type { NextAuthOptions } from "next-auth";
 import Google from "next-auth/providers/google";
-import { getEnv } from "@/lib/env";
-
-export function isAllowedSchoolEmail(email: string) {
-  const normalized = email.trim().toLowerCase();
-  return normalized.endsWith(`@${getEnv().schoolGoogleDomain}`);
-}
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.AUTH_SECRET,
@@ -22,7 +16,7 @@ export const authOptions: NextAuthOptions = {
       const emailVerified = (profile as { email_verified?: boolean } | null)?.email_verified;
       if (!email) return false;
       if (emailVerified === false) return false;
-      return isAllowedSchoolEmail(email);
+      return true;
     },
     async session({ session }) {
       if (session.user?.email) {

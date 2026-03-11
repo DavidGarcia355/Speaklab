@@ -313,7 +313,7 @@ export default function StudentAssignmentPage() {
   async function submitResponse() {
     if (!assignment) return;
     if (!studentEmail && !localAuthBypass) {
-      setErrorMsg("Please sign in with your school Google account before submitting.");
+      setErrorMsg("Please sign in with Google before submitting.");
       return;
     }
 
@@ -426,7 +426,7 @@ export default function StudentAssignmentPage() {
               </p>
             ) : (
               <p className="notice warning">
-                Sign in with your school Google account to submit:
+                Sign in with Google to submit:
                 {" "}
                 <a href={`/api/auth/signin/google?callbackUrl=${encodeURIComponent(callbackUrl)}`}>
                   Continue with Google

@@ -95,7 +95,6 @@ Set all values below in Vercel project settings (or `.env.local` for local testi
 AUTH_GOOGLE_ID=...
 AUTH_GOOGLE_SECRET=...
 AUTH_SECRET=...
-SCHOOL_GOOGLE_DOMAIN=myschool.org
 TEACHER_EMAILS=teacher1@myschool.org,teacher2@myschool.org
 TURSO_DATABASE_URL=...
 TURSO_AUTH_TOKEN=...
@@ -107,7 +106,6 @@ NEXTAUTH_URL=https://your-app.vercel.app
 ```
 
 Notes:
-- `SCHOOL_GOOGLE_DOMAIN` must be a domain only (`myschool.org`), not `@myschool.org`.
 - `TEACHER_EMAILS` is comma-separated; spaces are optional.
 - If required vars are missing, APIs fail closed and return server configuration errors.
 - If you see `Server misconfiguration` in the deployed app, at least one required env is missing in Vercel.
@@ -171,7 +169,7 @@ Run after every production deploy:
 3. `/feedback` submits a valid form and returns success message.
 4. Teacher sign-in works on `/teacher` with allowlisted email.
 5. Non-allowlisted email gets `403` on teacher APIs.
-6. Student assignment link blocks non-school Google accounts.
+6. Student assignment link requires Google sign-in before submission.
 7. Student can record, submit, and teacher can play back audio.
 8. Grade save + CSV export still work.
 9. `GET /api/health` returns `200` and `status: ok`.
