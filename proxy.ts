@@ -28,7 +28,7 @@ function jsonError(status: number, error: string) {
   return NextResponse.json({ error }, { status });
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true") {
     return NextResponse.next();

@@ -68,6 +68,19 @@ export const submissionPatchSchema = z
     path: ["_form"],
   });
 
+export const feedbackCreateSchema = z.object({
+  name: cleanTextSchema("Name", 1, 80),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email("Email must be valid.")
+    .max(254, "Email must be 254 characters or fewer."),
+  school: cleanTextSchema("School", 1, 120),
+  role: cleanTextSchema("Role", 1, 80),
+  message: cleanTextSchema("Message", 10, 1000),
+});
+
 export type ParsedAudio = {
   mimeType: "audio/webm" | "audio/ogg" | "audio/mp4" | "audio/wav";
   buffer: Buffer;

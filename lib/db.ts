@@ -54,6 +54,16 @@ export type GradebookRow = {
   submittedAt: number;
 };
 
+export type FeedbackRow = {
+  id: string;
+  name: string;
+  email: string;
+  school: string;
+  role: string;
+  message: string;
+  createdAt: number;
+};
+
 type SubmissionAccessRow = {
   id: string;
   studentEmail: string;
@@ -146,12 +156,22 @@ async function ensureInitialized() {
           deleted_at INTEGER,
           FOREIGN KEY(assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
         )`,
+        `CREATE TABLE IF NOT EXISTS feedback_messages (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          email TEXT NOT NULL,
+          school TEXT NOT NULL,
+          role TEXT NOT NULL,
+          message TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        )`,
         "CREATE INDEX IF NOT EXISTS idx_assignments_class_id ON assignments(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_deleted_at ON assignments(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON submissions(assignment_id)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_student_name ON submissions(student_name)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_student_email ON submissions(student_email)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_deleted_at ON submissions(deleted_at)",
+        "CREATE INDEX IF NOT EXISTS idx_feedback_messages_created_at ON feedback_messages(created_at)",
         `CREATE TRIGGER IF NOT EXISTS trg_classes_delete_assignments
           AFTER DELETE ON classes
           FOR EACH ROW
@@ -658,3 +678,26 @@ export async function hardDeleteSoftDeletedBefore(cutoffTimestamp: number) {
   };
 }
 
+export async function createFeedbackMessage(input: {
+  name: string;
+  email: string;
+  school: string;
+  role: string;
+  message: string;
+}): Promise<FeedbackRow> {
+  const item: FeedbackRow = {
+    id: makeId("fb"),
+    name: input.name,
+    email: input.email,
+    school: input.school,
+    role: input.role,
+    message: input.message,
+    createdAt: Date.now(),
+  };
+  await query(
+    `INSERT INTO feedback_messages (id, name, email, school, role, message, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [item.id, item.name, item.email, item.school, item.role, item.message, item.createdAt]
+  );
+  return item;
+}

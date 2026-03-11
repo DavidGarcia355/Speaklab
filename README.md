@@ -5,6 +5,7 @@ Habla is a Next.js app for language teachers to run speaking assignments:
 - publish student recording links
 - review submissions with inline grades and feedback
 - export CSV gradebooks for PowerSchool import
+- collect pilot feedback from public school teachers
 
 ## Requirements
 
@@ -77,6 +78,12 @@ Expected response:
 ```json
 { "status": "ok", "timestamp": "..." }
 ```
+
+## Public Pages
+
+- `/` Home
+- `/faq` Teacher FAQ
+- `/feedback` Pilot request and feedback form (writes to `feedback_messages` table)
 
 ## Production Checklist
 
@@ -154,3 +161,30 @@ If `AUTH_SECRET` is compromised:
 2. Update `AUTH_SECRET` in Vercel.
 3. Redeploy.
 4. Expect existing sessions to be invalidated; users must sign in again.
+
+## Launch Smoke Test
+
+Run after every production deploy:
+
+1. Home page loads at `https://tryhabla.com`.
+2. `/faq` renders and links to `/feedback`.
+3. `/feedback` submits a valid form and returns success message.
+4. Teacher sign-in works on `/teacher` with allowlisted email.
+5. Non-allowlisted email gets `403` on teacher APIs.
+6. Student assignment link blocks non-school Google accounts.
+7. Student can record, submit, and teacher can play back audio.
+8. Grade save + CSV export still work.
+9. `GET /api/health` returns `200` and `status: ok`.
+
+## Contact Links
+
+Public contact buttons are in `app/constants.ts`:
+
+```ts
+export const CONTACT_LINKS = {
+  linkedin: "...",
+  email: "...",
+  github: "...",
+  phone: "...",
+};
+```

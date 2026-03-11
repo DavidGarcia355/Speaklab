@@ -20,6 +20,12 @@ export default function Home() {
             <Link className="btn btn-primary" href="/teacher">
               Open Teacher Studio
             </Link>
+            <Link className="btn btn-ghost" href="/faq">
+              FAQ
+            </Link>
+            <Link className="btn btn-ghost" href="/feedback">
+              Send feedback
+            </Link>
             <Link className="text-link" href="/teacher/class/new">
               Create first class
             </Link>
@@ -87,6 +93,12 @@ export default function Home() {
           <h2 className="title-row">Request Pilot Access</h2>
           <p className="meta">Trying {APP_NAME} with your class? Contact us and we&apos;ll help you get set up.</p>
           <div className="actions">
+            <Link className="btn btn-primary" href="/feedback">
+              Feedback form
+            </Link>
+            <Link className="btn btn-ghost" href="/faq">
+              FAQ page
+            </Link>
             <a className="btn btn-ghost" href={CONTACT_LINKS.linkedin} target="_blank" rel="noreferrer">
               LinkedIn
             </a>
