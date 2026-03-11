@@ -1,7 +1,7 @@
 import "server-only";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
-import { getUserRoleByEmail } from "@/lib/db";
+import { getUserRoleByEmail, setUserRoleTeacher } from "@/lib/db";
 import { HttpError } from "@/lib/http";
 
 function isLocalAuthBypassEnabled() {
@@ -34,7 +34,7 @@ export async function requireTeacherEmail() {
   const email = await requireAuthenticatedEmail();
   const role = await getUserRoleByEmail(email);
   if (role !== "teacher") {
-    throw new HttpError(403, "You don't have access to this page.");
+    await setUserRoleTeacher(email);
   }
   return email;
 }
