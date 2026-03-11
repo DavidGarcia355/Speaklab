@@ -10,20 +10,24 @@ function isSignInAttempt(request: Request) {
   return /^\/api\/auth\/signin\/[^/]+$/.test(pathname);
 }
 
-export async function GET(request: Request) {
+type AuthContext = {
+  params: Promise<{ nextauth: string[] }> | { nextauth: string[] };
+};
+
+export async function GET(request: Request, context: AuthContext) {
   return withApiHandler(request, async () => {
     if (isSignInAttempt(request)) {
       await enforceAuthRateLimit(getClientIp(request));
     }
-    return handler(request);
+    return handler(request, context);
   });
 }
 
-export async function POST(request: Request) {
+export async function POST(request: Request, context: AuthContext) {
   return withApiHandler(request, async () => {
     if (isSignInAttempt(request)) {
       await enforceAuthRateLimit(getClientIp(request));
     }
-    return handler(request);
+    return handler(request, context);
   });
 }
