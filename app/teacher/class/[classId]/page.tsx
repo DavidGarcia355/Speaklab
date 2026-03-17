@@ -408,7 +408,6 @@ export default function ClassDetailPage() {
           : row
       )
     );
-    setAssignmentEditOpen(false);
 
     try {
       const response = await fetch(`/api/assignments/${activeAssignment.id}`, {
@@ -416,11 +415,8 @@ export default function ClassDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, instructions, maxPoints: parsedMaxPoints, attachment: attachmentPayload }),
       });
-      if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
-        throw new Error(data.error || "Unable to update assignment.");
-      }
       const data = (await response.json()) as {
+        error?: string;
         item?: {
           id: string;
           title: string;
@@ -431,6 +427,9 @@ export default function ClassDetailPage() {
           attachmentContentType: string;
         } | null;
       };
+      if (!response.ok) {
+        throw new Error(data.error || "Unable to update assignment.");
+      }
       if (data.item) {
         updatePayloadAssignments((items) =>
           items.map((row) =>
@@ -448,6 +447,7 @@ export default function ClassDetailPage() {
           )
         );
       }
+      setAssignmentEditOpen(false);
     } catch (error) {
       updatePayloadAssignments((items) => items.map((row) => (row.id === activeAssignment.id ? { ...row, ...rollback } : row)));
       setAssignmentError(error instanceof Error ? error.message : "Unable to update assignment.");
