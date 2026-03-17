@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireTeacherEmail } from "@/lib/authz";
+import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
 import { createAssignment, findClassById } from "@/lib/db";
 import { withApiHandler } from "@/lib/http";
-import { assignmentCreateSchema, parseOrThrow400 } from "@/lib/validation";
+import { assignmentCreateSchema, parseAttachmentDataUrl, parseOrThrow400 } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -22,6 +23,21 @@ export async function POST(
     const title = body.title ?? "";
     const description = body.description ?? "";
     const instructions = body.instructions ?? "";
+    let attachmentName = "";
+    let attachmentUrl = "";
+    let attachmentContentType = "";
+
+    if (body.attachment) {
+      const parsedAttachment = parseAttachmentDataUrl(body.attachment.dataUrl);
+      attachmentName = body.attachment.fileName ?? "";
+      attachmentContentType = parsedAttachment.mimeType;
+      attachmentUrl = await uploadAssignmentAttachment({
+        assignmentId: `asg_${crypto.randomUUID()}`,
+        fileName: body.attachment.fileName ?? "attachment",
+        mimeType: parsedAttachment.mimeType,
+        buffer: parsedAttachment.buffer,
+      });
+    }
 
     const created = await createAssignment({
       classId,
@@ -29,6 +45,9 @@ export async function POST(
       title,
       description,
       instructions,
+      attachmentName,
+      attachmentUrl,
+      attachmentContentType,
     });
     return NextResponse.json({ item: created }, { status: 201 });
   });

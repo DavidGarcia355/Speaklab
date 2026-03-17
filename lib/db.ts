@@ -23,6 +23,9 @@ export type AssignmentRow = {
   title: string;
   description: string;
   instructions: string;
+  attachmentName: string;
+  attachmentUrl: string;
+  attachmentContentType: string;
   createdAt: number;
 };
 
@@ -219,6 +222,9 @@ async function ensureInitialized() {
       await ensureColumn("classes", "deleted_at", "INTEGER");
       await ensureColumn("classes", "owner_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "deleted_at", "INTEGER");
+      await ensureColumn("assignments", "attachment_name", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn("assignments", "attachment_url", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn("assignments", "attachment_content_type", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "student_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
@@ -406,6 +412,9 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
       a.title as title,
       a.description as description,
       a.instructions as instructions,
+      COALESCE(a.attachment_name, '') as attachmentName,
+      COALESCE(a.attachment_url, '') as attachmentUrl,
+      COALESCE(a.attachment_content_type, '') as attachmentContentType,
       a.created_at as createdAt,
       COUNT(s.id) as submissionCount
     FROM assignments a
@@ -425,6 +434,9 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
     title: toStringValue(row.title),
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
+    attachmentName: toStringValue(row.attachmentName),
+    attachmentUrl: toStringValue(row.attachmentUrl),
+    attachmentContentType: toStringValue(row.attachmentContentType),
     createdAt: toNumber(row.createdAt),
     submissionCount: toNumber(row.submissionCount),
   }));
@@ -436,6 +448,9 @@ export async function createAssignment(input: {
   title: string;
   description: string;
   instructions: string;
+  attachmentName: string;
+  attachmentUrl: string;
+  attachmentContentType: string;
 }): Promise<AssignmentRow> {
   const item: AssignmentRow = {
     id: makeId("asg"),
@@ -443,18 +458,35 @@ export async function createAssignment(input: {
     title: input.title,
     description: input.description,
     instructions: input.instructions,
+    attachmentName: input.attachmentName,
+    attachmentUrl: input.attachmentUrl,
+    attachmentContentType: input.attachmentContentType,
     createdAt: Date.now(),
   };
   await query(
-    `INSERT INTO assignments (id, class_id, title, description, instructions, created_at, deleted_at)
-    SELECT ?, ?, ?, ?, ?, ?, NULL
+    `INSERT INTO assignments (
+      id, class_id, title, description, instructions, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at
+    )
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
     WHERE EXISTS (
       SELECT 1 FROM classes c
       WHERE c.id = ?
         AND c.deleted_at IS NULL
         AND LOWER(c.owner_email) = LOWER(?)
     )`,
-    [item.id, item.classId, item.title, item.description, item.instructions, item.createdAt, input.classId, input.ownerEmail]
+    [
+      item.id,
+      item.classId,
+      item.title,
+      item.description,
+      item.instructions,
+      item.attachmentName,
+      item.attachmentUrl,
+      item.attachmentContentType,
+      item.createdAt,
+      input.classId,
+      input.ownerEmail,
+    ]
   );
   return item;
 }
@@ -469,6 +501,9 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
       a.title as title,
       a.description as description,
       a.instructions as instructions,
+      COALESCE(a.attachment_name, '') as attachmentName,
+      COALESCE(a.attachment_url, '') as attachmentUrl,
+      COALESCE(a.attachment_content_type, '') as attachmentContentType,
       a.created_at as createdAt
     FROM assignments a
     JOIN classes c ON c.id = a.class_id
@@ -489,6 +524,9 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
     title: toStringValue(row.title),
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
+    attachmentName: toStringValue(row.attachmentName),
+    attachmentUrl: toStringValue(row.attachmentUrl),
+    attachmentContentType: toStringValue(row.attachmentContentType),
     createdAt: toNumber(row.createdAt),
   };
 }
@@ -496,11 +534,17 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
 export async function updateAssignment(
   assignmentId: string,
   ownerEmail: string,
-  input: { title: string; instructions: string }
+  input: {
+    title: string;
+    instructions: string;
+    attachmentName: string;
+    attachmentUrl: string;
+    attachmentContentType: string;
+  }
 ): Promise<AssignmentDetailRow | null> {
   const result = await query(
     `UPDATE assignments
-    SET title = ?, instructions = ?
+    SET title = ?, instructions = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
     WHERE id = ?
       AND deleted_at IS NULL
       AND id IN (
@@ -511,7 +555,16 @@ export async function updateAssignment(
           AND c.deleted_at IS NULL
           AND LOWER(c.owner_email) = LOWER(?)
       )`,
-    [input.title, input.instructions, assignmentId, assignmentId, ownerEmail]
+    [
+      input.title,
+      input.instructions,
+      input.attachmentName,
+      input.attachmentUrl,
+      input.attachmentContentType,
+      assignmentId,
+      assignmentId,
+      ownerEmail,
+    ]
   );
   if (toNumber(result.rowsAffected) === 0) return null;
   return findAssignmentById(assignmentId, ownerEmail);

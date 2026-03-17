@@ -14,6 +14,20 @@ type ClassLookup = {
   };
 };
 
+type AttachmentDraft = {
+  fileName: string;
+  dataUrl: string;
+};
+
+async function fileToDataUrl(file: File) {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Unable to read attachment."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function NewAssignmentPage() {
   const params = useParams<{ classId?: string }>();
   const classId = params?.classId;
@@ -24,6 +38,7 @@ export default function NewAssignmentPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [attachment, setAttachment] = useState<AttachmentDraft | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [hintMsg, setHintMsg] = useState("");
   const [saving, setSaving] = useState(false);
@@ -57,6 +72,33 @@ export default function NewAssignmentPage() {
     load();
   }, [classId]);
 
+  async function handleAttachmentChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      setAttachment(null);
+      return;
+    }
+    if (!["application/pdf", "image/png", "image/jpeg"].includes(file.type)) {
+      setErrorMsg("Attachment must be a PDF, PNG, or JPG file.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setErrorMsg("Attachment is too large. Maximum size is 10MB.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setAttachment({ fileName: file.name, dataUrl });
+      setErrorMsg("");
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "Unable to read attachment.");
+      event.target.value = "";
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!classId) return;
@@ -81,6 +123,7 @@ export default function NewAssignmentPage() {
           title: cleanTitle,
           description,
           instructions,
+          attachment,
         }),
       });
       if (!response.ok) {
@@ -175,6 +218,30 @@ export default function NewAssignmentPage() {
             maxLength={500}
           />
           <p className="meta field-meta">{instructions.length}/500</p>
+
+          <label className="label form-label-top" htmlFor="assignment-attachment">
+            Attachment (optional)
+          </label>
+          <input
+            id="assignment-attachment"
+            className="input"
+            type="file"
+            accept="application/pdf,image/png,image/jpeg"
+            onChange={(event) => void handleAttachmentChange(event)}
+          />
+          <p className="meta field-meta">Add a PDF or image students can open alongside the prompt.</p>
+          {attachment ? (
+            <div className="notice info assignment-attachment-notice">
+              Attached: <strong>{attachment.fileName}</strong>
+              <button
+                className="text-link"
+                type="button"
+                onClick={() => setAttachment(null)}
+              >
+                Remove
+              </button>
+            </div>
+          ) : null}
 
           <div className="actions form-actions">
             <button

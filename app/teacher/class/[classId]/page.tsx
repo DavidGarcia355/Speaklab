@@ -16,6 +16,9 @@ type AssignmentSummary = {
   title: string;
   description: string;
   instructions: string;
+  attachmentName: string;
+  attachmentUrl: string;
+  attachmentContentType: string;
   createdAt: number;
   submissionCount: number;
 };
@@ -48,6 +51,7 @@ type AssignmentView = AssignmentSummary & {
   label: string;
 };
 type UndoState = { message: string; expiresAt: number };
+type AttachmentDraft = { fileName: string; dataUrl: string } | null;
 type DeleteTarget =
   | { type: "assignment"; assignment: AssignmentView }
   | { type: "submission"; submission: SubmissionItem }
@@ -70,6 +74,15 @@ function autoResizeTextarea(element: HTMLTextAreaElement) {
   element.style.height = `${Math.min(element.scrollHeight, 220)}px`;
 }
 
+async function fileToDataUrl(file: File) {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Unable to read attachment."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function ClassDetailPage() {
   const params = useParams<{ classId?: string }>();
   const searchParams = useSearchParams();
@@ -88,6 +101,8 @@ export default function ClassDetailPage() {
   const [assignmentEditOpen, setAssignmentEditOpen] = useState(false);
   const [assignmentTitleDraft, setAssignmentTitleDraft] = useState("");
   const [assignmentInstructionsDraft, setAssignmentInstructionsDraft] = useState("");
+  const [assignmentAttachmentDraft, setAssignmentAttachmentDraft] = useState<AttachmentDraft>(null);
+  const [assignmentAttachmentRemoved, setAssignmentAttachmentRemoved] = useState(false);
   const [assignmentSaving, setAssignmentSaving] = useState(false);
   const [assignmentError, setAssignmentError] = useState("");
 
@@ -314,8 +329,38 @@ export default function ClassDetailPage() {
     if (!activeAssignment) return;
     setAssignmentTitleDraft(activeAssignment.title);
     setAssignmentInstructionsDraft(activeAssignment.instructions);
+    setAssignmentAttachmentDraft(null);
+    setAssignmentAttachmentRemoved(false);
     setAssignmentError("");
     setAssignmentEditOpen(true);
+  }
+
+  async function handleAssignmentAttachmentChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      setAssignmentAttachmentDraft(null);
+      return;
+    }
+    if (!["application/pdf", "image/png", "image/jpeg"].includes(file.type)) {
+      setAssignmentError("Attachment must be a PDF, PNG, or JPG file.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setAssignmentError("Attachment is too large. Maximum size is 10MB.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setAssignmentAttachmentDraft({ fileName: file.name, dataUrl });
+      setAssignmentAttachmentRemoved(false);
+      setAssignmentError("");
+    } catch (error) {
+      setAssignmentError(error instanceof Error ? error.message : "Unable to read attachment.");
+      event.target.value = "";
+    }
   }
 
   async function saveAssignmentEdit() {
@@ -327,21 +372,68 @@ export default function ClassDetailPage() {
       return;
     }
 
-    const rollback = { title: activeAssignment.title, instructions: activeAssignment.instructions };
+    const rollback = {
+      title: activeAssignment.title,
+      instructions: activeAssignment.instructions,
+      attachmentName: activeAssignment.attachmentName,
+      attachmentUrl: activeAssignment.attachmentUrl,
+      attachmentContentType: activeAssignment.attachmentContentType,
+    };
+    const attachmentPayload =
+      assignmentAttachmentDraft ? assignmentAttachmentDraft : assignmentAttachmentRemoved ? null : undefined;
     setAssignmentSaving(true);
     setAssignmentError("");
-    updatePayloadAssignments((items) => items.map((row) => (row.id === activeAssignment.id ? { ...row, title, instructions } : row)));
+    updatePayloadAssignments((items) =>
+      items.map((row) =>
+        row.id === activeAssignment.id
+          ? {
+              ...row,
+              title,
+              instructions,
+              attachmentName: assignmentAttachmentDraft?.fileName ?? (assignmentAttachmentRemoved ? "" : row.attachmentName),
+              attachmentUrl: assignmentAttachmentRemoved ? "" : row.attachmentUrl,
+              attachmentContentType: assignmentAttachmentRemoved ? "" : row.attachmentContentType,
+            }
+          : row
+      )
+    );
     setAssignmentEditOpen(false);
 
     try {
       const response = await fetch(`/api/assignments/${activeAssignment.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, instructions }),
+        body: JSON.stringify({ title, instructions, attachment: attachmentPayload }),
       });
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
         throw new Error(data.error || "Unable to update assignment.");
+      }
+      const data = (await response.json()) as {
+        item?: {
+          id: string;
+          title: string;
+          instructions: string;
+          attachmentName: string;
+          attachmentUrl: string;
+          attachmentContentType: string;
+        } | null;
+      };
+      if (data.item) {
+        updatePayloadAssignments((items) =>
+          items.map((row) =>
+            row.id === activeAssignment.id
+              ? {
+                  ...row,
+                  title: data.item!.title,
+                  instructions: data.item!.instructions,
+                  attachmentName: data.item!.attachmentName,
+                  attachmentUrl: data.item!.attachmentUrl,
+                  attachmentContentType: data.item!.attachmentContentType,
+                }
+              : row
+          )
+        );
       }
     } catch (error) {
       updatePayloadAssignments((items) => items.map((row) => (row.id === activeAssignment.id ? { ...row, ...rollback } : row)));
@@ -530,6 +622,14 @@ export default function ClassDetailPage() {
                 </div>
                 {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
                 <div className="assignment-instructions"><p className="meta"><strong>Instructions:</strong> {activeAssignment.instructions?.trim() || "No instructions provided."}</p></div>
+                {activeAssignment.attachmentUrl ? (
+                  <div className="notice info assignment-attachment-notice">
+                    Attachment: <strong>{activeAssignment.attachmentName || "Directions file"}</strong>
+                    <a className="text-link" href={activeAssignment.attachmentUrl} target="_blank" rel="noreferrer">
+                      Open file
+                    </a>
+                  </div>
+                ) : null}
 
                 <div className="toolbar-compact">
                   <label className="label toolbar-label" htmlFor="student-filter">Find student in this assignment</label>
@@ -596,6 +696,41 @@ export default function ClassDetailPage() {
             <input id="edit-assignment-title" className="input" value={assignmentTitleDraft} onChange={(event) => setAssignmentTitleDraft(event.target.value)} maxLength={100} />
             <label className="label form-label-top" htmlFor="edit-assignment-instructions">Instructions</label>
             <textarea id="edit-assignment-instructions" className="textarea" rows={4} value={assignmentInstructionsDraft} onChange={(event) => setAssignmentInstructionsDraft(event.target.value)} maxLength={500} />
+            <label className="label form-label-top" htmlFor="edit-assignment-attachment">Attachment (optional)</label>
+            <input
+              id="edit-assignment-attachment"
+              className="input"
+              type="file"
+              accept="application/pdf,image/png,image/jpeg"
+              onChange={(event) => void handleAssignmentAttachmentChange(event)}
+            />
+            <p className="meta field-meta">Upload a PDF or image students can open from the assignment page.</p>
+            {assignmentAttachmentDraft ? (
+              <div className="notice info assignment-attachment-notice">
+                New attachment: <strong>{assignmentAttachmentDraft.fileName}</strong>
+                <button
+                  type="button"
+                  className="text-link"
+                  onClick={() => setAssignmentAttachmentDraft(null)}
+                >
+                  Remove
+                </button>
+              </div>
+            ) : activeAssignment?.attachmentUrl && !assignmentAttachmentRemoved ? (
+              <div className="notice info assignment-attachment-notice">
+                Current attachment: <strong>{activeAssignment.attachmentName}</strong>
+                <a className="text-link" href={activeAssignment.attachmentUrl} target="_blank" rel="noreferrer">
+                  Open
+                </a>
+                <button
+                  type="button"
+                  className="text-link"
+                  onClick={() => setAssignmentAttachmentRemoved(true)}
+                >
+                  Remove
+                </button>
+              </div>
+            ) : null}
             {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
             <div className="actions modal-actions"><button type="button" className="btn btn-ghost" onClick={() => setAssignmentEditOpen(false)} disabled={assignmentSaving}>Cancel</button><button type="button" className="btn btn-primary" onClick={() => void saveAssignmentEdit()} disabled={assignmentSaving}>{assignmentSaving ? "Saving..." : "Save changes"}</button></div>
           </div>

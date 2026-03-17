@@ -1497,6 +1497,14 @@ h3 {
   white-space: pre-wrap;
 }
 
+.assignment-attachment-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
 .record-module {
   display: grid;
   gap: 0.72rem;

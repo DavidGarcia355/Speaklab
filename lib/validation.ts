@@ -7,6 +7,8 @@ export const LIMITS = {
   assignmentNameMax: 100,
   assignmentDescriptionMax: 500,
   assignmentInstructionsMax: 500,
+  attachmentNameMax: 120,
+  maxAttachmentBytes: 10 * 1024 * 1024,
   studentNameMax: 80,
   feedbackMax: 1000,
   maxAudioBytes: 25 * 1024 * 1024,
@@ -39,11 +41,24 @@ export const assignmentCreateSchema = z.object({
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true).default(""),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
+  attachment: z
+    .object({
+      fileName: cleanTextSchema("Attachment file name", 1, LIMITS.attachmentNameMax),
+      dataUrl: z.string().min(1, "Attachment data is required."),
+    })
+    .optional(),
 });
 
 export const assignmentUpdateSchema = z.object({
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
+  attachment: z
+    .object({
+      fileName: cleanTextSchema("Attachment file name", 1, LIMITS.attachmentNameMax),
+      dataUrl: z.string().min(1, "Attachment data is required."),
+    })
+    .nullable()
+    .optional(),
 });
 
 export const submissionCreateSchema = z.object({
@@ -86,11 +101,22 @@ export type ParsedAudio = {
   buffer: Buffer;
 };
 
+export type ParsedAttachment = {
+  mimeType: "application/pdf" | "image/png" | "image/jpeg";
+  buffer: Buffer;
+};
+
 const allowedAudioTypes = new Set<ParsedAudio["mimeType"]>([
   "audio/webm",
   "audio/ogg",
   "audio/mp4",
   "audio/wav",
+]);
+
+const allowedAttachmentTypes = new Set<ParsedAttachment["mimeType"]>([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
 ]);
 
 export function parseAudioDataUrl(dataUrl: string): ParsedAudio {
@@ -113,6 +139,32 @@ export function parseAudioDataUrl(dataUrl: string): ParsedAudio {
   if (buffer.byteLength > LIMITS.maxAudioBytes) {
     throw new HttpError(400, "Validation failed.", {
       audioData: ["Audio file is too large. Maximum size is 25MB."],
+    });
+  }
+
+  return { mimeType, buffer };
+}
+
+export function parseAttachmentDataUrl(dataUrl: string): ParsedAttachment {
+  const trimmed = dataUrl.trim();
+  const match = trimmed.match(/^data:([a-z0-9/+.-]+);base64,([a-z0-9+/=]+)$/i);
+  if (!match) {
+    throw new HttpError(400, "Validation failed.", {
+      attachment: ["Attachment must be a valid base64 data URL."],
+    });
+  }
+
+  const mimeType = match[1].toLowerCase() as ParsedAttachment["mimeType"];
+  if (!allowedAttachmentTypes.has(mimeType)) {
+    throw new HttpError(400, "Validation failed.", {
+      attachment: ["Attachment must be a PDF, PNG, or JPG file."],
+    });
+  }
+
+  const buffer = Buffer.from(match[2], "base64");
+  if (buffer.byteLength > LIMITS.maxAttachmentBytes) {
+    throw new HttpError(400, "Validation failed.", {
+      attachment: ["Attachment is too large. Maximum size is 10MB."],
     });
   }
 

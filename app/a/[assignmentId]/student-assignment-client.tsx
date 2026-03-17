@@ -14,6 +14,9 @@ type AssignmentDetail = {
   title: string;
   description: string;
   instructions: string;
+  attachmentName: string;
+  attachmentUrl: string;
+  attachmentContentType: string;
   createdAt: number;
 };
 
@@ -403,6 +406,21 @@ export default function StudentAssignmentClient({
           <p className="meta instruction-copy">
             {assignment.instructions || "No instructions provided."}
           </p>
+          {assignment.attachmentUrl ? (
+            <div className="notice info assignment-attachment-notice">
+              <span>
+                Attachment: <strong>{assignment.attachmentName || "Directions file"}</strong>
+              </span>
+              <a
+                className="text-link"
+                href={assignment.attachmentUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open attachment
+              </a>
+            </div>
+          ) : null}
         </article>
 
         <article className="card panel-subtle">
