@@ -49,6 +49,14 @@ vi.mock("@/lib/rate-limit", () => ({
   enforceGradebookRateLimit: mocks.enforceGradebookRateLimit,
 }));
 
+vi.mock("@/lib/activity", () => ({
+  trackActivity: vi.fn().mockResolvedValue(undefined),
+  buildTeacherEventMetadata: vi.fn().mockResolvedValue({
+    isFirstClass: true,
+    isFirstAssignment: true,
+  }),
+}));
+
 vi.mock("@/lib/http", async () => {
   class MockHttpError extends Error {
     status: number;

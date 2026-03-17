@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { trackActivity } from "@/lib/activity";
 import { requireAuthenticatedEmail } from "@/lib/authz";
 import { getUserRoleByEmail, setUserRoleTeacher } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
     }
 
     await setUserRoleTeacher(email);
+    await trackActivity("teacher_upgraded", email);
     const role = await getUserRoleByEmail(email);
     return NextResponse.json({ email, role });
   });

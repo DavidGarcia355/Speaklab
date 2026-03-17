@@ -74,6 +74,35 @@ export type FeedbackRow = {
 };
 
 export type UserRole = "teacher" | "student";
+export type ActivityEventType =
+  | "user_signed_in"
+  | "teacher_upgraded"
+  | "class_created"
+  | "assignment_created";
+
+export type ActivityEventRow = {
+  id: string;
+  email: string;
+  eventType: ActivityEventType;
+  occurredAt: number;
+  metadata: Record<string, unknown> | null;
+};
+
+export type TeacherFunnelRow = {
+  email: string;
+  role: UserRole;
+  joinedAt: number;
+  classCount: number;
+  assignmentCount: number;
+  latestActivityAt: number | null;
+};
+
+export type TrackingSummaryRow = {
+  totalUsers: number;
+  teacherAccounts: number;
+  activatedTeachers: number;
+  teachingReadyTeachers: number;
+};
 
 function getTeacherAllowlist(): Set<string> {
   return new Set(
@@ -199,6 +228,13 @@ async function ensureInitialized() {
           role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('teacher', 'student')),
           created_at INTEGER NOT NULL
         )`,
+        `CREATE TABLE IF NOT EXISTS activity_events (
+          id TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          occurred_at INTEGER NOT NULL,
+          metadata TEXT
+        )`,
         "CREATE INDEX IF NOT EXISTS idx_assignments_class_id ON assignments(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_deleted_at ON assignments(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON submissions(assignment_id)",
@@ -207,6 +243,8 @@ async function ensureInitialized() {
         "CREATE INDEX IF NOT EXISTS idx_submissions_deleted_at ON submissions(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_feedback_messages_created_at ON feedback_messages(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)",
+        "CREATE INDEX IF NOT EXISTS idx_activity_events_email ON activity_events(email)",
+        "CREATE INDEX IF NOT EXISTS idx_activity_events_occurred_at ON activity_events(occurred_at DESC)",
         `CREATE TRIGGER IF NOT EXISTS trg_classes_delete_assignments
           AFTER DELETE ON classes
           FOR EACH ROW
@@ -279,6 +317,10 @@ function parseJsonValue<T>(value: unknown): T | null {
 
 function stringifyJsonValue(value: unknown) {
   return value === null ? null : JSON.stringify(value);
+}
+
+function normalizeUserRole(value: unknown): UserRole {
+  return toStringValue(value).toLowerCase() === "teacher" ? "teacher" : "student";
 }
 
 export async function listClasses(): Promise<ClassSummaryRow[]> {
@@ -921,6 +963,146 @@ export async function createFeedbackMessage(input: {
   return item;
 }
 
+export async function logActivityEvent(input: {
+  email: string;
+  eventType: ActivityEventType;
+  metadata?: Record<string, unknown> | null;
+}) {
+  const item: ActivityEventRow = {
+    id: makeId("evt"),
+    email: input.email.trim().toLowerCase(),
+    eventType: input.eventType,
+    occurredAt: Date.now(),
+    metadata: input.metadata ?? null,
+  };
+  await query(
+    `INSERT INTO activity_events (id, email, event_type, occurred_at, metadata)
+    VALUES (?, ?, ?, ?, ?)`,
+    [item.id, item.email, item.eventType, item.occurredAt, stringifyJsonValue(item.metadata)]
+  );
+  return item;
+}
+
+export async function listRecentActivityEvents(limit = 50): Promise<ActivityEventRow[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 200));
+  const result = await query(
+    `SELECT id, email, event_type as eventType, occurred_at as occurredAt, metadata
+    FROM activity_events
+    ORDER BY occurred_at DESC
+    LIMIT ?`,
+    [safeLimit]
+  );
+  return result.rows.map((row) => ({
+    id: toStringValue(row.id),
+    email: toStringValue(row.email),
+    eventType: toStringValue(row.eventType) as ActivityEventType,
+    occurredAt: toNumber(row.occurredAt),
+    metadata: parseJsonValue<Record<string, unknown>>(row.metadata),
+  }));
+}
+
+export async function listRecentTeacherActivityEvents(limit = 50): Promise<ActivityEventRow[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 200));
+  const result = await query(
+    `SELECT e.id, e.email, e.event_type as eventType, e.occurred_at as occurredAt, e.metadata
+    FROM activity_events e
+    JOIN users u ON LOWER(u.email) = LOWER(e.email)
+    WHERE u.role = 'teacher'
+      AND e.event_type <> 'user_signed_in'
+    ORDER BY e.occurred_at DESC
+    LIMIT ?`,
+    [safeLimit]
+  );
+  return result.rows.map((row) => ({
+    id: toStringValue(row.id),
+    email: toStringValue(row.email),
+    eventType: toStringValue(row.eventType) as ActivityEventType,
+    occurredAt: toNumber(row.occurredAt),
+    metadata: parseJsonValue<Record<string, unknown>>(row.metadata),
+  }));
+}
+
+export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
+  const result = await query(
+    `SELECT
+      u.email as email,
+      u.role as role,
+      u.created_at as joinedAt,
+      COALESCE(class_counts.classCount, 0) as classCount,
+      COALESCE(assignment_counts.assignmentCount, 0) as assignmentCount,
+      activity.latestActivityAt as latestActivityAt
+    FROM users u
+    LEFT JOIN (
+      SELECT LOWER(owner_email) as email, COUNT(*) as classCount
+      FROM classes
+      WHERE deleted_at IS NULL
+      GROUP BY LOWER(owner_email)
+    ) class_counts ON class_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT LOWER(c.owner_email) as email, COUNT(*) as assignmentCount
+      FROM assignments a
+      JOIN classes c ON c.id = a.class_id
+      WHERE a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+      GROUP BY LOWER(c.owner_email)
+    ) assignment_counts ON assignment_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT LOWER(email) as email, MAX(occurred_at) as latestActivityAt
+      FROM activity_events
+      GROUP BY LOWER(email)
+    ) activity ON activity.email = LOWER(u.email)
+    WHERE u.role = 'teacher'
+    ORDER BY joinedAt DESC`
+  );
+  return result.rows.map((row) => ({
+    email: toStringValue(row.email),
+    role: normalizeUserRole(row.role),
+    joinedAt: toNumber(row.joinedAt),
+    classCount: toNumber(row.classCount),
+    assignmentCount: toNumber(row.assignmentCount),
+    latestActivityAt: row.latestActivityAt === null ? null : toNumber(row.latestActivityAt),
+  }));
+}
+
+export async function getTrackingSummary(): Promise<TrackingSummaryRow> {
+  const result = await query(
+    `SELECT
+      COUNT(*) as totalUsers,
+      SUM(CASE WHEN role = 'teacher' THEN 1 ELSE 0 END) as teacherAccounts,
+      SUM(
+        CASE
+          WHEN role = 'teacher' AND EXISTS (
+            SELECT 1 FROM classes c
+            WHERE LOWER(c.owner_email) = LOWER(users.email)
+              AND c.deleted_at IS NULL
+          ) THEN 1
+          ELSE 0
+        END
+      ) as activatedTeachers,
+      SUM(
+        CASE
+          WHEN role = 'teacher' AND EXISTS (
+            SELECT 1
+            FROM assignments a
+            JOIN classes c ON c.id = a.class_id
+            WHERE LOWER(c.owner_email) = LOWER(users.email)
+              AND c.deleted_at IS NULL
+              AND a.deleted_at IS NULL
+          ) THEN 1
+          ELSE 0
+        END
+      ) as teachingReadyTeachers
+    FROM users`
+  );
+  const row = result.rows[0];
+  return {
+    totalUsers: toNumber(row?.totalUsers),
+    teacherAccounts: toNumber(row?.teacherAccounts),
+    activatedTeachers: toNumber(row?.activatedTeachers),
+    teachingReadyTeachers: toNumber(row?.teachingReadyTeachers),
+  };
+}
+
 export async function upsertGoogleUserAndGetRole(email: string): Promise<UserRole> {
   const normalized = email.trim().toLowerCase();
   const defaultRole = defaultRoleForEmail(normalized);
@@ -937,8 +1119,7 @@ export async function upsertGoogleUserAndGetRole(email: string): Promise<UserRol
     LIMIT 1`,
     [normalized]
   );
-  const role = toStringValue(result.rows[0]?.role).toLowerCase();
-  return role === "teacher" ? "teacher" : "student";
+  return normalizeUserRole(result.rows[0]?.role);
 }
 
 export async function getUserRoleByEmail(email: string): Promise<UserRole> {
@@ -950,8 +1131,7 @@ export async function getUserRoleByEmail(email: string): Promise<UserRole> {
     LIMIT 1`,
     [normalized]
   );
-  const role = toStringValue(result.rows[0]?.role).toLowerCase();
-  return role === "teacher" ? "teacher" : "student";
+  return normalizeUserRole(result.rows[0]?.role);
 }
 
 export async function setUserRoleTeacher(email: string): Promise<void> {

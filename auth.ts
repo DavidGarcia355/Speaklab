@@ -1,5 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import Google from "next-auth/providers/google";
+import { trackActivity } from "@/lib/activity";
 import { getUserRoleByEmail, upsertGoogleUserAndGetRole } from "@/lib/db";
 
 export const authOptions: NextAuthOptions = {
@@ -18,6 +19,7 @@ export const authOptions: NextAuthOptions = {
       if (!email) return false;
       if (emailVerified === false) return false;
       await upsertGoogleUserAndGetRole(email);
+      await trackActivity("user_signed_in", email);
       return true;
     },
     async jwt({ token }) {

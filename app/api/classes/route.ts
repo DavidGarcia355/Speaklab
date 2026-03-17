@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildTeacherEventMetadata, trackActivity } from "@/lib/activity";
 import { requireTeacherEmail } from "@/lib/authz";
 import { createClass, listClassesByTeacher } from "@/lib/db";
 import { withApiHandler } from "@/lib/http";
@@ -19,6 +20,12 @@ export async function POST(request: Request) {
     const body = parseOrThrow400(classCreateSchema, await request.json());
     const name = body.name ?? "";
     const created = await createClass(name, teacherEmail);
+    const metadata = await buildTeacherEventMetadata(teacherEmail);
+    await trackActivity("class_created", teacherEmail, {
+      classId: created.id,
+      className: created.name,
+      isFirstClass: metadata.isFirstClass,
+    });
     return NextResponse.json({ item: created }, { status: 201 });
   });
 }

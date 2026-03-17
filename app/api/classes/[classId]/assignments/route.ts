@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildTeacherEventMetadata, trackActivity } from "@/lib/activity";
 import { requireTeacherEmail } from "@/lib/authz";
 import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
 import { createAssignment, findClassById } from "@/lib/db";
@@ -61,6 +62,13 @@ export async function POST(
       attachmentName,
       attachmentUrl,
       attachmentContentType,
+    });
+    const metadata = await buildTeacherEventMetadata(teacherEmail);
+    await trackActivity("assignment_created", teacherEmail, {
+      assignmentId: created.id,
+      assignmentTitle: created.title,
+      classId,
+      isFirstAssignment: metadata.isFirstAssignment,
     });
     return NextResponse.json({ item: created }, { status: 201 });
   });
