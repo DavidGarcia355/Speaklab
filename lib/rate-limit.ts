@@ -4,6 +4,10 @@ import { Redis } from "@upstash/redis";
 import { getEnv } from "@/lib/env";
 import { HttpError } from "@/lib/http";
 
+const DEFAULT_SUBMISSION_LIMIT_PER_HOUR = 50;
+const DEFAULT_AUTH_LIMIT_PER_HOUR = 100;
+const DEFAULT_GRADEBOOK_LIMIT_PER_HOUR = 10;
+
 function limiter(prefix: string, limit: number) {
   const redis = Redis.fromEnv();
   return new Ratelimit({
@@ -17,6 +21,23 @@ let submissionLimiter: Ratelimit | null = null;
 let authLimiter: Ratelimit | null = null;
 let gradebookLimiter: Ratelimit | null = null;
 
+function parseLimit(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getSubmissionLimitPerHour() {
+  return parseLimit(process.env.SUBMISSION_RATE_LIMIT_PER_HOUR, DEFAULT_SUBMISSION_LIMIT_PER_HOUR);
+}
+
+function getAuthLimitPerHour() {
+  return parseLimit(process.env.AUTH_RATE_LIMIT_PER_HOUR, DEFAULT_AUTH_LIMIT_PER_HOUR);
+}
+
+function getGradebookLimitPerHour() {
+  return parseLimit(process.env.GRADEBOOK_RATE_LIMIT_PER_HOUR, DEFAULT_GRADEBOOK_LIMIT_PER_HOUR);
+}
+
 async function enforce(
   bucket: "submission" | "auth" | "gradebook",
   key: string,
@@ -24,9 +45,9 @@ async function enforce(
 ) {
   const env = getEnv();
   const map = {
-    submission: (submissionLimiter ??= limiter("rl:submission", 5)),
-    auth: (authLimiter ??= limiter("rl:auth", 100)),
-    gradebook: (gradebookLimiter ??= limiter("rl:gradebook", 10)),
+    submission: (submissionLimiter ??= limiter("rl:submission", getSubmissionLimitPerHour())),
+    auth: (authLimiter ??= limiter("rl:auth", getAuthLimitPerHour())),
+    gradebook: (gradebookLimiter ??= limiter("rl:gradebook", getGradebookLimitPerHour())),
   } as const;
   try {
     const result = await map[bucket].limit(key);
@@ -44,25 +65,28 @@ async function enforce(
 }
 
 export async function enforceSubmissionRateLimit(studentEmail: string) {
+  const limit = getSubmissionLimitPerHour();
   await enforce(
     "submission",
     studentEmail.toLowerCase(),
-    "Rate limit exceeded. Maximum 5 submissions per hour."
+    `Rate limit exceeded. Maximum ${limit} submissions per hour.`
   );
 }
 
 export async function enforceAuthRateLimit(ipAddress: string) {
+  const limit = getAuthLimitPerHour();
   await enforce(
     "auth",
     ipAddress,
-    "Rate limit exceeded. Maximum 100 sign-in attempts per hour."
+    `Rate limit exceeded. Maximum ${limit} sign-in attempts per hour.`
   );
 }
 
 export async function enforceGradebookRateLimit(teacherEmail: string) {
+  const limit = getGradebookLimitPerHour();
   await enforce(
     "gradebook",
     teacherEmail.toLowerCase(),
-    "Rate limit exceeded. Maximum 10 gradebook exports per hour."
+    `Rate limit exceeded. Maximum ${limit} gradebook exports per hour.`
   );
 }
