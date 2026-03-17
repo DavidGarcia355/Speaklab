@@ -79,6 +79,20 @@ type DeleteTarget =
   | { type: "submission"; submission: SubmissionItem }
   | null;
 
+type AssignmentClipboard = {
+  title: string;
+  description: string;
+  instructions: string;
+  maxPoints: number;
+  rubric: AssignmentSummary["rubric"];
+  attachmentName: string;
+  attachmentUrl: string;
+  attachmentContentType: string;
+  copiedAt: number;
+};
+
+const ASSIGNMENT_CLIPBOARD_KEY = "habla.assignmentClipboard";
+
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
@@ -146,6 +160,19 @@ async function fileToDataUrl(file: File) {
   });
 }
 
+function readAssignmentClipboard() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(ASSIGNMENT_CLIPBOARD_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AssignmentClipboard;
+    if (!parsed?.title || !parsed?.instructions) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export default function ClassDetailPage() {
   const params = useParams<{ classId?: string }>();
   const searchParams = useSearchParams();
@@ -160,6 +187,7 @@ export default function ClassDetailPage() {
   const [showUngradedOnly, setShowUngradedOnly] = useState(false);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [copiedId, setCopiedId] = useState("");
+  const [hasAssignmentClipboard, setHasAssignmentClipboard] = useState(false);
 
   const [assignmentEditOpen, setAssignmentEditOpen] = useState(false);
   const [assignmentTitleDraft, setAssignmentTitleDraft] = useState("");
@@ -225,10 +253,23 @@ export default function ClassDetailPage() {
       setErrorMsg("Missing class id.");
       return;
     }
+    setHasAssignmentClipboard(Boolean(readAssignmentClipboard()));
     loadData(classId);
-    const onFocus = () => loadData(classId);
+    const onFocus = () => {
+      setHasAssignmentClipboard(Boolean(readAssignmentClipboard()));
+      loadData(classId);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === ASSIGNMENT_CLIPBOARD_KEY) {
+        setHasAssignmentClipboard(Boolean(readAssignmentClipboard()));
+      }
+    };
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("storage", onStorage);
+    };
   }, [classId]);
 
   useEffect(() => {
@@ -644,6 +685,72 @@ export default function ClassDetailPage() {
     }
   }
 
+  function copyAssignment(assignment: AssignmentView) {
+    try {
+      const clipboard: AssignmentClipboard = {
+        title: assignment.title,
+        description: assignment.description,
+        instructions: assignment.instructions,
+        maxPoints: assignment.maxPoints,
+        rubric: assignment.rubric,
+        attachmentName: assignment.attachmentName,
+        attachmentUrl: assignment.attachmentUrl,
+        attachmentContentType: assignment.attachmentContentType,
+        copiedAt: Date.now(),
+      };
+      window.localStorage.setItem(ASSIGNMENT_CLIPBOARD_KEY, JSON.stringify(clipboard));
+      setHasAssignmentClipboard(true);
+      setInfoMsg(`Assignment "${assignment.title}" copied. Open another class and paste it there.`);
+    } catch {
+      setErrorMsg("Unable to copy assignment right now.");
+    }
+  }
+
+  async function pasteAssignment() {
+    if (!classId) return;
+    const clipboard = readAssignmentClipboard();
+    if (!clipboard) {
+      setErrorMsg("Copy an assignment first, then paste it into this class.");
+      setHasAssignmentClipboard(false);
+      return;
+    }
+
+    setErrorMsg("");
+    setInfoMsg("Pasting assignment...");
+    try {
+      const response = await fetch(`/api/classes/${classId}/assignments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: clipboard.title,
+          description: clipboard.description,
+          instructions: clipboard.instructions,
+          maxPoints: clipboard.maxPoints,
+          rubric: clipboard.rubric,
+          ...(clipboard.attachmentUrl
+            ? {
+                existingAttachment: {
+                  fileName: clipboard.attachmentName || "Directions file",
+                  url: clipboard.attachmentUrl,
+                  contentType: clipboard.attachmentContentType || "application/pdf",
+                },
+              }
+            : {}),
+        }),
+      });
+      const data = (await response.json()) as { error?: string; item?: AssignmentSummary };
+      if (!response.ok || !data.item) {
+        throw new Error(data.error || "Unable to paste assignment.");
+      }
+      await loadData(classId);
+      setSelectedAssignmentId(data.item.id);
+      setInfoMsg(`Assignment "${data.item.title}" pasted into this class.`);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "Unable to paste assignment.");
+      setInfoMsg("");
+    }
+  }
+
   function scheduleDelete(config: {
     key: string;
     message: string;
@@ -765,6 +872,14 @@ export default function ClassDetailPage() {
           <div className="actions">
             <Link className="btn btn-ghost" href="/teacher">Back to teacher</Link>
             <Link className="btn btn-primary" href={`/teacher/class/${payload.item.id}/assignment/new`}>Create assignment</Link>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => void pasteAssignment()}
+              disabled={!hasAssignmentClipboard}
+            >
+              Paste assignment
+            </button>
             <a className="btn btn-ghost" href={`/api/classes/${payload.item.id}/gradebook.csv`}>Export CSV</a>
           </div>
         </div>
@@ -807,6 +922,9 @@ export default function ClassDetailPage() {
                 <div className="actions assignment-actions">
                   <Link className="btn btn-ghost" href={`/a/${activeAssignment.id}`}>Open student page</Link>
                   <button type="button" className="btn btn-ghost" onClick={() => void copyStudentLink(activeAssignment.id)}>{copiedId === activeAssignment.id ? "Copied" : "Copy link"}</button>
+                  <button type="button" className="btn btn-ghost" onClick={() => copyAssignment(activeAssignment)}>
+                    Copy assignment
+                  </button>
                   <span className="pill pill-subtle">{pluralize(activeAssignment.totalSubmissions, "submission")}</span>
                   <span className={`pill ${activeAssignment.totalSubmissions === 0 ? "pill-neutral" : activeAssignment.ungradedCount > 0 ? "pill-warning" : "pill-success"}`}>{activeAssignment.totalSubmissions === 0 ? "No activity" : activeAssignment.ungradedCount > 0 ? pluralize(activeAssignment.ungradedCount, "ungraded") : "All graded"}</span>
                 </div>

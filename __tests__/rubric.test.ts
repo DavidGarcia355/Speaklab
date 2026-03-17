@@ -263,6 +263,51 @@ describe("rubric routes", () => {
     );
   });
 
+  it("allows pasted assignments to reuse an existing attachment reference", async () => {
+    mocks.createAssignment.mockImplementation(async (input) => ({
+      id: "asg_3",
+      classId: "class_1",
+      title: input.title,
+      description: input.description,
+      instructions: input.instructions,
+      maxPoints: input.maxPoints,
+      rubric: input.rubric,
+      attachmentName: input.attachmentName,
+      attachmentUrl: input.attachmentUrl,
+      attachmentContentType: input.attachmentContentType,
+      createdAt: Date.now(),
+    }));
+
+    const response = await createAssignmentRoute(
+      new Request("http://localhost/api/classes/class_1/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Copied oral quiz",
+          description: "Reused assignment",
+          instructions: "Respond again.",
+          maxPoints: 25,
+          existingAttachment: {
+            fileName: "directions.pdf",
+            url: "https://blob.example/directions.pdf",
+            contentType: "application/pdf",
+          },
+        }),
+      }),
+      { params: Promise.resolve({ classId: "class_1" }) }
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.uploadAssignmentAttachment).not.toHaveBeenCalled();
+    expect(mocks.createAssignment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachmentName: "directions.pdf",
+        attachmentUrl: "https://blob.example/directions.pdf",
+        attachmentContentType: "application/pdf",
+      })
+    );
+  });
+
   it("updates an assignment rubric and recomputes max points", async () => {
     mocks.updateAssignment.mockImplementation(async (_assignmentId, _teacherEmail, input) => ({
       id: "asg_1",

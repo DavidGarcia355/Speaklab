@@ -44,6 +44,10 @@ export async function POST(
         mimeType: parsedAttachment.mimeType,
         buffer: parsedAttachment.buffer,
       });
+    } else if (body.existingAttachment) {
+      attachmentName = body.existingAttachment.fileName ?? "";
+      attachmentUrl = body.existingAttachment.url ?? "";
+      attachmentContentType = body.existingAttachment.contentType ?? "";
     }
 
     const created = await createAssignment({

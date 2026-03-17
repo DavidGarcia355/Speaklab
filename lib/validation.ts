@@ -108,7 +108,23 @@ export const assignmentCreateSchema = z.object({
     })
     .nullable()
     .optional(),
+  existingAttachment: z
+    .object({
+      fileName: cleanTextSchema("Attachment file name", 1, LIMITS.attachmentNameMax),
+      url: z.string().trim().url("Attachment URL must be valid."),
+      contentType: z.enum(["application/pdf", "image/png", "image/jpeg"]),
+    })
+    .nullable()
+    .optional(),
   rubric: rubricSchema.nullable().optional(),
+}).superRefine((value, context) => {
+  if (value.attachment && value.existingAttachment) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Choose either a new attachment upload or an existing attachment copy.",
+      path: ["attachment"],
+    });
+  }
 });
 
 export const assignmentUpdateSchema = z.object({
