@@ -233,11 +233,11 @@ export default function NewAssignmentPage() {
     <main className="page-wrap">
       <PageTitle title={classData ? `New Assignment for ${classData.item.name}` : "Create Assignment"} />
       <BrandBar label="Create Assignment" />
-      <p className="meta page-intent">Write a clear prompt so students can record without confusion.</p>
+      <p className="meta page-intent">Write clear instructions so students know exactly what to record.</p>
 
       <div className="actions topbar">
         <Link className="btn btn-ghost" href={`/teacher/class/${classData.item.id}`}>
-          Back to Class
+          Back to Workspace
         </Link>
       </div>
 
@@ -247,7 +247,7 @@ export default function NewAssignmentPage() {
 
         <form onSubmit={handleSubmit}>
           <label className="label" htmlFor="assignment-title">
-            Title
+            Assignment title
           </label>
           <input
             id="assignment-title"
@@ -260,14 +260,14 @@ export default function NewAssignmentPage() {
           <p className="meta field-meta">{title.length}/100</p>
 
           <label className="label form-label-top" htmlFor="assignment-description">
-            Description (optional)
+            Student directions (optional)
           </label>
           <input
             id="assignment-description"
             className="input"
             value={description}
             onChange={(event) => setDescription(event.target.value)}
-            placeholder="One minute response."
+            placeholder="Add a short summary students will see before they record."
             maxLength={500}
           />
           <p className="meta field-meta">{description.length}/500</p>
@@ -280,7 +280,7 @@ export default function NewAssignmentPage() {
             className="textarea"
             value={instructions}
             onChange={(event) => setInstructions(event.target.value)}
-            placeholder="Explain what students should include in their recording."
+            placeholder="Write the exact prompt or speaking directions students should follow."
             maxLength={500}
           />
           <p className="meta field-meta">{instructions.length}/500</p>
