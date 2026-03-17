@@ -53,6 +53,7 @@ export const assignmentCreateSchema = z.object({
       fileName: cleanTextSchema("Attachment file name", 1, LIMITS.attachmentNameMax),
       dataUrl: z.string().min(1, "Attachment data is required."),
     })
+    .nullable()
     .optional(),
 });
 

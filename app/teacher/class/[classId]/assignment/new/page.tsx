@@ -130,7 +130,7 @@ export default function NewAssignmentPage() {
           description,
           instructions,
           maxPoints: parsedMaxPoints,
-          attachment,
+          ...(attachment ? { attachment } : {}),
         }),
       });
       if (!response.ok) {
