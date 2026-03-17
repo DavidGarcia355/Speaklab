@@ -20,5 +20,5 @@ export async function uploadSubmissionAudio(input: {
     contentType: input.mimeType,
     addRandomSuffix: false,
   });
-  return result.url;
+  return result.pathname;
 }

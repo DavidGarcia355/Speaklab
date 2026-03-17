@@ -16,6 +16,19 @@ function decodeLegacyDataUrl(dataUrl: string) {
   };
 }
 
+function normalizeBlobReference(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (!/^https?:\/\//i.test(trimmed)) return trimmed.replace(/^\/+/, "");
+
+  try {
+    const url = new URL(trimmed);
+    return url.pathname.replace(/^\/+/, "");
+  } catch {
+    return trimmed;
+  }
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ submissionId: string }> }
@@ -43,7 +56,8 @@ export async function GET(
       });
     }
 
-    const upstream = await get(found.audioBlobUrl, {
+    const blobReference = normalizeBlobReference(found.audioBlobUrl);
+    const upstream = await get(blobReference, {
       access: "private",
       useCache: false,
     });
