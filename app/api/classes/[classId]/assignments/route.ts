@@ -23,6 +23,7 @@ export async function POST(
     const title = body.title ?? "";
     const description = body.description ?? "";
     const instructions = body.instructions ?? "";
+    const maxPoints = body.maxPoints ?? 100;
     let attachmentName = "";
     let attachmentUrl = "";
     let attachmentContentType = "";
@@ -45,6 +46,7 @@ export async function POST(
       title,
       description,
       instructions,
+      maxPoints,
       attachmentName,
       attachmentUrl,
       attachmentContentType,

@@ -7,6 +7,8 @@ export const LIMITS = {
   assignmentNameMax: 100,
   assignmentDescriptionMax: 500,
   assignmentInstructionsMax: 500,
+  assignmentPointsMin: 1,
+  assignmentPointsMax: 1000,
   attachmentNameMax: 120,
   maxAttachmentBytes: 10 * 1024 * 1024,
   studentNameMax: 80,
@@ -41,6 +43,11 @@ export const assignmentCreateSchema = z.object({
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true).default(""),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
+  maxPoints: z
+    .number()
+    .int("Points possible must be a whole number.")
+    .min(LIMITS.assignmentPointsMin, `Points possible must be at least ${LIMITS.assignmentPointsMin}.`)
+    .max(LIMITS.assignmentPointsMax, `Points possible must be ${LIMITS.assignmentPointsMax} or fewer.`),
   attachment: z
     .object({
       fileName: cleanTextSchema("Attachment file name", 1, LIMITS.attachmentNameMax),
@@ -52,6 +59,11 @@ export const assignmentCreateSchema = z.object({
 export const assignmentUpdateSchema = z.object({
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
+  maxPoints: z
+    .number()
+    .int("Points possible must be a whole number.")
+    .min(LIMITS.assignmentPointsMin, `Points possible must be at least ${LIMITS.assignmentPointsMin}.`)
+    .max(LIMITS.assignmentPointsMax, `Points possible must be ${LIMITS.assignmentPointsMax} or fewer.`),
   attachment: z
     .object({
       fileName: cleanTextSchema("Attachment file name", 1, LIMITS.attachmentNameMax),
@@ -72,8 +84,8 @@ export const submissionPatchSchema = z
     grade: z
       .number()
       .int("Score must be an integer.")
-      .min(0, "Score must be between 0 and 100.")
-      .max(100, "Score must be between 0 and 100.")
+      .min(0, "Score must be 0 or higher.")
+      .max(LIMITS.assignmentPointsMax, `Score must be ${LIMITS.assignmentPointsMax} or fewer.`)
       .nullable()
       .optional(),
     feedback: cleanTextSchema("Feedback", 0, LIMITS.feedbackMax, true),

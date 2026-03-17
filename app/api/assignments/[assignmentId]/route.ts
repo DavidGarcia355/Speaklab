@@ -38,6 +38,7 @@ export async function PATCH(
     const body = parseOrThrow400(assignmentUpdateSchema, await request.json());
     const title = body.title ?? "";
     const instructions = body.instructions ?? "";
+    const maxPoints = body.maxPoints ?? found.maxPoints;
     let attachmentName = found.attachmentName;
     let attachmentUrl = found.attachmentUrl;
     let attachmentContentType = found.attachmentContentType;
@@ -61,6 +62,7 @@ export async function PATCH(
     const updated = await updateAssignment(assignmentId, teacherEmail, {
       title,
       instructions,
+      maxPoints,
       attachmentName,
       attachmentUrl,
       attachmentContentType,

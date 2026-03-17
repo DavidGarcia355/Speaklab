@@ -16,6 +16,7 @@ type AssignmentSummary = {
   title: string;
   description: string;
   instructions: string;
+  maxPoints: number;
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
@@ -101,6 +102,7 @@ export default function ClassDetailPage() {
   const [assignmentEditOpen, setAssignmentEditOpen] = useState(false);
   const [assignmentTitleDraft, setAssignmentTitleDraft] = useState("");
   const [assignmentInstructionsDraft, setAssignmentInstructionsDraft] = useState("");
+  const [assignmentMaxPointsDraft, setAssignmentMaxPointsDraft] = useState("100");
   const [assignmentAttachmentDraft, setAssignmentAttachmentDraft] = useState<AttachmentDraft>(null);
   const [assignmentAttachmentRemoved, setAssignmentAttachmentRemoved] = useState(false);
   const [assignmentSaving, setAssignmentSaving] = useState(false);
@@ -253,11 +255,12 @@ export default function ClassDetailPage() {
     const existing = payload?.submissions.find((item) => item.id === submissionId);
     if (!draft || !existing) return;
     const clean = draft.gradeInput.trim();
+    const maxPoints = activeAssignment?.maxPoints ?? 100;
     let parsedGrade: number | null = null;
     if (clean !== "") {
       const numericGrade = Number(clean);
-      if (!Number.isFinite(numericGrade) || numericGrade < 0 || numericGrade > 100) {
-        setSubmissionErrors((prev) => ({ ...prev, [submissionId]: "Score must be a number from 0 to 100." }));
+      if (!Number.isFinite(numericGrade) || numericGrade < 0 || numericGrade > maxPoints) {
+        setSubmissionErrors((prev) => ({ ...prev, [submissionId]: `Score must be a number from 0 to ${maxPoints}.` }));
         return;
       }
       parsedGrade = numericGrade;
@@ -329,6 +332,7 @@ export default function ClassDetailPage() {
     if (!activeAssignment) return;
     setAssignmentTitleDraft(activeAssignment.title);
     setAssignmentInstructionsDraft(activeAssignment.instructions);
+    setAssignmentMaxPointsDraft(String(activeAssignment.maxPoints));
     setAssignmentAttachmentDraft(null);
     setAssignmentAttachmentRemoved(false);
     setAssignmentError("");
@@ -367,14 +371,20 @@ export default function ClassDetailPage() {
     if (!activeAssignment) return;
     const title = assignmentTitleDraft.trim();
     const instructions = assignmentInstructionsDraft.trim();
+    const parsedMaxPoints = Number(assignmentMaxPointsDraft);
     if (!title || !instructions) {
       setAssignmentError("Assignment name and instructions are required.");
+      return;
+    }
+    if (!Number.isInteger(parsedMaxPoints) || parsedMaxPoints < 1 || parsedMaxPoints > 1000) {
+      setAssignmentError("Points possible must be a whole number from 1 to 1000.");
       return;
     }
 
     const rollback = {
       title: activeAssignment.title,
       instructions: activeAssignment.instructions,
+      maxPoints: activeAssignment.maxPoints,
       attachmentName: activeAssignment.attachmentName,
       attachmentUrl: activeAssignment.attachmentUrl,
       attachmentContentType: activeAssignment.attachmentContentType,
@@ -390,6 +400,7 @@ export default function ClassDetailPage() {
               ...row,
               title,
               instructions,
+              maxPoints: parsedMaxPoints,
               attachmentName: assignmentAttachmentDraft?.fileName ?? (assignmentAttachmentRemoved ? "" : row.attachmentName),
               attachmentUrl: assignmentAttachmentRemoved ? "" : row.attachmentUrl,
               attachmentContentType: assignmentAttachmentRemoved ? "" : row.attachmentContentType,
@@ -403,7 +414,7 @@ export default function ClassDetailPage() {
       const response = await fetch(`/api/assignments/${activeAssignment.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, instructions, attachment: attachmentPayload }),
+        body: JSON.stringify({ title, instructions, maxPoints: parsedMaxPoints, attachment: attachmentPayload }),
       });
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
@@ -414,6 +425,7 @@ export default function ClassDetailPage() {
           id: string;
           title: string;
           instructions: string;
+          maxPoints: number;
           attachmentName: string;
           attachmentUrl: string;
           attachmentContentType: string;
@@ -427,6 +439,7 @@ export default function ClassDetailPage() {
                   ...row,
                   title: data.item!.title,
                   instructions: data.item!.instructions,
+                  maxPoints: data.item!.maxPoints,
                   attachmentName: data.item!.attachmentName,
                   attachmentUrl: data.item!.attachmentUrl,
                   attachmentContentType: data.item!.attachmentContentType,
@@ -622,6 +635,7 @@ export default function ClassDetailPage() {
                 </div>
                 {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
                 <div className="assignment-instructions"><p className="meta"><strong>Instructions:</strong> {activeAssignment.instructions?.trim() || "No instructions provided."}</p></div>
+                <p className="meta"><strong>Points possible:</strong> {activeAssignment.maxPoints}</p>
                 {activeAssignment.attachmentUrl ? (
                   <div className="notice info assignment-attachment-notice">
                     Attachment: <strong>{activeAssignment.attachmentName || "Directions file"}</strong>
@@ -655,7 +669,7 @@ export default function ClassDetailPage() {
                               <div className="meta">{formatDateTime(submission.submittedAt)}</div>
                               <div className="meta">{submission.studentEmail || "No email captured"}</div>
                             </div>
-                            <div className="score-control"><label className="meta score-label" htmlFor={`grade-${submission.id}`}>Score</label><div className="score-field"><input id={`grade-${submission.id}`} className="input score-input" type="number" min={0} max={100} step={1} inputMode="numeric" placeholder="0" value={draft.gradeInput} onChange={(event) => setDraft(submission.id, { gradeInput: event.target.value })} /><span className="score-suffix">/100</span></div></div>
+                            <div className="score-control"><label className="meta score-label" htmlFor={`grade-${submission.id}`}>Score</label><div className="score-field"><input id={`grade-${submission.id}`} className="input score-input" type="number" min={0} max={activeAssignment.maxPoints} step={1} inputMode="numeric" placeholder="0" value={draft.gradeInput} onChange={(event) => setDraft(submission.id, { gradeInput: event.target.value })} /><span className="score-suffix">/{activeAssignment.maxPoints}</span></div></div>
                           </div>
                           <AudioPlayer src={submission.audioData} variant="compact" showSpeed={false} />
                           <label className="label feedback-label" htmlFor={`feedback-${submission.id}`}>Feedback (optional)</label>
@@ -696,6 +710,18 @@ export default function ClassDetailPage() {
             <input id="edit-assignment-title" className="input" value={assignmentTitleDraft} onChange={(event) => setAssignmentTitleDraft(event.target.value)} maxLength={100} />
             <label className="label form-label-top" htmlFor="edit-assignment-instructions">Instructions</label>
             <textarea id="edit-assignment-instructions" className="textarea" rows={4} value={assignmentInstructionsDraft} onChange={(event) => setAssignmentInstructionsDraft(event.target.value)} maxLength={500} />
+            <label className="label form-label-top" htmlFor="edit-assignment-max-points">Points possible</label>
+            <input
+              id="edit-assignment-max-points"
+              className="input"
+              type="number"
+              min={1}
+              max={1000}
+              step={1}
+              inputMode="numeric"
+              value={assignmentMaxPointsDraft}
+              onChange={(event) => setAssignmentMaxPointsDraft(event.target.value)}
+            />
             <label className="label form-label-top" htmlFor="edit-assignment-attachment">Attachment (optional)</label>
             <input
               id="edit-assignment-attachment"

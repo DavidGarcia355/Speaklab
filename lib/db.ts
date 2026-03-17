@@ -23,6 +23,7 @@ export type AssignmentRow = {
   title: string;
   description: string;
   instructions: string;
+  maxPoints: number;
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
@@ -222,6 +223,7 @@ async function ensureInitialized() {
       await ensureColumn("classes", "deleted_at", "INTEGER");
       await ensureColumn("classes", "owner_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "deleted_at", "INTEGER");
+      await ensureColumn("assignments", "max_points", "INTEGER NOT NULL DEFAULT 100");
       await ensureColumn("assignments", "attachment_name", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "attachment_url", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "attachment_content_type", "TEXT NOT NULL DEFAULT ''");
@@ -412,6 +414,7 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
       a.title as title,
       a.description as description,
       a.instructions as instructions,
+      COALESCE(a.max_points, 100) as maxPoints,
       COALESCE(a.attachment_name, '') as attachmentName,
       COALESCE(a.attachment_url, '') as attachmentUrl,
       COALESCE(a.attachment_content_type, '') as attachmentContentType,
@@ -434,6 +437,7 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
     title: toStringValue(row.title),
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
+    maxPoints: toNumber(row.maxPoints),
     attachmentName: toStringValue(row.attachmentName),
     attachmentUrl: toStringValue(row.attachmentUrl),
     attachmentContentType: toStringValue(row.attachmentContentType),
@@ -448,6 +452,7 @@ export async function createAssignment(input: {
   title: string;
   description: string;
   instructions: string;
+  maxPoints: number;
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
@@ -458,6 +463,7 @@ export async function createAssignment(input: {
     title: input.title,
     description: input.description,
     instructions: input.instructions,
+    maxPoints: input.maxPoints,
     attachmentName: input.attachmentName,
     attachmentUrl: input.attachmentUrl,
     attachmentContentType: input.attachmentContentType,
@@ -465,9 +471,9 @@ export async function createAssignment(input: {
   };
   await query(
     `INSERT INTO assignments (
-      id, class_id, title, description, instructions, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at
+      id, class_id, title, description, instructions, max_points, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
     WHERE EXISTS (
       SELECT 1 FROM classes c
       WHERE c.id = ?
@@ -480,6 +486,7 @@ export async function createAssignment(input: {
       item.title,
       item.description,
       item.instructions,
+      item.maxPoints,
       item.attachmentName,
       item.attachmentUrl,
       item.attachmentContentType,
@@ -501,6 +508,7 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
       a.title as title,
       a.description as description,
       a.instructions as instructions,
+      COALESCE(a.max_points, 100) as maxPoints,
       COALESCE(a.attachment_name, '') as attachmentName,
       COALESCE(a.attachment_url, '') as attachmentUrl,
       COALESCE(a.attachment_content_type, '') as attachmentContentType,
@@ -524,6 +532,7 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
     title: toStringValue(row.title),
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
+    maxPoints: toNumber(row.maxPoints),
     attachmentName: toStringValue(row.attachmentName),
     attachmentUrl: toStringValue(row.attachmentUrl),
     attachmentContentType: toStringValue(row.attachmentContentType),
@@ -537,6 +546,7 @@ export async function updateAssignment(
   input: {
     title: string;
     instructions: string;
+    maxPoints: number;
     attachmentName: string;
     attachmentUrl: string;
     attachmentContentType: string;
@@ -544,7 +554,7 @@ export async function updateAssignment(
 ): Promise<AssignmentDetailRow | null> {
   const result = await query(
     `UPDATE assignments
-    SET title = ?, instructions = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
+    SET title = ?, instructions = ?, max_points = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
     WHERE id = ?
       AND deleted_at IS NULL
       AND id IN (
@@ -558,6 +568,7 @@ export async function updateAssignment(
     [
       input.title,
       input.instructions,
+      input.maxPoints,
       input.attachmentName,
       input.attachmentUrl,
       input.attachmentContentType,

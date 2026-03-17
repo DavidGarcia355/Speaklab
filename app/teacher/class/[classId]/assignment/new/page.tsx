@@ -38,6 +38,7 @@ export default function NewAssignmentPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [maxPoints, setMaxPoints] = useState("100");
   const [attachment, setAttachment] = useState<AttachmentDraft | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [hintMsg, setHintMsg] = useState("");
@@ -111,6 +112,11 @@ export default function NewAssignmentPage() {
       setErrorMsg("Instructions are required so students know exactly what to do.");
       return;
     }
+    const parsedMaxPoints = Number(maxPoints);
+    if (!Number.isInteger(parsedMaxPoints) || parsedMaxPoints < 1 || parsedMaxPoints > 1000) {
+      setErrorMsg("Points possible must be a whole number from 1 to 1000.");
+      return;
+    }
 
     setSaving(true);
     setErrorMsg("");
@@ -123,6 +129,7 @@ export default function NewAssignmentPage() {
           title: cleanTitle,
           description,
           instructions,
+          maxPoints: parsedMaxPoints,
           attachment,
         }),
       });
@@ -219,6 +226,22 @@ export default function NewAssignmentPage() {
           />
           <p className="meta field-meta">{instructions.length}/500</p>
 
+          <label className="label form-label-top" htmlFor="assignment-max-points">
+            Points possible
+          </label>
+          <input
+            id="assignment-max-points"
+            className="input"
+            type="number"
+            min={1}
+            max={1000}
+            step={1}
+            inputMode="numeric"
+            value={maxPoints}
+            onChange={(event) => setMaxPoints(event.target.value)}
+          />
+          <p className="meta field-meta">Students will be graded out of this number of points.</p>
+
           <label className="label form-label-top" htmlFor="assignment-attachment">
             Attachment (optional)
           </label>
@@ -247,7 +270,12 @@ export default function NewAssignmentPage() {
             <button
               className="btn btn-primary"
               type="submit"
-              disabled={saving || title.trim().length === 0 || instructions.trim().length === 0}
+              disabled={
+                saving ||
+                title.trim().length === 0 ||
+                instructions.trim().length === 0 ||
+                maxPoints.trim().length === 0
+              }
             >
               {saving ? "Creating..." : "Create Assignment"}
             </button>

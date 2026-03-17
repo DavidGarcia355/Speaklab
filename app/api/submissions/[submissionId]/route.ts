@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireTeacherEmail } from "@/lib/authz";
-import { deleteSubmission, findSubmissionById, updateSubmission } from "@/lib/db";
-import { withApiHandler } from "@/lib/http";
+import { deleteSubmission, findAssignmentById, findSubmissionById, updateSubmission } from "@/lib/db";
+import { HttpError, withApiHandler } from "@/lib/http";
 import { parseOrThrow400, submissionPatchSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -26,6 +26,15 @@ export async function PATCH(
     const studentName = hasStudentName ? body.studentName! : existing.studentName;
     const grade = hasGrade ? body.grade ?? null : existing.grade;
     const feedback = hasFeedback ? body.feedback ?? "" : existing.feedback;
+    if (grade !== null) {
+      const assignment = await findAssignmentById(existing.assignmentId, teacherEmail);
+      if (!assignment) {
+        return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
+      }
+      if (grade > assignment.maxPoints) {
+        throw new HttpError(400, `Score must be between 0 and ${assignment.maxPoints}.`);
+      }
+    }
     const updated = await updateSubmission(submissionId, teacherEmail, { studentName, grade, feedback });
     return NextResponse.json({ item: updated });
   });

@@ -14,6 +14,7 @@ type AssignmentDetail = {
   title: string;
   description: string;
   instructions: string;
+  maxPoints: number;
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
@@ -398,6 +399,7 @@ export default function StudentAssignmentClient({
         <p className="pill">{assignment.className}</p>
         <h1>{assignment.title}</h1>
         {assignment.description ? <p>{assignment.description}</p> : null}
+        <p className="meta">Worth {assignment.maxPoints} points</p>
       </section>
 
       <section className="grid cols-2 section-gap">
