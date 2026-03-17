@@ -16,16 +16,43 @@ function decodeLegacyDataUrl(dataUrl: string) {
   };
 }
 
-function normalizeBlobReference(value: string) {
+function resolveBlobFetchTarget(value: string): {
+  reference: string;
+  access: "public" | "private";
+} {
   const trimmed = value.trim();
-  if (!trimmed) return "";
-  if (!/^https?:\/\//i.test(trimmed)) return trimmed.replace(/^\/+/, "");
+  if (!trimmed) {
+    return {
+      reference: "",
+      access: "private",
+    };
+  }
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return {
+      reference: trimmed.replace(/^\/+/, ""),
+      access: "private",
+    };
+  }
 
   try {
     const url = new URL(trimmed);
-    return url.pathname.replace(/^\/+/, "");
+    const hostname = url.hostname.toLowerCase();
+    if (hostname.endsWith(".public.blob.vercel-storage.com")) {
+      return {
+        reference: trimmed,
+        access: "public",
+      };
+    }
+
+    return {
+      reference: trimmed,
+      access: "private",
+    };
   } catch {
-    return trimmed;
+    return {
+      reference: trimmed,
+      access: "private",
+    };
   }
 }
 
@@ -56,9 +83,9 @@ export async function GET(
       });
     }
 
-    const blobReference = normalizeBlobReference(found.audioBlobUrl);
-    const upstream = await get(blobReference, {
-      access: "private",
+    const blobTarget = resolveBlobFetchTarget(found.audioBlobUrl);
+    const upstream = await get(blobTarget.reference, {
+      access: blobTarget.access,
       useCache: false,
     });
     if (!upstream || upstream.statusCode !== 200 || !upstream.stream) {
