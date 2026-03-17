@@ -9,6 +9,10 @@ export const LIMITS = {
   assignmentInstructionsMax: 500,
   assignmentPointsMin: 1,
   assignmentPointsMax: 1000,
+  rubricTitleMax: 80,
+  rubricCriteriaMax: 8,
+  rubricCriterionNameMax: 60,
+  rubricCriterionDescriptionMax: 120,
   attachmentNameMax: 120,
   maxAttachmentBytes: 10 * 1024 * 1024,
   studentNameMax: 80,
@@ -39,6 +43,55 @@ export const classCreateSchema = z.object({
 
 export const classUpdateSchema = classCreateSchema;
 
+const rubricCriterionSchema = z.object({
+  id: cleanTextSchema("Criterion id", 1, 100),
+  name: cleanTextSchema("Criterion name", 1, LIMITS.rubricCriterionNameMax),
+  description: cleanTextSchema(
+    "Criterion description",
+    0,
+    LIMITS.rubricCriterionDescriptionMax,
+    true
+  ).default(""),
+  maxPoints: z
+    .number()
+    .int("Criterion points must be a whole number.")
+    .min(1, "Criterion points must be at least 1.")
+    .max(LIMITS.assignmentPointsMax, `Criterion points must be ${LIMITS.assignmentPointsMax} or fewer.`),
+});
+
+export const rubricSchema = z
+  .object({
+    title: cleanTextSchema("Rubric title", 1, LIMITS.rubricTitleMax),
+    criteria: z
+      .array(rubricCriterionSchema)
+      .min(1, "Rubric must include at least one criterion.")
+      .max(LIMITS.rubricCriteriaMax, `Rubric can include at most ${LIMITS.rubricCriteriaMax} criteria.`),
+  })
+  .superRefine((value, context) => {
+    const total = value.criteria.reduce((sum, criterion) => sum + criterion.maxPoints, 0);
+    if (total < LIMITS.assignmentPointsMin || total > LIMITS.assignmentPointsMax) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Rubric total must be between ${LIMITS.assignmentPointsMin} and ${LIMITS.assignmentPointsMax}.`,
+        path: ["criteria"],
+      });
+    }
+  });
+
+const rubricScoreSchema = z.object({
+  criterionId: cleanTextSchema("Criterion id", 1, 100),
+  criterionName: cleanTextSchema("Criterion name", 1, LIMITS.rubricCriterionNameMax),
+  maxPoints: z
+    .number()
+    .int("Criterion points must be a whole number.")
+    .min(1, "Criterion points must be at least 1.")
+    .max(LIMITS.assignmentPointsMax, `Criterion points must be ${LIMITS.assignmentPointsMax} or fewer.`),
+  awarded: z
+    .number()
+    .int("Criterion score must be a whole number.")
+    .min(0, "Criterion score must be 0 or higher."),
+});
+
 export const assignmentCreateSchema = z.object({
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true).default(""),
@@ -55,6 +108,7 @@ export const assignmentCreateSchema = z.object({
     })
     .nullable()
     .optional(),
+  rubric: rubricSchema.nullable().optional(),
 });
 
 export const assignmentUpdateSchema = z.object({
@@ -72,6 +126,7 @@ export const assignmentUpdateSchema = z.object({
     })
     .nullable()
     .optional(),
+  rubric: rubricSchema.nullable().optional(),
 });
 
 export const submissionCreateSchema = z.object({
@@ -90,6 +145,20 @@ export const submissionPatchSchema = z
       .nullable()
       .optional(),
     feedback: cleanTextSchema("Feedback", 0, LIMITS.feedbackMax, true),
+    rubricScores: z.array(rubricScoreSchema).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.rubricScores) {
+      for (const [index, score] of value.rubricScores.entries()) {
+        if (score.awarded > score.maxPoints) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Criterion score cannot exceed its max points.",
+            path: ["rubricScores", index, "awarded"],
+          });
+        }
+      }
+    }
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one editable field is required.",
@@ -118,6 +187,10 @@ export type ParsedAttachment = {
   mimeType: "application/pdf" | "image/png" | "image/jpeg";
   buffer: Buffer;
 };
+
+export type RubricCriterion = z.infer<typeof rubricCriterionSchema>;
+export type Rubric = z.infer<typeof rubricSchema>;
+export type RubricScore = z.infer<typeof rubricScoreSchema>;
 
 const allowedAudioTypes = new Set<ParsedAudio["mimeType"]>([
   "audio/webm",
@@ -182,6 +255,10 @@ export function parseAttachmentDataUrl(dataUrl: string): ParsedAttachment {
   }
 
   return { mimeType, buffer };
+}
+
+export function rubricTotalPoints(rubric: Rubric) {
+  return rubric.criteria.reduce((sum, criterion) => sum + criterion.maxPoints, 0);
 }
 
 export function zodErrorToFieldErrors(error: ZodError) {

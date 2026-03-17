@@ -22,20 +22,60 @@ export async function PATCH(
     const hasStudentName = typeof body.studentName !== "undefined";
     const hasGrade = Object.prototype.hasOwnProperty.call(body, "grade");
     const hasFeedback = typeof body.feedback !== "undefined";
+    const hasRubricScores = Array.isArray(body.rubricScores);
 
     const studentName = hasStudentName ? body.studentName! : existing.studentName;
-    const grade = hasGrade ? body.grade ?? null : existing.grade;
+    let grade = hasGrade ? body.grade ?? null : existing.grade;
     const feedback = hasFeedback ? body.feedback ?? "" : existing.feedback;
-    if (grade !== null) {
+    let rubricScores = hasRubricScores ? body.rubricScores! : existing.rubricScores;
+
+    if (grade !== null || hasRubricScores) {
       const assignment = await findAssignmentById(existing.assignmentId, teacherEmail);
       if (!assignment) {
         return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
       }
-      if (grade > assignment.maxPoints) {
+
+      if (hasRubricScores) {
+        if (!assignment.rubric) {
+          throw new HttpError(400, "This assignment does not use rubric grading.");
+        }
+        const criteriaById = new Map(assignment.rubric.criteria.map((criterion) => [criterion.id, criterion]));
+        if (body.rubricScores!.length !== assignment.rubric.criteria.length) {
+          throw new HttpError(400, "Rubric scores must include every rubric criterion.");
+        }
+        rubricScores = body.rubricScores!.map((score) => {
+          const criterion = criteriaById.get(score.criterionId);
+          if (!criterion) {
+            throw new HttpError(400, "Rubric score does not match this assignment.");
+          }
+          if (score.awarded > criterion.maxPoints) {
+            throw new HttpError(400, `Criterion score must be between 0 and ${criterion.maxPoints}.`);
+          }
+          return {
+            criterionId: criterion.id,
+            criterionName: criterion.name,
+            maxPoints: criterion.maxPoints,
+            awarded: score.awarded,
+          };
+        });
+        grade = rubricScores.reduce((sum, item) => sum + item.awarded, 0);
+      }
+
+      if (grade !== null && grade > assignment.maxPoints) {
         throw new HttpError(400, `Score must be between 0 and ${assignment.maxPoints}.`);
       }
     }
-    const updated = await updateSubmission(submissionId, teacherEmail, { studentName, grade, feedback });
+
+    if (!hasRubricScores && hasGrade) {
+      rubricScores = null;
+    }
+
+    const updated = await updateSubmission(submissionId, teacherEmail, {
+      studentName,
+      grade,
+      feedback,
+      rubricScores,
+    });
     return NextResponse.json({ item: updated });
   });
 }

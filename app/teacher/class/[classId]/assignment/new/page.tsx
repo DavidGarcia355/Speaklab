@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
+import RubricBuilder, { type RubricCriterionDraft } from "@/app/components/RubricBuilder";
 
 type ClassLookup = {
   item: {
@@ -18,6 +19,24 @@ type AttachmentDraft = {
   fileName: string;
   dataUrl: string;
 };
+
+function createCriterionDraft(): RubricCriterionDraft {
+  return {
+    id: `criterion_${crypto.randomUUID()}`,
+    name: "",
+    description: "",
+    maxPoints: "10",
+  };
+}
+
+function parseRubricCriteria(criteria: RubricCriterionDraft[]) {
+  return criteria.map((criterion) => ({
+    id: criterion.id,
+    name: criterion.name.trim(),
+    description: criterion.description.trim(),
+    maxPoints: Number(criterion.maxPoints),
+  }));
+}
 
 async function fileToDataUrl(file: File) {
   return await new Promise<string>((resolve, reject) => {
@@ -39,6 +58,9 @@ export default function NewAssignmentPage() {
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [maxPoints, setMaxPoints] = useState("100");
+  const [rubricEnabled, setRubricEnabled] = useState(false);
+  const [rubricTitle, setRubricTitle] = useState("");
+  const [rubricCriteria, setRubricCriteria] = useState<RubricCriterionDraft[]>([]);
   const [attachment, setAttachment] = useState<AttachmentDraft | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [hintMsg, setHintMsg] = useState("");
@@ -113,7 +135,36 @@ export default function NewAssignmentPage() {
       return;
     }
     const parsedMaxPoints = Number(maxPoints);
-    if (!Number.isInteger(parsedMaxPoints) || parsedMaxPoints < 1 || parsedMaxPoints > 1000) {
+    const parsedRubricCriteria = parseRubricCriteria(rubricCriteria);
+    const rubricTotal = parsedRubricCriteria.reduce((sum, criterion) => sum + (Number.isFinite(criterion.maxPoints) ? criterion.maxPoints : 0), 0);
+    if (rubricEnabled) {
+      if (!rubricTitle.trim()) {
+        setErrorMsg("Rubric title is required.");
+        return;
+      }
+      if (parsedRubricCriteria.length === 0) {
+        setErrorMsg("Add at least one rubric criterion.");
+        return;
+      }
+      if (parsedRubricCriteria.length > 8) {
+        setErrorMsg("Rubrics can include up to 8 criteria.");
+        return;
+      }
+      for (const criterion of parsedRubricCriteria) {
+        if (!criterion.name) {
+          setErrorMsg("Each rubric criterion needs a name.");
+          return;
+        }
+        if (!Number.isInteger(criterion.maxPoints) || criterion.maxPoints < 1) {
+          setErrorMsg("Each rubric criterion must have at least 1 point.");
+          return;
+        }
+      }
+      if (rubricTotal < 1 || rubricTotal > 1000) {
+        setErrorMsg("Rubric total must be between 1 and 1000 points.");
+        return;
+      }
+    } else if (!Number.isInteger(parsedMaxPoints) || parsedMaxPoints < 1 || parsedMaxPoints > 1000) {
       setErrorMsg("Points possible must be a whole number from 1 to 1000.");
       return;
     }
@@ -129,7 +180,15 @@ export default function NewAssignmentPage() {
           title: cleanTitle,
           description,
           instructions,
-          maxPoints: parsedMaxPoints,
+          maxPoints: rubricEnabled ? rubricTotal : parsedMaxPoints,
+          ...(rubricEnabled
+            ? {
+                rubric: {
+                  title: rubricTitle.trim(),
+                  criteria: parsedRubricCriteria,
+                },
+              }
+            : {}),
           ...(attachment ? { attachment } : {}),
         }),
       });
@@ -227,20 +286,56 @@ export default function NewAssignmentPage() {
           <p className="meta field-meta">{instructions.length}/500</p>
 
           <label className="label form-label-top" htmlFor="assignment-max-points">
-            Points possible
+            {rubricEnabled ? "Points possible" : "Points possible"}
           </label>
-          <input
-            id="assignment-max-points"
-            className="input"
-            type="number"
-            min={1}
-            max={1000}
-            step={1}
-            inputMode="numeric"
-            value={maxPoints}
-            onChange={(event) => setMaxPoints(event.target.value)}
+          {rubricEnabled ? (
+            <div className="notice info assignment-attachment-notice">
+              Points possible: <strong>{parseRubricCriteria(rubricCriteria).reduce((sum, criterion) => sum + (Number.isFinite(criterion.maxPoints) ? criterion.maxPoints : 0), 0)}</strong>
+            </div>
+          ) : (
+            <>
+              <input
+                id="assignment-max-points"
+                className="input"
+                type="number"
+                min={1}
+                max={1000}
+                step={1}
+                inputMode="numeric"
+                value={maxPoints}
+                onChange={(event) => setMaxPoints(event.target.value)}
+              />
+              <p className="meta field-meta">Students will be graded out of this number of points.</p>
+            </>
+          )}
+
+          <RubricBuilder
+            enabled={rubricEnabled}
+            title={rubricTitle}
+            criteria={rubricCriteria}
+            totalPoints={parseRubricCriteria(rubricCriteria).reduce(
+              (sum, criterion) => sum + (Number.isFinite(criterion.maxPoints) ? criterion.maxPoints : 0),
+              0
+            )}
+            onToggle={(enabled) => {
+              setRubricEnabled(enabled);
+              if (enabled && rubricCriteria.length === 0) {
+                setRubricCriteria([createCriterionDraft()]);
+              }
+            }}
+            onTitleChange={setRubricTitle}
+            onCriterionChange={(index, update) =>
+              setRubricCriteria((prev) =>
+                prev.map((criterion, criterionIndex) =>
+                  criterionIndex === index ? { ...criterion, ...update } : criterion
+                )
+              )
+            }
+            onAddCriterion={() => setRubricCriteria((prev) => [...prev, createCriterionDraft()])}
+            onRemoveCriterion={(index) =>
+              setRubricCriteria((prev) => prev.filter((_, criterionIndex) => criterionIndex !== index))
+            }
           />
-          <p className="meta field-meta">Students will be graded out of this number of points.</p>
 
           <label className="label form-label-top" htmlFor="assignment-attachment">
             Attachment (optional)
@@ -274,7 +369,7 @@ export default function NewAssignmentPage() {
                 saving ||
                 title.trim().length === 0 ||
                 instructions.trim().length === 0 ||
-                maxPoints.trim().length === 0
+                (!rubricEnabled && maxPoints.trim().length === 0)
               }
             >
               {saving ? "Creating..." : "Create Assignment"}

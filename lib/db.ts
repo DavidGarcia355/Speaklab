@@ -2,6 +2,7 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient, type Client, type InValue, type Row } from "@libsql/client";
+import type { Rubric, RubricScore } from "@/lib/validation";
 
 const QUERY_TIMEOUT_MS = 5000;
 
@@ -24,6 +25,7 @@ export type AssignmentRow = {
   description: string;
   instructions: string;
   maxPoints: number;
+  rubric: Rubric | null;
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
@@ -49,6 +51,7 @@ export type SubmissionRow = {
   submittedAt: number;
   feedback: string;
   grade: number | null;
+  rubricScores: RubricScore[] | null;
 };
 
 export type GradebookRow = {
@@ -224,11 +227,13 @@ async function ensureInitialized() {
       await ensureColumn("classes", "owner_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "deleted_at", "INTEGER");
       await ensureColumn("assignments", "max_points", "INTEGER NOT NULL DEFAULT 100");
+      await ensureColumn("assignments", "rubric", "TEXT");
       await ensureColumn("assignments", "attachment_name", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "attachment_url", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "attachment_content_type", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "student_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
+      await ensureColumn("submissions", "rubric_scores", "TEXT");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
     })();
   }
@@ -259,6 +264,21 @@ function toStringValue(value: unknown) {
 
 function toProtectedAudioPath(id: string) {
   return `/api/submissions/${id}/audio`;
+}
+
+function parseJsonValue<T>(value: unknown): T | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    return null;
+  }
+}
+
+function stringifyJsonValue(value: unknown) {
+  return value === null ? null : JSON.stringify(value);
 }
 
 export async function listClasses(): Promise<ClassSummaryRow[]> {
@@ -415,6 +435,7 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
       a.description as description,
       a.instructions as instructions,
       COALESCE(a.max_points, 100) as maxPoints,
+      a.rubric as rubric,
       COALESCE(a.attachment_name, '') as attachmentName,
       COALESCE(a.attachment_url, '') as attachmentUrl,
       COALESCE(a.attachment_content_type, '') as attachmentContentType,
@@ -438,6 +459,7 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
     maxPoints: toNumber(row.maxPoints),
+    rubric: parseJsonValue<Rubric>(row.rubric),
     attachmentName: toStringValue(row.attachmentName),
     attachmentUrl: toStringValue(row.attachmentUrl),
     attachmentContentType: toStringValue(row.attachmentContentType),
@@ -453,6 +475,7 @@ export async function createAssignment(input: {
   description: string;
   instructions: string;
   maxPoints: number;
+  rubric: Rubric | null;
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
@@ -464,6 +487,7 @@ export async function createAssignment(input: {
     description: input.description,
     instructions: input.instructions,
     maxPoints: input.maxPoints,
+    rubric: input.rubric,
     attachmentName: input.attachmentName,
     attachmentUrl: input.attachmentUrl,
     attachmentContentType: input.attachmentContentType,
@@ -471,9 +495,9 @@ export async function createAssignment(input: {
   };
   await query(
     `INSERT INTO assignments (
-      id, class_id, title, description, instructions, max_points, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at
+      id, class_id, title, description, instructions, max_points, rubric, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
     WHERE EXISTS (
       SELECT 1 FROM classes c
       WHERE c.id = ?
@@ -487,6 +511,7 @@ export async function createAssignment(input: {
       item.description,
       item.instructions,
       item.maxPoints,
+      stringifyJsonValue(item.rubric),
       item.attachmentName,
       item.attachmentUrl,
       item.attachmentContentType,
@@ -509,6 +534,7 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
       a.description as description,
       a.instructions as instructions,
       COALESCE(a.max_points, 100) as maxPoints,
+      a.rubric as rubric,
       COALESCE(a.attachment_name, '') as attachmentName,
       COALESCE(a.attachment_url, '') as attachmentUrl,
       COALESCE(a.attachment_content_type, '') as attachmentContentType,
@@ -533,6 +559,7 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
     maxPoints: toNumber(row.maxPoints),
+    rubric: parseJsonValue<Rubric>(row.rubric),
     attachmentName: toStringValue(row.attachmentName),
     attachmentUrl: toStringValue(row.attachmentUrl),
     attachmentContentType: toStringValue(row.attachmentContentType),
@@ -547,6 +574,7 @@ export async function updateAssignment(
     title: string;
     instructions: string;
     maxPoints: number;
+    rubric: Rubric | null;
     attachmentName: string;
     attachmentUrl: string;
     attachmentContentType: string;
@@ -554,7 +582,7 @@ export async function updateAssignment(
 ): Promise<AssignmentDetailRow | null> {
   const result = await query(
     `UPDATE assignments
-    SET title = ?, instructions = ?, max_points = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
+    SET title = ?, instructions = ?, max_points = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
     WHERE id = ?
       AND deleted_at IS NULL
       AND id IN (
@@ -569,6 +597,7 @@ export async function updateAssignment(
       input.title,
       input.instructions,
       input.maxPoints,
+      stringifyJsonValue(input.rubric),
       input.attachmentName,
       input.attachmentUrl,
       input.attachmentContentType,
@@ -671,7 +700,8 @@ export async function listSubmissionsByClassId(classId: string, ownerEmail?: str
       s.student_email as studentEmail,
       s.submitted_at as submittedAt,
       COALESCE(s.feedback, '') as feedback,
-      s.grade as grade
+      s.grade as grade,
+      s.rubric_scores as rubricScores
     FROM submissions s
     JOIN assignments a ON a.id = s.assignment_id
     JOIN classes c ON c.id = a.class_id
@@ -693,6 +723,7 @@ export async function listSubmissionsByClassId(classId: string, ownerEmail?: str
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
+    rubricScores: parseJsonValue<RubricScore[]>(row.rubricScores),
   }));
 }
 
@@ -706,7 +737,8 @@ export async function findSubmissionById(submissionId: string, ownerEmail?: stri
       s.student_email as studentEmail,
       s.submitted_at as submittedAt,
       COALESCE(s.feedback, '') as feedback,
-      s.grade as grade
+      s.grade as grade,
+      s.rubric_scores as rubricScores
     FROM submissions s
     JOIN assignments a ON a.id = s.assignment_id
     JOIN classes c ON c.id = a.class_id
@@ -730,6 +762,7 @@ export async function findSubmissionById(submissionId: string, ownerEmail?: stri
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
+    rubricScores: parseJsonValue<RubricScore[]>(row.rubricScores),
   };
 }
 
@@ -765,11 +798,11 @@ export async function findSubmissionAccessById(
 export async function updateSubmission(
   submissionId: string,
   ownerEmail: string,
-  input: { studentName: string; grade: number | null; feedback: string }
+  input: { studentName: string; grade: number | null; feedback: string; rubricScores: RubricScore[] | null }
 ) {
   await query(
     `UPDATE submissions
-    SET student_name = ?, grade = ?, feedback = ?
+    SET student_name = ?, grade = ?, feedback = ?, rubric_scores = ?
     WHERE id = ?
       AND id IN (
         SELECT s.id
@@ -781,7 +814,15 @@ export async function updateSubmission(
           AND LOWER(c.owner_email) = LOWER(?)
       )
       AND deleted_at IS NULL`,
-    [input.studentName, input.grade, input.feedback, submissionId, submissionId, ownerEmail]
+    [
+      input.studentName,
+      input.grade,
+      input.feedback,
+      stringifyJsonValue(input.rubricScores),
+      submissionId,
+      submissionId,
+      ownerEmail,
+    ]
   );
   return findSubmissionById(submissionId, ownerEmail);
 }

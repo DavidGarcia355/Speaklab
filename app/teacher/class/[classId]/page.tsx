@@ -8,6 +8,7 @@ import AudioPlayer from "@/app/components/AudioPlayer";
 import BrandBar from "@/app/components/BrandBar";
 import ConfirmModal from "@/app/components/ConfirmModal";
 import PageTitle from "@/app/components/PageTitle";
+import RubricBuilder, { type RubricCriterionDraft } from "@/app/components/RubricBuilder";
 import UndoToast from "@/app/components/UndoToast";
 
 type AssignmentSummary = {
@@ -17,6 +18,15 @@ type AssignmentSummary = {
   description: string;
   instructions: string;
   maxPoints: number;
+  rubric: {
+    title: string;
+    criteria: {
+      id: string;
+      name: string;
+      description: string;
+      maxPoints: number;
+    }[];
+  } | null;
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
@@ -34,6 +44,12 @@ type SubmissionItem = {
   submittedAt: number;
   feedback: string;
   grade: number | null;
+  rubricScores: {
+    criterionId: string;
+    criterionName: string;
+    maxPoints: number;
+    awarded: number;
+  }[] | null;
 };
 
 type ClassPayload = {
@@ -43,7 +59,12 @@ type ClassPayload = {
   stats: { assignmentCount: number; submissionCount: number };
 };
 
-type DraftState = { gradeInput: string; feedback: string; saving: boolean };
+type DraftState = {
+  gradeInput: string;
+  feedback: string;
+  saving: boolean;
+  rubricScoreInputs: Record<string, string>;
+};
 type Tone = "warning" | "success" | "neutral";
 type AssignmentView = AssignmentSummary & {
   totalSubmissions: number;
@@ -75,6 +96,47 @@ function autoResizeTextarea(element: HTMLTextAreaElement) {
   element.style.height = `${Math.min(element.scrollHeight, 220)}px`;
 }
 
+function createCriterionDraft(): RubricCriterionDraft {
+  return {
+    id: `criterion_${crypto.randomUUID()}`,
+    name: "",
+    description: "",
+    maxPoints: "10",
+  };
+}
+
+function rubricDraftsFromAssignment(assignment: AssignmentSummary | AssignmentView | null) {
+  if (!assignment?.rubric) return [];
+  return assignment.rubric.criteria.map((criterion) => ({
+    id: criterion.id,
+    name: criterion.name,
+    description: criterion.description,
+    maxPoints: String(criterion.maxPoints),
+  }));
+}
+
+function parseRubricCriteria(criteria: RubricCriterionDraft[]) {
+  return criteria.map((criterion) => ({
+    id: criterion.id,
+    name: criterion.name.trim(),
+    description: criterion.description.trim(),
+    maxPoints: Number(criterion.maxPoints),
+  }));
+}
+
+function rubricInputsFromSubmission(
+  submission: SubmissionItem,
+  assignment: AssignmentSummary | AssignmentView | null
+) {
+  const inputs: Record<string, string> = {};
+  if (!assignment?.rubric) return inputs;
+  for (const criterion of assignment.rubric.criteria) {
+    const existing = submission.rubricScores?.find((score) => score.criterionId === criterion.id);
+    inputs[criterion.id] = existing ? String(existing.awarded) : "";
+  }
+  return inputs;
+}
+
 async function fileToDataUrl(file: File) {
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -103,6 +165,9 @@ export default function ClassDetailPage() {
   const [assignmentTitleDraft, setAssignmentTitleDraft] = useState("");
   const [assignmentInstructionsDraft, setAssignmentInstructionsDraft] = useState("");
   const [assignmentMaxPointsDraft, setAssignmentMaxPointsDraft] = useState("100");
+  const [assignmentRubricEnabled, setAssignmentRubricEnabled] = useState(false);
+  const [assignmentRubricTitleDraft, setAssignmentRubricTitleDraft] = useState("");
+  const [assignmentRubricCriteriaDraft, setAssignmentRubricCriteriaDraft] = useState<RubricCriterionDraft[]>([]);
   const [assignmentAttachmentDraft, setAssignmentAttachmentDraft] = useState<AttachmentDraft>(null);
   const [assignmentAttachmentRemoved, setAssignmentAttachmentRemoved] = useState(false);
   const [assignmentSaving, setAssignmentSaving] = useState(false);
@@ -137,10 +202,12 @@ export default function ClassDetailPage() {
       setDrafts((prev) => {
         const next = { ...prev };
         for (const submission of data.submissions) {
+          const assignment = data.assignments.find((item) => item.id === submission.assignmentId) ?? null;
           next[submission.id] = {
             gradeInput: prev[submission.id]?.gradeInput ?? (submission.grade === null ? "" : String(submission.grade)),
             feedback: prev[submission.id]?.feedback ?? submission.feedback ?? "",
             saving: false,
+            rubricScoreInputs: prev[submission.id]?.rubricScoreInputs ?? rubricInputsFromSubmission(submission, assignment),
           };
         }
         return next;
@@ -245,6 +312,7 @@ export default function ClassDetailPage() {
         gradeInput: prev[submissionId]?.gradeInput ?? "",
         feedback: prev[submissionId]?.feedback ?? "",
         saving: prev[submissionId]?.saving ?? false,
+        rubricScoreInputs: prev[submissionId]?.rubricScoreInputs ?? {},
         ...update,
       },
     }));
@@ -254,29 +322,76 @@ export default function ClassDetailPage() {
     const draft = drafts[submissionId];
     const existing = payload?.submissions.find((item) => item.id === submissionId);
     if (!draft || !existing) return;
-    const clean = draft.gradeInput.trim();
     const maxPoints = activeAssignment?.maxPoints ?? 100;
+    const rubric = activeAssignment?.rubric ?? null;
     let parsedGrade: number | null = null;
-    if (clean !== "") {
-      const numericGrade = Number(clean);
-      if (!Number.isFinite(numericGrade) || numericGrade < 0 || numericGrade > maxPoints) {
-        setSubmissionErrors((prev) => ({ ...prev, [submissionId]: `Score must be a number from 0 to ${maxPoints}.` }));
-        return;
+    let rubricScores:
+      | {
+          criterionId: string;
+          criterionName: string;
+          maxPoints: number;
+          awarded: number;
+        }[]
+      | null = null;
+
+    if (rubric) {
+      rubricScores = [];
+      for (const criterion of rubric.criteria) {
+        const value = draft.rubricScoreInputs[criterion.id]?.trim() ?? "";
+        if (value === "") {
+          setSubmissionErrors((prev) => ({
+            ...prev,
+            [submissionId]: `Enter a score for ${criterion.name}.`,
+          }));
+          return;
+        }
+        const awarded = Number(value);
+        if (!Number.isInteger(awarded) || awarded < 0 || awarded > criterion.maxPoints) {
+          setSubmissionErrors((prev) => ({
+            ...prev,
+            [submissionId]: `${criterion.name} must be a whole number from 0 to ${criterion.maxPoints}.`,
+          }));
+          return;
+        }
+        rubricScores.push({
+          criterionId: criterion.id,
+          criterionName: criterion.name,
+          maxPoints: criterion.maxPoints,
+          awarded,
+        });
       }
-      parsedGrade = numericGrade;
+      parsedGrade = rubricScores.reduce((sum, item) => sum + item.awarded, 0);
+    } else {
+      const clean = draft.gradeInput.trim();
+      if (clean !== "") {
+        const numericGrade = Number(clean);
+        if (!Number.isFinite(numericGrade) || numericGrade < 0 || numericGrade > maxPoints) {
+          setSubmissionErrors((prev) => ({ ...prev, [submissionId]: `Score must be a number from 0 to ${maxPoints}.` }));
+          return;
+        }
+        parsedGrade = numericGrade;
+      }
     }
 
     setDraft(submissionId, { saving: true });
     setSubmissionErrors((prev) => ({ ...prev, [submissionId]: "" }));
     updatePayloadSubmissions((items) =>
-      items.map((row) => (row.id === submissionId ? { ...row, grade: parsedGrade, feedback: draft.feedback } : row))
+      items.map((row) =>
+        row.id === submissionId
+          ? { ...row, grade: parsedGrade, feedback: draft.feedback, rubricScores }
+          : row
+      )
     );
 
     try {
       const response = await fetch(`/api/submissions/${submissionId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ grade: parsedGrade, feedback: draft.feedback }),
+        body: JSON.stringify(
+          rubric
+            ? { rubricScores, feedback: draft.feedback }
+            : { grade: parsedGrade, feedback: draft.feedback }
+        ),
       });
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
@@ -290,7 +405,16 @@ export default function ClassDetailPage() {
       window.setTimeout(() => setInfoMsg(""), 1300);
     } catch (error) {
       updatePayloadSubmissions((items) =>
-        items.map((row) => (row.id === submissionId ? { ...row, grade: existing.grade, feedback: existing.feedback } : row))
+        items.map((row) =>
+          row.id === submissionId
+            ? {
+                ...row,
+                grade: existing.grade,
+                feedback: existing.feedback,
+                rubricScores: existing.rubricScores,
+              }
+            : row
+        )
       );
       setSubmissionErrors((prev) => ({ ...prev, [submissionId]: error instanceof Error ? error.message : "Failed to save grade." }));
     } finally {
@@ -333,6 +457,11 @@ export default function ClassDetailPage() {
     setAssignmentTitleDraft(activeAssignment.title);
     setAssignmentInstructionsDraft(activeAssignment.instructions);
     setAssignmentMaxPointsDraft(String(activeAssignment.maxPoints));
+    setAssignmentRubricEnabled(Boolean(activeAssignment.rubric));
+    setAssignmentRubricTitleDraft(activeAssignment.rubric?.title ?? "");
+    setAssignmentRubricCriteriaDraft(
+      activeAssignment.rubric ? rubricDraftsFromAssignment(activeAssignment) : []
+    );
     setAssignmentAttachmentDraft(null);
     setAssignmentAttachmentRemoved(false);
     setAssignmentError("");
@@ -372,11 +501,43 @@ export default function ClassDetailPage() {
     const title = assignmentTitleDraft.trim();
     const instructions = assignmentInstructionsDraft.trim();
     const parsedMaxPoints = Number(assignmentMaxPointsDraft);
+    const parsedRubricCriteria = parseRubricCriteria(assignmentRubricCriteriaDraft);
+    const rubricTotal = parsedRubricCriteria.reduce(
+      (sum, criterion) => sum + (Number.isFinite(criterion.maxPoints) ? criterion.maxPoints : 0),
+      0
+    );
     if (!title || !instructions) {
       setAssignmentError("Assignment name and instructions are required.");
       return;
     }
-    if (!Number.isInteger(parsedMaxPoints) || parsedMaxPoints < 1 || parsedMaxPoints > 1000) {
+    if (assignmentRubricEnabled) {
+      if (!assignmentRubricTitleDraft.trim()) {
+        setAssignmentError("Rubric title is required.");
+        return;
+      }
+      if (parsedRubricCriteria.length === 0) {
+        setAssignmentError("Add at least one rubric criterion.");
+        return;
+      }
+      if (parsedRubricCriteria.length > 8) {
+        setAssignmentError("Rubrics can include up to 8 criteria.");
+        return;
+      }
+      for (const criterion of parsedRubricCriteria) {
+        if (!criterion.name) {
+          setAssignmentError("Each rubric criterion needs a name.");
+          return;
+        }
+        if (!Number.isInteger(criterion.maxPoints) || criterion.maxPoints < 1) {
+          setAssignmentError("Each rubric criterion must have at least 1 point.");
+          return;
+        }
+      }
+      if (rubricTotal < 1 || rubricTotal > 1000) {
+        setAssignmentError("Rubric total must be between 1 and 1000 points.");
+        return;
+      }
+    } else if (!Number.isInteger(parsedMaxPoints) || parsedMaxPoints < 1 || parsedMaxPoints > 1000) {
       setAssignmentError("Points possible must be a whole number from 1 to 1000.");
       return;
     }
@@ -385,10 +546,17 @@ export default function ClassDetailPage() {
       title: activeAssignment.title,
       instructions: activeAssignment.instructions,
       maxPoints: activeAssignment.maxPoints,
+      rubric: activeAssignment.rubric,
       attachmentName: activeAssignment.attachmentName,
       attachmentUrl: activeAssignment.attachmentUrl,
       attachmentContentType: activeAssignment.attachmentContentType,
     };
+    const rubricPayload = assignmentRubricEnabled
+      ? {
+          title: assignmentRubricTitleDraft.trim(),
+          criteria: parsedRubricCriteria,
+        }
+      : null;
     const attachmentPayload =
       assignmentAttachmentDraft ? assignmentAttachmentDraft : assignmentAttachmentRemoved ? null : undefined;
     setAssignmentSaving(true);
@@ -400,7 +568,8 @@ export default function ClassDetailPage() {
               ...row,
               title,
               instructions,
-              maxPoints: parsedMaxPoints,
+              maxPoints: assignmentRubricEnabled ? rubricTotal : parsedMaxPoints,
+              rubric: rubricPayload,
               attachmentName: assignmentAttachmentDraft?.fileName ?? (assignmentAttachmentRemoved ? "" : row.attachmentName),
               attachmentUrl: assignmentAttachmentRemoved ? "" : row.attachmentUrl,
               attachmentContentType: assignmentAttachmentRemoved ? "" : row.attachmentContentType,
@@ -413,7 +582,13 @@ export default function ClassDetailPage() {
       const response = await fetch(`/api/assignments/${activeAssignment.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, instructions, maxPoints: parsedMaxPoints, attachment: attachmentPayload }),
+        body: JSON.stringify({
+          title,
+          instructions,
+          maxPoints: assignmentRubricEnabled ? rubricTotal : parsedMaxPoints,
+          rubric: rubricPayload,
+          attachment: attachmentPayload,
+        }),
       });
       const data = (await response.json()) as {
         error?: string;
@@ -422,6 +597,7 @@ export default function ClassDetailPage() {
           title: string;
           instructions: string;
           maxPoints: number;
+          rubric: AssignmentSummary["rubric"];
           attachmentName: string;
           attachmentUrl: string;
           attachmentContentType: string;
@@ -435,15 +611,16 @@ export default function ClassDetailPage() {
           items.map((row) =>
             row.id === activeAssignment.id
               ? {
-                  ...row,
-                  title: data.item!.title,
-                  instructions: data.item!.instructions,
-                  maxPoints: data.item!.maxPoints,
-                  attachmentName: data.item!.attachmentName,
-                  attachmentUrl: data.item!.attachmentUrl,
-                  attachmentContentType: data.item!.attachmentContentType,
-                }
-              : row
+                ...row,
+                title: data.item!.title,
+                instructions: data.item!.instructions,
+                maxPoints: data.item!.maxPoints,
+                rubric: data.item!.rubric,
+                attachmentName: data.item!.attachmentName,
+                attachmentUrl: data.item!.attachmentUrl,
+                attachmentContentType: data.item!.attachmentContentType,
+              }
+            : row
           )
         );
       }
@@ -636,6 +813,12 @@ export default function ClassDetailPage() {
                 {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
                 <div className="assignment-instructions"><p className="meta"><strong>Instructions:</strong> {activeAssignment.instructions?.trim() || "No instructions provided."}</p></div>
                 <p className="meta"><strong>Points possible:</strong> {activeAssignment.maxPoints}</p>
+                {activeAssignment.rubric ? (
+                  <div className="notice info assignment-attachment-notice">
+                    Rubric: <strong>{activeAssignment.rubric.title}</strong> with{" "}
+                    {pluralize(activeAssignment.rubric.criteria.length, "criterion")}
+                  </div>
+                ) : null}
                 {activeAssignment.attachmentUrl ? (
                   <div className="notice info assignment-attachment-notice">
                     Attachment: <strong>{activeAssignment.attachmentName || "Directions file"}</strong>
@@ -655,8 +838,19 @@ export default function ClassDetailPage() {
                 {activeAllSubmissions.length === 0 ? <p className="empty">No submissions yet for this assignment.</p> : activeFilteredSubmissions.length === 0 ? <p className="empty">No submissions match current filters.</p> : (
                   <div className="grid submission-grid assignment-submissions">
                     {activeFilteredSubmissions.map((submission) => {
-                      const draft = drafts[submission.id] ?? { gradeInput: submission.grade === null ? "" : String(submission.grade), feedback: submission.feedback ?? "", saving: false };
+                      const draft = drafts[submission.id] ?? {
+                        gradeInput: submission.grade === null ? "" : String(submission.grade),
+                        feedback: submission.feedback ?? "",
+                        saving: false,
+                        rubricScoreInputs: rubricInputsFromSubmission(submission, activeAssignment),
+                      };
                       const isEditing = editingSubmissionId === submission.id;
+                      const rubricTotal = activeAssignment.rubric
+                        ? activeAssignment.rubric.criteria.reduce((sum, criterion) => {
+                            const value = draft.rubricScoreInputs[criterion.id]?.trim() ?? "";
+                            return sum + (value === "" ? 0 : Number(value) || 0);
+                          }, 0)
+                        : null;
                       return (
                         <div key={submission.id} className="card submission-card">
                           <div className="dense-row">
@@ -669,9 +863,56 @@ export default function ClassDetailPage() {
                               <div className="meta">{formatDateTime(submission.submittedAt)}</div>
                               <div className="meta">{submission.studentEmail || "No email captured"}</div>
                             </div>
-                            <div className="score-control"><label className="meta score-label" htmlFor={`grade-${submission.id}`}>Score</label><div className="score-field"><input id={`grade-${submission.id}`} className="input score-input" type="number" min={0} max={activeAssignment.maxPoints} step={1} inputMode="numeric" placeholder="0" value={draft.gradeInput} onChange={(event) => setDraft(submission.id, { gradeInput: event.target.value })} /><span className="score-suffix">/{activeAssignment.maxPoints}</span></div></div>
+                            {activeAssignment.rubric ? (
+                              <div className="score-control">
+                                <label className="meta score-label">Total</label>
+                                <div className="score-field">
+                                  <span className="score-suffix">
+                                    {rubricTotal} / {activeAssignment.maxPoints}
+                                  </span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="score-control"><label className="meta score-label" htmlFor={`grade-${submission.id}`}>Score</label><div className="score-field"><input id={`grade-${submission.id}`} className="input score-input" type="number" min={0} max={activeAssignment.maxPoints} step={1} inputMode="numeric" placeholder="0" value={draft.gradeInput} onChange={(event) => setDraft(submission.id, { gradeInput: event.target.value })} /><span className="score-suffix">/{activeAssignment.maxPoints}</span></div></div>
+                            )}
                           </div>
                           <AudioPlayer src={submission.audioData} variant="compact" showSpeed={false} />
+                          {activeAssignment.rubric ? (
+                            <div className="grid section-gap">
+                              {activeAssignment.rubric.criteria.map((criterion) => (
+                                <div key={criterion.id} className="card panel-subtle">
+                                  <div className="dense-row">
+                                    <div>
+                                      <p className="label" style={{ marginBottom: 0 }}>{criterion.name}</p>
+                                      {criterion.description ? <p className="meta">{criterion.description}</p> : null}
+                                    </div>
+                                    <div className="score-field">
+                                      <input
+                                        id={`criterion-score-${submission.id}-${criterion.id}`}
+                                        className="input score-input"
+                                        type="number"
+                                        min={0}
+                                        max={criterion.maxPoints}
+                                        step={1}
+                                        inputMode="numeric"
+                                        placeholder="0"
+                                        value={draft.rubricScoreInputs[criterion.id] ?? ""}
+                                        onChange={(event) =>
+                                          setDraft(submission.id, {
+                                            rubricScoreInputs: {
+                                              ...draft.rubricScoreInputs,
+                                              [criterion.id]: event.target.value,
+                                            },
+                                          })
+                                        }
+                                      />
+                                      <span className="score-suffix">/{criterion.maxPoints}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                           <label className="label feedback-label" htmlFor={`feedback-${submission.id}`}>Feedback (optional)</label>
                           <textarea id={`feedback-${submission.id}`} className="textarea feedback-area" value={draft.feedback} onChange={(event) => setDraft(submission.id, { feedback: event.target.value })} onInput={(event) => autoResizeTextarea(event.currentTarget)} onFocus={(event) => autoResizeTextarea(event.currentTarget)} placeholder="Optional student feedback..." rows={2} />
                           <div className="actions submission-actions"><button type="button" className="btn btn-primary" onClick={() => void saveSubmission(submission.id)} disabled={draft.saving}>{draft.saving ? "Saving..." : "Save grade"}</button></div>
@@ -711,16 +952,53 @@ export default function ClassDetailPage() {
             <label className="label form-label-top" htmlFor="edit-assignment-instructions">Instructions</label>
             <textarea id="edit-assignment-instructions" className="textarea" rows={4} value={assignmentInstructionsDraft} onChange={(event) => setAssignmentInstructionsDraft(event.target.value)} maxLength={500} />
             <label className="label form-label-top" htmlFor="edit-assignment-max-points">Points possible</label>
-            <input
-              id="edit-assignment-max-points"
-              className="input"
-              type="number"
-              min={1}
-              max={1000}
-              step={1}
-              inputMode="numeric"
-              value={assignmentMaxPointsDraft}
-              onChange={(event) => setAssignmentMaxPointsDraft(event.target.value)}
+            {assignmentRubricEnabled ? (
+              <div className="notice info assignment-attachment-notice">
+                Points possible: <strong>{parseRubricCriteria(assignmentRubricCriteriaDraft).reduce((sum, criterion) => sum + (Number.isFinite(criterion.maxPoints) ? criterion.maxPoints : 0), 0)}</strong>
+              </div>
+            ) : (
+              <input
+                id="edit-assignment-max-points"
+                className="input"
+                type="number"
+                min={1}
+                max={1000}
+                step={1}
+                inputMode="numeric"
+                value={assignmentMaxPointsDraft}
+                onChange={(event) => setAssignmentMaxPointsDraft(event.target.value)}
+              />
+            )}
+            <RubricBuilder
+              enabled={assignmentRubricEnabled}
+              title={assignmentRubricTitleDraft}
+              criteria={assignmentRubricCriteriaDraft}
+              totalPoints={parseRubricCriteria(assignmentRubricCriteriaDraft).reduce(
+                (sum, criterion) => sum + (Number.isFinite(criterion.maxPoints) ? criterion.maxPoints : 0),
+                0
+              )}
+              onToggle={(enabled) => {
+                setAssignmentRubricEnabled(enabled);
+                if (enabled && assignmentRubricCriteriaDraft.length === 0) {
+                  setAssignmentRubricCriteriaDraft([createCriterionDraft()]);
+                }
+              }}
+              onTitleChange={setAssignmentRubricTitleDraft}
+              onCriterionChange={(index, update) =>
+                setAssignmentRubricCriteriaDraft((prev) =>
+                  prev.map((criterion, criterionIndex) =>
+                    criterionIndex === index ? { ...criterion, ...update } : criterion
+                  )
+                )
+              }
+              onAddCriterion={() =>
+                setAssignmentRubricCriteriaDraft((prev) => [...prev, createCriterionDraft()])
+              }
+              onRemoveCriterion={(index) =>
+                setAssignmentRubricCriteriaDraft((prev) =>
+                  prev.filter((_, criterionIndex) => criterionIndex !== index)
+                )
+              }
             />
             <label className="label form-label-top" htmlFor="edit-assignment-attachment">Attachment (optional)</label>
             <input

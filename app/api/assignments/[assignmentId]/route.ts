@@ -3,7 +3,12 @@ import { requireTeacherEmail } from "@/lib/authz";
 import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
 import { deleteAssignmentCascade, findAssignmentById, updateAssignment } from "@/lib/db";
 import { withApiHandler } from "@/lib/http";
-import { assignmentUpdateSchema, parseAttachmentDataUrl, parseOrThrow400 } from "@/lib/validation";
+import {
+  assignmentUpdateSchema,
+  parseAttachmentDataUrl,
+  parseOrThrow400,
+  rubricTotalPoints,
+} from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -38,7 +43,8 @@ export async function PATCH(
     const body = parseOrThrow400(assignmentUpdateSchema, await request.json());
     const title = body.title ?? "";
     const instructions = body.instructions ?? "";
-    const maxPoints = body.maxPoints ?? found.maxPoints;
+    const rubric = typeof body.rubric === "undefined" ? found.rubric : body.rubric ?? null;
+    const maxPoints = rubric ? rubricTotalPoints(rubric) : (body.maxPoints ?? found.maxPoints);
     let attachmentName = found.attachmentName;
     let attachmentUrl = found.attachmentUrl;
     let attachmentContentType = found.attachmentContentType;
@@ -63,6 +69,7 @@ export async function PATCH(
       title,
       instructions,
       maxPoints,
+      rubric,
       attachmentName,
       attachmentUrl,
       attachmentContentType,
