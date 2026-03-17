@@ -1,6 +1,13 @@
 import "server-only";
 import { put } from "@vercel/blob";
 
+function isPublicStoreAccessError(error: unknown) {
+  return (
+    error instanceof Error &&
+    error.message.includes("Cannot use private access on a public store")
+  );
+}
+
 export async function uploadSubmissionAudio(input: {
   assignmentId: string;
   submissionId: string;
@@ -15,10 +22,24 @@ export async function uploadSubmissionAudio(input: {
   };
   const ext = extMap[input.mimeType] ?? "bin";
   const key = `submissions/${input.assignmentId}/${input.submissionId}-${crypto.randomUUID()}.${ext}`;
-  const result = await put(key, input.buffer, {
-    access: "private",
-    contentType: input.mimeType,
-    addRandomSuffix: false,
-  });
-  return result.pathname;
+  try {
+    const result = await put(key, input.buffer, {
+      access: "private",
+      contentType: input.mimeType,
+      addRandomSuffix: false,
+    });
+    return result.pathname;
+  } catch (error) {
+    // Temporary compatibility path while production still uses a public Blob store.
+    if (!isPublicStoreAccessError(error)) {
+      throw error;
+    }
+
+    const result = await put(key, input.buffer, {
+      access: "public",
+      contentType: input.mimeType,
+      addRandomSuffix: false,
+    });
+    return result.url;
+  }
 }
