@@ -1,23 +1,32 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Clock3, FileSpreadsheet, MicVocal, ShieldCheck } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
 import { APP_NAME, CONTACT_LINKS } from "@/app/constants";
 
+export const metadata: Metadata = {
+  title: "Habla",
+  description: "Speaking assignments, simplified. Record, submit, grade — no downloads required.",
+};
+
 export default function Home() {
   return (
     <main className="page-wrap">
-      <BrandBar label="Teacher Pilot" />
+      <BrandBar label="For Language Teachers" />
 
       <section className="hero home-hero">
         <div className="hero-copy">
-          <p className="pill">Speaking assignments made practical</p>
-          <h1>Run speaking checks faster with less classroom overhead.</h1>
+          <p className="pill">Speaking assignments, simplified</p>
+          <h1>Record, submit, grade — no downloads required.</h1>
           <p>
-            Build a class, share one student link, and move through grading with a
-            clean, reliable workflow designed for real periods.
+            Build a class, share one student link, and move through speaking assessments
+            with a workflow designed for real classrooms.
           </p>
           <div className="actions hero-actions">
-            <Link className="btn btn-primary" href="/teacher">
+            <Link className="btn btn-primary" href="/api/auth/signin/google?callbackUrl=/teacher">
+              Sign in with Google
+            </Link>
+            <Link className="btn btn-ghost" href="/teacher">
               Open Teacher Studio
             </Link>
             <Link className="btn btn-ghost" href="/faq">
@@ -39,10 +48,10 @@ export default function Home() {
             <span className="mini-icon" aria-hidden="true">
               <Clock3 size={13} />
             </span>
-            Setup speed
+            Create and share quickly
           </h2>
           <p className="meta">
-            Teachers can launch a speaking check quickly before class begins.
+            Set up a class, write a prompt, and share one student link before class starts.
           </p>
         </article>
         <article className="card home-feature">
@@ -50,10 +59,10 @@ export default function Home() {
             <span className="mini-icon" aria-hidden="true">
               <MicVocal size={13} />
             </span>
-            Submission reliability
+            Collect recordings in-browser
           </h2>
           <p className="meta">
-            Clear recording states reduce confusion for everyday students.
+            Students sign in, record, and submit audio without extra apps or downloads.
           </p>
         </article>
         <article className="card home-feature">
@@ -61,10 +70,10 @@ export default function Home() {
             <span className="mini-icon" aria-hidden="true">
               <ShieldCheck size={13} />
             </span>
-            Grading confidence
+            Review and grade in one place
           </h2>
           <p className="meta">
-            Review audio, score quickly, and export gradebook CSV for PowerSchool.
+            Listen back, score submissions, add feedback, and keep grading organized.
           </p>
         </article>
         <article className="card home-feature">
@@ -86,18 +95,21 @@ export default function Home() {
           <p className="meta"><strong>Who is this for?</strong> Language teachers running speaking checks in class.</p>
           <p className="meta"><strong>How do students submit?</strong> Open one link, sign in, record, submit.</p>
           <p className="meta"><strong>How are grades exported?</strong> CSV export is available in the teacher class workspace.</p>
-          <p className="meta"><strong>Can I test before rollout?</strong> Yes, request pilot access below.</p>
+          <p className="meta"><strong>Can I test before rollout?</strong> Yes, sign in and create your first class.</p>
         </article>
 
         <article className="card home-feature">
-          <h2 className="title-row">Request Pilot Access</h2>
-          <p className="meta">Trying {APP_NAME} with your class? Contact us and we&apos;ll help you get set up.</p>
+          <h2 className="title-row">Get Started</h2>
+          <p className="meta">Trying {APP_NAME} with your class? Sign in to open your teacher workspace, or contact us if you want help getting set up.</p>
           <div className="actions">
-            <Link className="btn btn-primary" href="/feedback">
-              Feedback form
+            <Link className="btn btn-primary" href="/api/auth/signin/google?callbackUrl=/teacher">
+              Sign in with Google
             </Link>
             <Link className="btn btn-ghost" href="/faq">
               FAQ page
+            </Link>
+            <Link className="btn btn-ghost" href="/feedback">
+              Contact us
             </Link>
             <a className="btn btn-ghost" href={CONTACT_LINKS.linkedin} target="_blank" rel="noreferrer">
               LinkedIn

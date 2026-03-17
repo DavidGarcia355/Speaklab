@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import BrandBar from "@/app/components/BrandBar";
+import PageTitle from "@/app/components/PageTitle";
 
 type ClassLookup = {
   item: {
@@ -121,6 +122,7 @@ export default function NewAssignmentPage() {
 
   return (
     <main className="page-wrap">
+      <PageTitle title={classData ? `New Assignment for ${classData.item.name}` : "Create Assignment"} />
       <BrandBar label="Create Assignment" />
       <p className="meta page-intent">Write a clear prompt so students can record without confusion.</p>
 
@@ -144,9 +146,9 @@ export default function NewAssignmentPage() {
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Daily speaking check"
-            maxLength={160}
+            maxLength={100}
           />
-          <p className="meta field-meta">{title.length}/160</p>
+          <p className="meta field-meta">{title.length}/100</p>
 
           <label className="label form-label-top" htmlFor="assignment-description">
             Description (optional)
@@ -170,9 +172,9 @@ export default function NewAssignmentPage() {
             value={instructions}
             onChange={(event) => setInstructions(event.target.value)}
             placeholder="Explain what students should include in their recording."
-            maxLength={4000}
+            maxLength={500}
           />
-          <p className="meta field-meta">{instructions.length}/4000</p>
+          <p className="meta field-meta">{instructions.length}/500</p>
 
           <div className="actions form-actions">
             <button

@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 function teacherRequiredPath(pathname: string) {
-  if (pathname.startsWith("/teacher")) return true;
+  if (pathname.startsWith("/teacher") && pathname !== "/teacher/register") return true;
   if (pathname.startsWith("/api/classes")) return true;
   if (pathname.startsWith("/api/assignments")) {
     return !pathname.endsWith("/submissions");
@@ -16,6 +16,21 @@ function teacherRequiredPath(pathname: string) {
 
 function jsonError(status: number, error: string) {
   return NextResponse.json({ error }, { status });
+}
+
+async function getCurrentRole(request: NextRequest) {
+  const response = await fetch(new URL("/api/auth/role", request.url), {
+    headers: {
+      cookie: request.headers.get("cookie") ?? "",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json()) as { role?: string };
 }
 
 export async function proxy(request: NextRequest) {
@@ -42,9 +57,17 @@ export async function proxy(request: NextRequest) {
     if (pathname.startsWith("/api/")) {
       return jsonError(401, "You'll need to sign in first.");
     }
-    const signInUrl = new URL("/api/auth/signin", request.url);
-    signInUrl.searchParams.set("callbackUrl", request.url);
-    return NextResponse.redirect(signInUrl);
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  if (pathname.startsWith("/teacher")) {
+    const role = await getCurrentRole(request);
+    if (!role) {
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+    if (role.role !== "teacher") {
+      return NextResponse.redirect(new URL("/teacher/register", request.url));
+    }
   }
 
   return NextResponse.next();

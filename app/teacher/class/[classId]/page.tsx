@@ -7,6 +7,7 @@ import { BookOpen, Check, CheckCircle2, Clock3, Pencil, Trash2, X } from "lucide
 import AudioPlayer from "@/app/components/AudioPlayer";
 import BrandBar from "@/app/components/BrandBar";
 import ConfirmModal from "@/app/components/ConfirmModal";
+import PageTitle from "@/app/components/PageTitle";
 import UndoToast from "@/app/components/UndoToast";
 
 type AssignmentSummary = {
@@ -472,6 +473,7 @@ export default function ClassDetailPage() {
 
   return (
     <main className="page-wrap">
+      <PageTitle title={payload ? `${payload.item.name} Workspace` : "Class Workspace"} />
       <BrandBar label="Grading Workspace" />
       <p className="meta page-intent">Assignments are your main navigation. Select one, then grade every submission in one panel.</p>
 
@@ -546,7 +548,7 @@ export default function ClassDetailPage() {
                           <div className="dense-row">
                             <div>
                               {isEditing ? (
-                                <div className="inline-edit-row"><input className="input inline-edit-input" value={editingSubmissionName} onChange={(event) => setEditingSubmissionName(event.target.value)} maxLength={120} autoFocus /><button type="button" className="icon-btn icon-btn-confirm" onClick={() => void saveSubmissionName(submission)} disabled={nameSaving}><Check size={15} /></button><button type="button" className="icon-btn" onClick={() => { setEditingSubmissionId(""); setEditingSubmissionName(""); }}><X size={15} /></button></div>
+                                <div className="inline-edit-row"><input className="input inline-edit-input" value={editingSubmissionName} onChange={(event) => setEditingSubmissionName(event.target.value)} maxLength={80} autoFocus /><button type="button" className="icon-btn icon-btn-confirm" onClick={() => void saveSubmissionName(submission)} disabled={nameSaving}><Check size={15} /></button><button type="button" className="icon-btn" onClick={() => { setEditingSubmissionId(""); setEditingSubmissionName(""); }}><X size={15} /></button></div>
                               ) : (
                                 <div className="submission-name-row"><strong>{submission.studentName}</strong><button type="button" className="icon-btn" onClick={() => { setEditingSubmissionId(submission.id); setEditingSubmissionName(submission.studentName); }}><Pencil size={14} /></button><button type="button" className="icon-btn icon-btn-danger" onClick={() => setDeleteTarget({ type: "submission", submission })}><Trash2 size={14} /></button></div>
                               )}
@@ -591,9 +593,9 @@ export default function ClassDetailPage() {
             <h3 className="surface-title">Edit assignment</h3>
             <p className="meta">Update assignment name and instructions.</p>
             <label className="label form-label-top" htmlFor="edit-assignment-title">Assignment name</label>
-            <input id="edit-assignment-title" className="input" value={assignmentTitleDraft} onChange={(event) => setAssignmentTitleDraft(event.target.value)} maxLength={160} />
+            <input id="edit-assignment-title" className="input" value={assignmentTitleDraft} onChange={(event) => setAssignmentTitleDraft(event.target.value)} maxLength={100} />
             <label className="label form-label-top" htmlFor="edit-assignment-instructions">Instructions</label>
-            <textarea id="edit-assignment-instructions" className="textarea" rows={4} value={assignmentInstructionsDraft} onChange={(event) => setAssignmentInstructionsDraft(event.target.value)} maxLength={4000} />
+            <textarea id="edit-assignment-instructions" className="textarea" rows={4} value={assignmentInstructionsDraft} onChange={(event) => setAssignmentInstructionsDraft(event.target.value)} maxLength={500} />
             {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
             <div className="actions modal-actions"><button type="button" className="btn btn-ghost" onClick={() => setAssignmentEditOpen(false)} disabled={assignmentSaving}>Cancel</button><button type="button" className="btn btn-primary" onClick={() => void saveAssignmentEdit()} disabled={assignmentSaving}>{assignmentSaving ? "Saving..." : "Save changes"}</button></div>
           </div>

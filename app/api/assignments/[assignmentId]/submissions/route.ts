@@ -14,6 +14,10 @@ function emailDomain(email: string) {
   return domain.trim();
 }
 
+function shouldEnforceStudentDomain() {
+  return process.env.ENFORCE_STUDENT_DOMAIN === "true";
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ assignmentId: string }> }
@@ -26,14 +30,19 @@ export async function POST(
     }
 
     const studentEmail = await requireSchoolStudentEmail();
-    const ownerDomain = emailDomain(assignment.ownerEmail);
-    const studentDomain = emailDomain(studentEmail);
     const bypassEnabled =
       process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true";
-    if (!bypassEnabled && ownerDomain && ownerDomain !== studentDomain) {
+    const enforcedDomain = (process.env.STUDENT_DOMAIN || emailDomain(assignment.ownerEmail)).trim().toLowerCase();
+    const studentDomain = emailDomain(studentEmail);
+    if (
+      !bypassEnabled &&
+      shouldEnforceStudentDomain() &&
+      enforcedDomain &&
+      studentDomain !== enforcedDomain
+    ) {
       throw new HttpError(
         403,
-        "This class only accepts submissions from the teacher's school email domain."
+        "This class only accepts submissions from the configured school email domain."
       );
     }
 

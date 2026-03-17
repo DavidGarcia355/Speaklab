@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { APP_NAME } from "@/app/constants";
 
 type BrandBarProps = {
@@ -8,15 +10,53 @@ type BrandBarProps = {
 };
 
 export default function BrandBar({ label }: BrandBarProps) {
+  const pathname = usePathname();
+  const [showTeacherPrompt, setShowTeacherPrompt] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRole() {
+      try {
+        const response = await fetch("/api/auth/role", { cache: "no-store" });
+        if (!response.ok) {
+          if (!cancelled) setShowTeacherPrompt(false);
+          return;
+        }
+        const data = (await response.json()) as { role?: string };
+        if (!cancelled) {
+          setShowTeacherPrompt(data.role === "student" && pathname !== "/teacher/register");
+        }
+      } catch {
+        if (!cancelled) setShowTeacherPrompt(false);
+      }
+    }
+
+    void loadRole();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
   return (
-    <header className="brand-bar">
-      <Link href="/" className="brand-link" aria-label={`${APP_NAME} home`}>
-        <span className="brand-mark" aria-hidden="true">
-          <span className="brand-mark-text">H</span>
-        </span>
-        <span className="brand-text">{APP_NAME}</span>
-      </Link>
-      {label ? <span className="brand-context">{label}</span> : null}
-    </header>
+    <>
+      <header className="brand-bar">
+        <Link href="/" className="brand-link" aria-label={`${APP_NAME} home`}>
+          <span className="brand-mark" aria-hidden="true">
+            <span className="brand-mark-text">H</span>
+          </span>
+          <span className="brand-text">{APP_NAME}</span>
+        </Link>
+        {label ? <span className="brand-context">{label}</span> : null}
+      </header>
+      {showTeacherPrompt ? (
+        <div className="notice info teacher-access-notice">
+          Are you a teacher?{" "}
+          <Link className="teacher-access-link" href="/teacher/register">
+            Get full access →
+          </Link>
+        </div>
+      ) : null}
+    </>
   );
 }

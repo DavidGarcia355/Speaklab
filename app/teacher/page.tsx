@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
 import ConfirmModal from "@/app/components/ConfirmModal";
+import PageTitle from "@/app/components/PageTitle";
 import UndoToast from "@/app/components/UndoToast";
 
 type ClassSummary = {
@@ -58,6 +59,7 @@ export default function TeacherPage() {
   const [classStatus, setClassStatus] = useState<Record<string, ClassStatus>>({});
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
+  const [needsTeacherAccess, setNeedsTeacherAccess] = useState(false);
 
   const [editingClassId, setEditingClassId] = useState("");
   const [editingClassName, setEditingClassName] = useState("");
@@ -79,9 +81,19 @@ export default function TeacherPage() {
     async function load() {
       setLoading(true);
       setErrorMsg("");
+      setNeedsTeacherAccess(false);
       try {
         const response = await fetch("/api/classes", { cache: "no-store" });
-        if (!response.ok) throw new Error("Failed to load classes.");
+        if (!response.ok) {
+          if (response.status === 403) {
+            if (!active) return;
+            setClasses([]);
+            setClassStatus({});
+            setNeedsTeacherAccess(true);
+            return;
+          }
+          throw new Error("Failed to load classes.");
+        }
         const data = (await response.json()) as { items: ClassSummary[] };
         if (!active) return;
         setClasses(data.items);
@@ -288,6 +300,7 @@ export default function TeacherPage() {
 
   return (
     <main className="page-wrap">
+      <PageTitle title="Teacher Studio" />
       <BrandBar label="Teacher Studio" />
       <p className="meta page-intent">
         Daily classroom workspace for assignment setup, grading triage, and export.
@@ -339,17 +352,44 @@ export default function TeacherPage() {
         <h2 className="surface-title">Your classes</h2>
         {loading ? <p className="meta">Loading classes...</p> : null}
         {errorMsg ? <p className="status-danger">{errorMsg}</p> : null}
-        {!loading && !errorMsg && classes.length === 0 ? (
+        {!loading && needsTeacherAccess ? (
           <div className="grid">
-            <p className="empty">No classes yet. Start by creating your first class.</p>
+            <h3 className="surface-title">Set up your teacher account</h3>
+            <p className="empty">
+              Your Google account is signed in, but teacher tools are only available after a one-click setup.
+            </p>
             <div className="actions">
-              <Link className="btn btn-primary" href="/teacher/class/new">
-                Create class
+              <Link className="btn btn-primary" href="/teacher/register">
+                Become a teacher
+              </Link>
+              <Link className="btn btn-ghost" href="/">
+                Back home
               </Link>
             </div>
           </div>
         ) : null}
-        {!loading && !errorMsg && classes.length > 0 ? (
+        {!loading && !errorMsg && !needsTeacherAccess && classes.length === 0 ? (
+          <div className="grid onboarding-empty-state">
+            <div>
+              <h3 className="surface-title">Create your first class</h3>
+              <p className="empty">Habla works best when you move through one simple teaching flow.</p>
+            </div>
+            <ul className="flow-list">
+              <li>Create a class for the course or section you teach.</li>
+              <li>Make a speaking assignment and copy the student link.</li>
+              <li>Share the link, collect recordings, and hear them back in one place.</li>
+            </ul>
+            <div className="actions">
+              <Link className="btn btn-primary" href="/teacher/class/new">
+                Create class
+              </Link>
+              <Link className="btn btn-ghost" href="/faq">
+                View teacher FAQ
+              </Link>
+            </div>
+          </div>
+        ) : null}
+        {!loading && !errorMsg && !needsTeacherAccess && classes.length > 0 ? (
           <div className="grid class-list">
             {classes.map((item) => {
               const status = classStatus[item.id] ?? {
@@ -377,7 +417,7 @@ export default function TeacherPage() {
                             className="input inline-edit-input"
                             value={editingClassName}
                             onChange={(event) => setEditingClassName(event.target.value)}
-                            maxLength={120}
+                            maxLength={100}
                             autoFocus
                           />
                           <button

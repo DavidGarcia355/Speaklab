@@ -144,6 +144,16 @@ h3 {
   margin: 0 0 0.85rem;
 }
 
+.teacher-access-notice {
+  margin: 0 0 0.85rem;
+}
+
+.teacher-access-link {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .hero {
   border: 1px solid var(--line);
   border-radius: 22px;
@@ -448,6 +458,18 @@ h3 {
 .empty {
   margin: 0;
   color: var(--muted);
+}
+
+.flow-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  display: grid;
+  gap: 0.38rem;
+}
+
+.onboarding-empty-state {
+  gap: 0.72rem;
 }
 
 .field-meta {
@@ -1031,6 +1053,10 @@ h3 {
 
 .form-actions {
   margin-top: 0.92rem;
+}
+
+.teacher-register-note {
+  margin-top: 0.72rem;
 }
 
 .form-label-top {

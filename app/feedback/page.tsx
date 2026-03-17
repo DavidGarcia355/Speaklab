@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import BrandBar from "@/app/components/BrandBar";
+import PageTitle from "@/app/components/PageTitle";
 
 type FeedbackForm = {
   name: string;
@@ -63,12 +64,13 @@ export default function FeedbackPage() {
 
   return (
     <main className="page-wrap">
+      <PageTitle title="Feedback" />
       <BrandBar label="Feedback" />
       <section className="hero">
-        <p className="pill">Pilot request</p>
-        <h1>Request access or share feedback</h1>
+        <p className="pill">Contact</p>
+        <h1>Share feedback or ask a question</h1>
         <p>
-          Tell us about your school and what you need. We use this to prioritize testing.
+          Tell us about your school, your classes, or what you need help with.
         </p>
       </section>
 

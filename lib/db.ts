@@ -68,6 +68,19 @@ export type FeedbackRow = {
 
 export type UserRole = "teacher" | "student";
 
+function getTeacherAllowlist(): Set<string> {
+  return new Set(
+    (process.env.TEACHER_ALLOWLIST ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function defaultRoleForEmail(email: string): UserRole {
+  return getTeacherAllowlist().has(email.trim().toLowerCase()) ? "teacher" : "student";
+}
+
 type SubmissionAccessRow = {
   id: string;
   studentEmail: string;
@@ -805,11 +818,12 @@ export async function createFeedbackMessage(input: {
 
 export async function upsertGoogleUserAndGetRole(email: string): Promise<UserRole> {
   const normalized = email.trim().toLowerCase();
+  const defaultRole = defaultRoleForEmail(normalized);
   await query(
     `INSERT INTO users (email, role, created_at)
-    VALUES (?, 'teacher', ?)
-    ON CONFLICT(email) DO UPDATE SET role = 'teacher'`,
-    [normalized, Date.now()]
+    VALUES (?, ?, ?)
+    ON CONFLICT(email) DO NOTHING`,
+    [normalized, defaultRole, Date.now()]
   );
   const result = await query(
     `SELECT role

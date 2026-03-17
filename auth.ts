@@ -22,6 +22,7 @@ export const authOptions: NextAuthOptions = {
     },
     async jwt({ token }) {
       if (typeof token.email === "string" && token.email) {
+        token.email = token.email.toLowerCase();
         token.role = await getUserRoleByEmail(token.email);
       }
       return token;

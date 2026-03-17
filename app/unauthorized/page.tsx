@@ -1,5 +1,10 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
+
+export const metadata: Metadata = {
+  title: "Teacher Access Required — Habla",
+};
 
 export default function UnauthorizedPage() {
   return (

@@ -1,4 +1,5 @@
-import { requireAuthenticatedEmail } from "@/lib/authz";
+import { get } from "@vercel/blob";
+import { requireTeacherEmail } from "@/lib/authz";
 import { findSubmissionAccessById } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 
@@ -20,16 +21,11 @@ export async function GET(
   context: { params: Promise<{ submissionId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    const email = await requireAuthenticatedEmail();
+    const email = await requireTeacherEmail();
     const { submissionId } = await context.params;
-
-    let found = await findSubmissionAccessById(submissionId, email);
+    const found = await findSubmissionAccessById(submissionId, email);
     if (!found) {
-      const ownSubmission = await findSubmissionAccessById(submissionId);
-      if (!ownSubmission || ownSubmission.studentEmail.toLowerCase() !== email.toLowerCase()) {
-        throw new HttpError(403, "You don't have access to this page.");
-      }
-      found = ownSubmission;
+      throw new HttpError(403, "You don't have access to this page.");
     }
 
     if (!found.audioBlobUrl) {
@@ -47,15 +43,18 @@ export async function GET(
       });
     }
 
-    const upstream = await fetch(found.audioBlobUrl, { cache: "no-store" });
-    if (!upstream.ok) {
+    const upstream = await get(found.audioBlobUrl, {
+      access: "private",
+      useCache: false,
+    });
+    if (!upstream || upstream.statusCode !== 200 || !upstream.stream) {
       throw new HttpError(404, "Audio not found.");
     }
 
-    return new Response(upstream.body, {
+    return new Response(upstream.stream, {
       status: 200,
       headers: {
-        "Content-Type": upstream.headers.get("content-type") || "application/octet-stream",
+        "Content-Type": upstream.blob.contentType || "application/octet-stream",
         "Cache-Control": "private, no-store",
       },
     });

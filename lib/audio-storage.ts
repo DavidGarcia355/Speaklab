@@ -16,10 +16,9 @@ export async function uploadSubmissionAudio(input: {
   const ext = extMap[input.mimeType] ?? "bin";
   const key = `submissions/${input.assignmentId}/${input.submissionId}-${crypto.randomUUID()}.${ext}`;
   const result = await put(key, input.buffer, {
-    access: "public",
+    access: "private",
     contentType: input.mimeType,
     addRandomSuffix: false,
   });
   return result.url;
 }
-

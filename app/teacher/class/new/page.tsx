@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import BrandBar from "@/app/components/BrandBar";
+import PageTitle from "@/app/components/PageTitle";
 
 export default function NewClassPage() {
   const router = useRouter();
@@ -45,6 +46,7 @@ export default function NewClassPage() {
 
   return (
     <main className="page-wrap">
+      <PageTitle title="Create Class" />
       <BrandBar label="Create Class" />
       <p className="meta page-intent">Create a class in seconds and move directly into assignment setup.</p>
 
@@ -69,9 +71,9 @@ export default function NewClassPage() {
             onChange={(event) => setName(event.target.value)}
             placeholder="Spanish 1 - Block A"
             autoFocus
-            maxLength={120}
+            maxLength={100}
           />
-          <p className="meta field-meta">{name.length}/120</p>
+          <p className="meta field-meta">{name.length}/100</p>
 
           <div className="actions form-actions">
             <button
