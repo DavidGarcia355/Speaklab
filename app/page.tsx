@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
+import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
 import { APP_NAME } from "@/app/constants";
 
 export const metadata: Metadata = {
@@ -71,6 +72,11 @@ export default function Home() {
                 View demo
               </a>
             </div>
+            <SchoolNetworkNotice
+              className="home-network-notice"
+              message="On a school network? Open this page on your phone, or ask your IT department to allowlist tryhabla.com"
+              storageKey="habla-school-network-home-notice"
+            />
             <div className="home-hero-support">
               <p className="home-trust-line">Built for real classrooms - not demos.</p>
               <p className="home-proof-line">

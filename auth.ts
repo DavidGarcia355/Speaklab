@@ -19,7 +19,11 @@ export const authOptions: NextAuthOptions = {
       if (!email) return false;
       if (emailVerified === false) return false;
       await upsertGoogleUserAndGetRole(email);
-      await trackActivity("user_signed_in", email);
+      try {
+        await trackActivity("user_signed_in", email);
+      } catch (error) {
+        console.warn("Failed to track sign-in activity", error);
+      }
       return true;
     },
     async jwt({ token }) {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { trackActivity } from "@/lib/activity";
 import { requireAuthenticatedEmail } from "@/lib/authz";
 import { getUserRoleByEmail, setUserRoleTeacher } from "@/lib/db";
+import { sendTeacherUpgradeConfirmationEmail } from "@/lib/email";
 import { HttpError, withApiHandler } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -24,7 +25,16 @@ export async function POST(request: Request) {
     }
 
     await setUserRoleTeacher(email);
-    await trackActivity("teacher_upgraded", email);
+    try {
+      await trackActivity("teacher_upgraded", email);
+    } catch (error) {
+      console.warn("Failed to track teacher upgrade activity", error);
+    }
+    try {
+      sendTeacherUpgradeConfirmationEmail(email);
+    } catch (error) {
+      console.warn("Failed to queue teacher upgrade email", error);
+    }
     const role = await getUserRoleByEmail(email);
     return NextResponse.json({ email, role });
   });

@@ -14,6 +14,8 @@ export async function GET(
     if (!found) {
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
     }
-    return NextResponse.json({ item: found });
+    // Strip sensitive fields before returning to unauthenticated students
+    const { ownerEmail: _ownerEmail, ...safeItem } = found;
+    return NextResponse.json({ item: safeItem });
   });
 }

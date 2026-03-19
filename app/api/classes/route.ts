@@ -20,12 +20,22 @@ export async function POST(request: Request) {
     const body = parseOrThrow400(classCreateSchema, await request.json());
     const name = body.name ?? "";
     const created = await createClass(name, teacherEmail);
-    const metadata = await buildTeacherEventMetadata(teacherEmail);
-    await trackActivity("class_created", teacherEmail, {
-      classId: created.id,
-      className: created.name,
-      isFirstClass: metadata.isFirstClass,
-    });
+    let isFirstClass = false;
+    try {
+      const metadata = await buildTeacherEventMetadata(teacherEmail);
+      isFirstClass = metadata.isFirstClass;
+    } catch (error) {
+      console.warn("Failed to build class activity metadata", error);
+    }
+    try {
+      await trackActivity("class_created", teacherEmail, {
+        classId: created.id,
+        className: created.name,
+        isFirstClass,
+      });
+    } catch (error) {
+      console.warn("Failed to track class creation activity", error);
+    }
     return NextResponse.json({ item: created }, { status: 201 });
   });
 }

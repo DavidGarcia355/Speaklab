@@ -4,9 +4,9 @@ import { Redis } from "@upstash/redis";
 import { getEnv } from "@/lib/env";
 import { HttpError } from "@/lib/http";
 
-const DEFAULT_SUBMISSION_LIMIT_PER_HOUR = 50;
-const DEFAULT_AUTH_LIMIT_PER_HOUR = 100;
-const DEFAULT_GRADEBOOK_LIMIT_PER_HOUR = 10;
+export const DEFAULT_SUBMISSION_LIMIT_PER_HOUR = 120;
+export const DEFAULT_AUTH_LIMIT_PER_HOUR = 250;
+export const DEFAULT_GRADEBOOK_LIMIT_PER_HOUR = 30;
 
 function limiter(prefix: string, limit: number) {
   const redis = Redis.fromEnv();
@@ -26,15 +26,15 @@ function parseLimit(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function getSubmissionLimitPerHour() {
+export function getSubmissionLimitPerHour() {
   return parseLimit(process.env.SUBMISSION_RATE_LIMIT_PER_HOUR, DEFAULT_SUBMISSION_LIMIT_PER_HOUR);
 }
 
-function getAuthLimitPerHour() {
+export function getAuthLimitPerHour() {
   return parseLimit(process.env.AUTH_RATE_LIMIT_PER_HOUR, DEFAULT_AUTH_LIMIT_PER_HOUR);
 }
 
-function getGradebookLimitPerHour() {
+export function getGradebookLimitPerHour() {
   return parseLimit(process.env.GRADEBOOK_RATE_LIMIT_PER_HOUR, DEFAULT_GRADEBOOK_LIMIT_PER_HOUR);
 }
 

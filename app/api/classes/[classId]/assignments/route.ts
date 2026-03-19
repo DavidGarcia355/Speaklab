@@ -63,13 +63,23 @@ export async function POST(
       attachmentUrl,
       attachmentContentType,
     });
-    const metadata = await buildTeacherEventMetadata(teacherEmail);
-    await trackActivity("assignment_created", teacherEmail, {
-      assignmentId: created.id,
-      assignmentTitle: created.title,
-      classId,
-      isFirstAssignment: metadata.isFirstAssignment,
-    });
+    let isFirstAssignment = false;
+    try {
+      const metadata = await buildTeacherEventMetadata(teacherEmail);
+      isFirstAssignment = metadata.isFirstAssignment;
+    } catch (error) {
+      console.warn("Failed to build assignment activity metadata", error);
+    }
+    try {
+      await trackActivity("assignment_created", teacherEmail, {
+        assignmentId: created.id,
+        assignmentTitle: created.title,
+        classId,
+        isFirstAssignment,
+      });
+    } catch (error) {
+      console.warn("Failed to track assignment creation activity", error);
+    }
     return NextResponse.json({ item: created }, { status: 201 });
   });
 }

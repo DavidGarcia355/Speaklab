@@ -30,11 +30,16 @@ export async function uploadSubmissionAudio(input: {
     });
     return result.pathname;
   } catch (error) {
-    // Temporary compatibility path while production still uses a public Blob store.
     if (!isPublicStoreAccessError(error)) {
       throw error;
     }
 
+    // Public blob store fallback: log a warning so the operator knows to migrate
+    // to a private store. Student audio should not be publicly accessible long-term.
+    console.warn(
+      "SECURITY: Blob store is public — student audio will be publicly accessible. " +
+      "Migrate to a private Vercel Blob store as soon as possible."
+    );
     const result = await put(key, input.buffer, {
       access: "public",
       contentType: input.mimeType,

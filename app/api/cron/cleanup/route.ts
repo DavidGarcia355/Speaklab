@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { hardDeleteSoftDeletedBefore } from "@/lib/db";
 import { getEnv } from "@/lib/env";
@@ -5,11 +6,16 @@ import { HttpError, withApiHandler } from "@/lib/http";
 
 export const runtime = "nodejs";
 
+function safeEquals(a: string, b: string) {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
 function isAuthorized(request: Request) {
   const header = request.headers.get("authorization") || "";
   const xSecret = request.headers.get("x-cron-secret") || "";
   const expected = getEnv().cronSecret;
-  return header === `Bearer ${expected}` || xSecret === expected;
+  return safeEquals(header, `Bearer ${expected}`) || safeEquals(xSecret, expected);
 }
 
 export async function GET(request: Request) {

@@ -2,16 +2,36 @@ import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
 import { requireAdminEmail } from "@/lib/admin";
-import { getTrackingSummary, listRecentTeacherActivityEvents, listTeacherFunnelRows } from "@/lib/db";
+import { getTrackingSummary, listRecentActivityEvents, listTeacherFunnelRows } from "@/lib/db";
 
 function formatDateTime(timestamp: number | null) {
   if (!timestamp) return "No activity yet";
   return new Date(timestamp).toLocaleString(undefined, {
+    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatTimeAgo(timestamp: number) {
+  const deltaMs = Math.max(0, Date.now() - timestamp);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (deltaMs < minute) return "just now";
+  if (deltaMs < hour) {
+    const minutes = Math.floor(deltaMs / minute);
+    return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  }
+  if (deltaMs < day) {
+    const hours = Math.floor(deltaMs / hour);
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  }
+  const days = Math.floor(deltaMs / day);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function formatEventLabel(eventType: string) {
@@ -52,7 +72,7 @@ export default async function AdminPage() {
 
   const [summary, recentEvents, funnelRows] = await Promise.all([
     getTrackingSummary(),
-    listRecentTeacherActivityEvents(30),
+    listRecentActivityEvents(30),
     listTeacherFunnelRows(),
   ]);
 
@@ -62,19 +82,24 @@ export default async function AdminPage() {
       <BrandBar label="Admin Dashboard" />
       <p className="meta page-intent">Founder-only tracking for teacher signups, activation, and classroom activity.</p>
 
-      <section className="grid cols-3 section-gap">
+      <section className="grid cols-2 section-gap admin-metrics-grid">
         <article className="card kpi-card">
-          <p className="meta stat-label">Teachers</p>
+          <p className="meta stat-label">Total users</p>
+          <p className="stat-value">{summary.totalUsers}</p>
+          <p className="meta kpi-note">All signed-in accounts</p>
+        </article>
+        <article className="card kpi-card">
+          <p className="meta stat-label">Teacher accounts</p>
           <p className="stat-value">{summary.teacherAccounts}</p>
           <p className="meta kpi-note">Teacher signups</p>
         </article>
         <article className="card kpi-card kpi-warning">
-          <p className="meta stat-label">Activated</p>
+          <p className="meta stat-label">Teachers with classes</p>
           <p className="stat-value">{summary.activatedTeachers}</p>
           <p className="meta kpi-note">Teachers with at least one class</p>
         </article>
         <article className="card kpi-card kpi-success">
-          <p className="meta stat-label">Teaching-ready</p>
+          <p className="meta stat-label">Teachers with assignments</p>
           <p className="stat-value">{summary.teachingReadyTeachers}</p>
           <p className="meta kpi-note">Teachers with at least one assignment</p>
         </article>
@@ -82,16 +107,22 @@ export default async function AdminPage() {
 
       <section className="workspace-split section-gap">
         <article className="card panel-subtle">
-          <h2 className="surface-title">Recent teacher activity</h2>
+          <h2 className="surface-title">Recent activity</h2>
           {recentEvents.length === 0 ? (
-            <p className="empty">No teacher activity tracked yet.</p>
+            <p className="empty">No activity tracked yet.</p>
           ) : (
-            <div className="grid section-gap">
+            <div className="grid section-gap activity-feed">
               {recentEvents.map((event) => (
-                <div key={event.id} className="card panel-subtle">
-                  <p className="label" style={{ marginBottom: 4 }}>{formatEventLabel(event.eventType)}</p>
-                  <p className="meta">{event.email}</p>
-                  <p className="meta">{formatDateTime(event.occurredAt)}</p>
+                <div key={event.id} className="card panel-subtle activity-feed-item">
+                  <div className="dense-row">
+                    <div>
+                      <p className="label activity-feed-title">{event.email}</p>
+                      <p className="meta">{formatEventLabel(event.eventType)}</p>
+                    </div>
+                    <p className="meta" title={formatDateTime(event.occurredAt)}>
+                      {formatTimeAgo(event.occurredAt)}
+                    </p>
+                  </div>
                   {event.metadata ? (
                     <p className="meta">
                       {Object.entries(event.metadata)
@@ -110,40 +141,43 @@ export default async function AdminPage() {
           {funnelRows.length === 0 ? (
             <p className="empty">No users yet.</p>
           ) : (
-            <div className="grid section-gap">
-              {funnelRows.map((teacher) => (
-                <div key={teacher.email} className="card panel-subtle">
-                  <div className="dense-row">
-                    <div>
-                      <p className="label" style={{ marginBottom: 4 }}>{teacher.email}</p>
-                      <p className="meta">Joined {formatDateTime(teacher.joinedAt)}</p>
-                    </div>
-                    <span className={`pill ${teacher.role === "teacher" ? "pill-success" : "pill-neutral"}`}>
-                      {teacher.role}
-                    </span>
-                  </div>
-                  <div className="class-link-pills">
-                    <span className="pill pill-subtle">{teacher.classCount} classes</span>
-                    <span className="pill pill-subtle">{teacher.assignmentCount} assignments</span>
-                    <span
-                      className={`pill ${
-                        teacher.assignmentCount > 0
-                          ? "pill-success"
-                          : teacher.classCount > 0
-                            ? "pill-warning"
-                            : "pill-neutral"
-                      }`}
-                    >
-                      {teacher.assignmentCount > 0
-                        ? "Teaching-ready"
-                        : teacher.classCount > 0
-                          ? "Activated"
-                          : "Signed up"}
-                    </span>
-                  </div>
-                  <p className="meta">Latest activity: {formatDateTime(teacher.latestActivityAt)}</p>
-                </div>
-              ))}
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Joined</th>
+                    <th>Role</th>
+                    <th>Classes</th>
+                    <th>Assignments</th>
+                    <th>Last activity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {funnelRows.map((teacher) => (
+                    <tr key={teacher.email}>
+                      <td>{teacher.email}</td>
+                      <td>{formatDateTime(teacher.joinedAt)}</td>
+                      <td>
+                        <span
+                          className={`pill ${
+                            teacher.role === "teacher" ? "pill-success" : "pill-neutral"
+                          }`}
+                        >
+                          {teacher.role}
+                        </span>
+                      </td>
+                      <td>{teacher.classCount}</td>
+                      <td>{teacher.assignmentCount}</td>
+                      <td>
+                        {teacher.latestActivityAt
+                          ? formatTimeAgo(teacher.latestActivityAt)
+                          : "No activity yet"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </article>

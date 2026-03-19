@@ -40,6 +40,7 @@ yarn-error.log*
 data/*.db
 data/*.db-shm
 data/*.db-wal
+.tools/
 *.log
 localtunnel*.log
 

@@ -37,7 +37,7 @@ async function getCurrentRole(request: NextRequest) {
   return (await response.json()) as { role?: string };
 }
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true") {
     return NextResponse.next();

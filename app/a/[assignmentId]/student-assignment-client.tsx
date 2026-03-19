@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, CircleDot, LoaderCircle, Mic } from "lucid
 import AudioPlayer from "@/app/components/AudioPlayer";
 import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
+import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
 
 type AssignmentDetail = {
   id: string;
@@ -50,6 +51,8 @@ type StudentAssignmentClientProps = {
   assignmentId: string;
   localAuthBypassEnabled: boolean;
 };
+
+type LoadErrorKind = "none" | "not-found" | "network";
 
 function getRecorderBanner(options: {
   state: RecorderState;
@@ -130,6 +133,7 @@ export default function StudentAssignmentClient({
 }: StudentAssignmentClientProps) {
   const [assignment, setAssignment] = useState<AssignmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadErrorKind, setLoadErrorKind] = useState<LoadErrorKind>("none");
   const [studentName, setStudentName] = useState("");
   const [recordingUrl, setRecordingUrl] = useState("");
   const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
@@ -158,15 +162,30 @@ export default function StudentAssignmentClient({
     async function load() {
       setLoading(true);
       setErrorMsg("");
+      setLoadErrorKind("none");
+      let errorKind: LoadErrorKind = "none";
+
       try {
         const response = await fetch(`/api/student/assignments/${assignmentId}`, { cache: "no-store" });
         if (!response.ok) {
-          const data = (await response.json()) as { error?: string };
-          throw new Error(data.error || "Assignment not found.");
+          let data: { error?: string } | null = null;
+          try {
+            data = (await response.json()) as { error?: string };
+          } catch {
+            data = null;
+          }
+          errorKind = response.status === 404 ? "not-found" : "network";
+          throw new Error(
+            data?.error ||
+              (response.status === 404
+                ? "Assignment not found."
+                : "Unable to load this assignment right now.")
+          );
         }
         const data = (await response.json()) as { item: AssignmentDetail };
         setAssignment(data.item);
       } catch (error) {
+        setLoadErrorKind(errorKind === "none" ? "network" : errorKind);
         const message = error instanceof Error ? error.message : "Assignment not found.";
         setErrorMsg(message);
       } finally {
@@ -380,6 +399,13 @@ export default function StudentAssignmentClient({
         <section className="card">
           <h1 style={{ marginTop: 0 }}>Assignment unavailable</h1>
           <p className="status-danger">{errorMsg || "Assignment not found."}</p>
+          {loadErrorKind === "network" ? (
+            <SchoolNetworkNotice
+              className="student-network-notice"
+              message="Having trouble loading? If you're on a school network, try opening this link on your phone."
+              storageKey="habla-school-network-student-notice"
+            />
+          ) : null}
           <div className="actions">
             <Link className="btn btn-ghost" href="/">
               Back Home

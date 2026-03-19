@@ -1,8 +1,12 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   upsertGoogleUserAndGetRole: vi.fn(),
   getUserRoleByEmail: vi.fn(),
+  getTrackingSummary: vi.fn(),
+  listRecentActivityEvents: vi.fn(),
+  listTeacherFunnelRows: vi.fn(),
   trackActivity: vi.fn(),
   requireAuthenticatedEmail: vi.fn(),
   setUserRoleTeacher: vi.fn(),
@@ -12,12 +16,16 @@ const mocks = vi.hoisted(() => ({
   uploadAssignmentAttachment: vi.fn(),
   parseOrThrow400: vi.fn(),
   buildTeacherEventMetadata: vi.fn(),
+  sendTeacherUpgradeConfirmationEmail: vi.fn(),
   getServerSession: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
   upsertGoogleUserAndGetRole: mocks.upsertGoogleUserAndGetRole,
   getUserRoleByEmail: mocks.getUserRoleByEmail,
+  getTrackingSummary: mocks.getTrackingSummary,
+  listRecentActivityEvents: mocks.listRecentActivityEvents,
+  listTeacherFunnelRows: mocks.listTeacherFunnelRows,
   setUserRoleTeacher: mocks.setUserRoleTeacher,
   findClassById: mocks.findClassById,
   createClass: mocks.createClass,
@@ -40,6 +48,10 @@ vi.mock("@/lib/authz", () => ({
 
 vi.mock("@/lib/attachment-storage", () => ({
   uploadAssignmentAttachment: mocks.uploadAssignmentAttachment,
+}));
+
+vi.mock("@/lib/email", () => ({
+  sendTeacherUpgradeConfirmationEmail: mocks.sendTeacherUpgradeConfirmationEmail,
 }));
 
 vi.mock("@/lib/validation", async () => {
@@ -99,6 +111,9 @@ describe("tracking hooks", () => {
     mocks.trackActivity.mockReset();
     mocks.requireAuthenticatedEmail.mockReset();
     mocks.getServerSession.mockReset();
+    mocks.getTrackingSummary.mockReset();
+    mocks.listRecentActivityEvents.mockReset();
+    mocks.listTeacherFunnelRows.mockReset();
     mocks.setUserRoleTeacher.mockReset();
     mocks.findClassById.mockReset();
     mocks.createClass.mockReset();
@@ -106,15 +121,42 @@ describe("tracking hooks", () => {
     mocks.uploadAssignmentAttachment.mockReset();
     mocks.parseOrThrow400.mockReset();
     mocks.buildTeacherEventMetadata.mockReset();
+    mocks.sendTeacherUpgradeConfirmationEmail.mockReset();
 
     mocks.upsertGoogleUserAndGetRole.mockResolvedValue("student");
     mocks.getUserRoleByEmail.mockResolvedValue("student");
+    mocks.getTrackingSummary.mockResolvedValue({
+      totalUsers: 3,
+      teacherAccounts: 2,
+      activatedTeachers: 1,
+      teachingReadyTeachers: 1,
+    });
+    mocks.listRecentActivityEvents.mockResolvedValue([
+      {
+        id: "evt_1",
+        email: "teacher@example.com",
+        eventType: "class_created",
+        occurredAt: Date.UTC(2026, 2, 19, 12, 0, 0),
+        metadata: null,
+      },
+    ]);
+    mocks.listTeacherFunnelRows.mockResolvedValue([
+      {
+        email: "teacher@example.com",
+        role: "teacher",
+        joinedAt: Date.UTC(2026, 2, 18, 10, 0, 0),
+        classCount: 1,
+        assignmentCount: 1,
+        latestActivityAt: Date.UTC(2026, 2, 19, 12, 0, 0),
+      },
+    ]);
     mocks.trackActivity.mockResolvedValue(undefined);
     mocks.requireAuthenticatedEmail.mockResolvedValue("teacher@example.com");
     mocks.getServerSession.mockResolvedValue({
       user: { email: "founder@example.com" },
     });
     mocks.setUserRoleTeacher.mockResolvedValue(undefined);
+    mocks.sendTeacherUpgradeConfirmationEmail.mockImplementation(() => undefined);
     mocks.findClassById.mockResolvedValue({ id: "class_1", name: "Spanish 1" });
     mocks.createClass.mockResolvedValue({
       id: "class_1",
@@ -178,6 +220,25 @@ describe("tracking hooks", () => {
     expect(response.status).toBe(200);
     expect(mocks.setUserRoleTeacher).toHaveBeenCalledWith("teacher@example.com");
     expect(mocks.trackActivity).toHaveBeenCalledWith("teacher_upgraded", "teacher@example.com");
+    expect(mocks.sendTeacherUpgradeConfirmationEmail).toHaveBeenCalledWith("teacher@example.com");
+  });
+
+  it("does not block teacher upgrade when the confirmation email helper throws", async () => {
+    mocks.sendTeacherUpgradeConfirmationEmail.mockImplementation(() => {
+      throw new Error("email queue failed");
+    });
+    const { POST } = await import("@/app/api/auth/role/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/auth/role", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "teacher" }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.setUserRoleTeacher).toHaveBeenCalledWith("teacher@example.com");
   });
 
   it("logs class_created from the classes route", async () => {
@@ -306,5 +367,34 @@ describe("admin access helper", () => {
       email: "teacher@example.com",
       allowed: false,
     });
+  });
+});
+
+describe("admin page", () => {
+  it("renders founder metrics for the configured admin email", async () => {
+    process.env.ADMIN_EMAIL = "founder@example.com";
+    mocks.getServerSession.mockResolvedValue({
+      user: { email: "founder@example.com" },
+    });
+    const { default: AdminPage } = await import("@/app/admin/page");
+
+    const markup = renderToStaticMarkup(await AdminPage());
+
+    expect(markup).toContain("Total users");
+    expect(markup).toContain("Teacher accounts");
+    expect(markup).toContain("teacher@example.com");
+  });
+
+  it("shows access denied content for non-admin users", async () => {
+    process.env.ADMIN_EMAIL = "founder@example.com";
+    mocks.getServerSession.mockResolvedValue({
+      user: { email: "teacher@example.com" },
+    });
+    const { default: AdminPage } = await import("@/app/admin/page");
+
+    const markup = renderToStaticMarkup(await AdminPage());
+
+    expect(markup).toContain("Access denied");
+    expect(markup).not.toContain("Total users");
   });
 });

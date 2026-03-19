@@ -448,15 +448,23 @@ describe("rubric routes", () => {
     expect(data.error).toContain("Validation failed");
   });
 
-  it("keeps the gradebook CSV compatible after rubric grading", async () => {
+  it("keeps the gradebook CSV compatible with mixed rubric and non-rubric assignments", async () => {
     mocks.listGradebookRowsByClassId.mockResolvedValue([
       {
         studentName: "Student One",
         studentEmail: "student@example.com",
-        assignmentTitle: "Oral quiz",
+        assignmentTitle: "Rubric oral quiz",
         grade: 15,
         feedback: "Strong overall",
         submittedAt: Date.UTC(2026, 2, 17),
+      },
+      {
+        studentName: "Student One",
+        studentEmail: "student@example.com",
+        assignmentTitle: "Quick vocab check",
+        grade: 9,
+        feedback: "Good pacing",
+        submittedAt: Date.UTC(2026, 2, 18),
       },
     ]);
 
@@ -468,7 +476,8 @@ describe("rubric routes", () => {
 
     expect(response.status).toBe(200);
     expect(body).toContain("Student Name,Student Email,Assignment,Grade,Feedback,Submitted At");
-    expect(body).toContain("Student One,student@example.com,Oral quiz,15,Strong overall");
+    expect(body).toContain("Student One,student@example.com,Rubric oral quiz,15,Strong overall");
+    expect(body).toContain("Student One,student@example.com,Quick vocab check,9,Good pacing");
   });
 });
 

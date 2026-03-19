@@ -6,7 +6,8 @@ import { enforceGradebookRateLimit } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 
 function escapeCsv(value: string) {
-  const neutralized = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  const sanitized = value.replace(/[\t\r]/g, " ");
+  const neutralized = /^[=+\-@\t\r]/.test(sanitized) ? `'${sanitized}` : sanitized;
   const needsQuotes =
     neutralized.includes(",") || neutralized.includes("\"") || neutralized.includes("\n");
   const escaped = neutralized.replace(/"/g, "\"\"");

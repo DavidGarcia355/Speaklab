@@ -65,7 +65,11 @@ export async function POST(
         // Local dev fallback when Blob is not configured.
         audioBlobUrl = body.audioData;
       } else {
-        throw error;
+        console.warn("Audio upload failed", error);
+        throw new HttpError(
+          503,
+          "We couldn't upload your recording right now. If you're on a school network, try opening this link on your phone or switching connections."
+        );
       }
     }
 

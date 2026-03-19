@@ -188,4 +188,18 @@ describe("submission route domain enforcement", () => {
 
     expect(response.status).toBe(403);
   });
+
+  it("returns a clear error when blob upload fails in production", async () => {
+    mocks.mockUploadSubmissionAudio.mockRejectedValue(new Error("blob down"));
+
+    const response = await POST(makeRequest(), {
+      params: Promise.resolve({ assignmentId: "asg_1" }),
+    });
+    const data = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(503);
+    expect(data.error).toContain("upload your recording");
+    expect(data.error).toContain("school network");
+    expect(mocks.mockCreateSubmission).not.toHaveBeenCalled();
+  });
 });
