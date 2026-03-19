@@ -9,7 +9,7 @@ export default function ThemeToggle() {
     }
 
     const stored = localStorage.getItem("theme");
-    return stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    return stored === "dark";
   });
 
   useEffect(() => {

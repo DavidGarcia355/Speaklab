@@ -2411,6 +2411,91 @@ h3 {
   text-align: center;
 }
 
+html.dark body {
+  background:
+    radial-gradient(circle at top left, rgba(65, 128, 255, 0.16), transparent 24%),
+    radial-gradient(circle at top right, rgba(35, 211, 156, 0.1), transparent 20%),
+    linear-gradient(180deg, #05070b 0%, #070b14 55%, #08101a 100%);
+}
+
+html.dark .brand-link {
+  color: #f4f7ff;
+}
+
+html.dark .brand-context {
+  color: #8894ab;
+}
+
+html.dark .theme-toggle {
+  border-color: #355caa;
+  background: rgba(17, 22, 32, 0.92);
+  color: #eaf1ff;
+  box-shadow: 0 0 0 1px rgba(86, 139, 255, 0.18);
+}
+
+html.dark .theme-toggle:hover {
+  border-color: #5f92ff;
+  background: #141c2d;
+}
+
+html.dark .home-hero,
+html.dark .home-entry-card,
+html.dark .home-beta-banner,
+html.dark .home-preview-shell,
+html.dark .home-preview-sidebar,
+html.dark .home-preview-main,
+html.dark .home-preview-card,
+html.dark .home-preview-class,
+html.dark .home-preview-badge,
+html.dark .home-feature-card,
+html.dark .home-faq-item,
+html.dark .home-story,
+html.dark .home-cta,
+html.dark .kpi-card,
+html.dark .kpi-hero,
+html.dark .kpi-warning,
+html.dark .kpi-success {
+  color: #0f172a;
+}
+
+html.dark .home-hero .meta,
+html.dark .home-entry-card .meta,
+html.dark .home-beta-banner .meta,
+html.dark .home-preview-shell .meta,
+html.dark .home-preview-class span,
+html.dark .home-preview-grade span,
+html.dark .home-panel-label,
+html.dark .home-entry-hint,
+html.dark .home-story-copy,
+html.dark .home-feature-card .meta,
+html.dark .home-faq-item .meta,
+html.dark .home-cta .meta,
+html.dark .kpi-card .meta,
+html.dark .kpi-note {
+  color: #64748b;
+}
+
+html.dark .home-network-notice.notice.info {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(96, 165, 250, 0.3);
+  color: #1e3a8a;
+}
+
+html.dark .home-entry-secondary {
+  color: #2563eb;
+}
+
+html.dark .home-entry-student .home-entry-btn {
+  background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+  border-color: rgba(15, 23, 42, 0.06);
+  color: #052e25;
+  box-shadow: 0 10px 20px rgba(16, 185, 129, 0.22);
+}
+
+html.dark .home-entry-student .home-entry-btn:hover {
+  background: linear-gradient(180deg, #4adeaa 0%, #12c28a 100%);
+}
+
 /* Admin responsive */
 @media (max-width: 900px) {
   .workspace-split {
