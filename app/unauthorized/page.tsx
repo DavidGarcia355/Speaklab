@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
+import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 
 export const metadata: Metadata = {
   title: "Teacher Access Required — Habla",
@@ -15,9 +15,9 @@ export default function UnauthorizedPage() {
         <h1>This page is for teachers.</h1>
         <p>Sign in with your school account to open your teacher dashboard.</p>
         <div className="actions form-actions">
-          <Link className="btn btn-primary" href="/api/auth/signin?callbackUrl=/teacher">
+          <GoogleSignInLink className="btn btn-primary" callbackUrl="/teacher">
             Sign in
-          </Link>
+          </GoogleSignInLink>
         </div>
       </section>
     </main>

@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import BrandBar from "@/app/components/BrandBar";
+import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import PageTitle from "@/app/components/PageTitle";
 
 export default function TeacherRegisterPage() {
@@ -92,9 +92,9 @@ export default function TeacherRegisterPage() {
           Already signed in? We&apos;ll take you straight into class setup after this step.
         </p>
         <div className="actions" style={{ marginTop: "0.5rem" }}>
-          <Link className="btn btn-ghost" href="/api/auth/signin?callbackUrl=/teacher/register">
+          <GoogleSignInLink className="btn btn-ghost" callbackUrl="/teacher/register">
             Need to sign in first?
-          </Link>
+          </GoogleSignInLink>
         </div>
       </section>
     </main>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
+import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
 import { APP_NAME } from "@/app/constants";
 
@@ -71,9 +72,13 @@ export default function Home() {
             <div className="home-entry-icon">T</div>
             <h2 className="home-entry-title">I&apos;m a teacher</h2>
             <p className="meta">Create classes, assign speaking prompts, and grade recordings.</p>
-            <Link className="btn btn-primary home-entry-btn" href="/api/auth/signin?callbackUrl=/teacher">
+            <GoogleSignInLink
+              className="btn btn-primary home-entry-btn"
+              callbackUrl="/teacher"
+              wrapperClassName="auth-webview-guard-full"
+            >
               Sign in as teacher
-            </Link>
+            </GoogleSignInLink>
             <Link className="home-entry-secondary" href="/teacher/register">
               New here? Set up your account
             </Link>
@@ -83,9 +88,13 @@ export default function Home() {
             <div className="home-entry-icon home-entry-icon-student">S</div>
             <h2 className="home-entry-title">I&apos;m a student</h2>
             <p className="meta">View your submitted recordings, grades, and teacher feedback.</p>
-            <Link className="btn btn-ghost home-entry-btn" href="/api/auth/signin?callbackUrl=/student">
+            <GoogleSignInLink
+              className="btn btn-ghost home-entry-btn"
+              callbackUrl="/student"
+              wrapperClassName="auth-webview-guard-full"
+            >
               Sign in as student
-            </Link>
+            </GoogleSignInLink>
             <p className="home-entry-hint">Your teacher will share an assignment link with you.</p>
           </div>
         </div>
@@ -244,9 +253,9 @@ export default function Home() {
           </p>
         </div>
         <div className="actions home-cta-actions">
-          <Link className="btn btn-primary" href="/api/auth/signin?callbackUrl=/teacher">
+          <GoogleSignInLink className="btn btn-primary" callbackUrl="/teacher">
             Sign in as teacher
-          </Link>
+          </GoogleSignInLink>
           <Link className="btn btn-ghost" href="/pricing">
             View pricing
           </Link>

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, CircleDot, LoaderCircle, Mic } from "lucide-react";
 import AudioPlayer from "@/app/components/AudioPlayer";
 import BrandBar from "@/app/components/BrandBar";
+import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import PageTitle from "@/app/components/PageTitle";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
 
@@ -471,12 +472,13 @@ export default function StudentAssignmentClient({
             ) : (
               <div className="auth-signin-prompt">
                 <p className="meta">Sign in with your school account to submit your recording.</p>
-                <a
+                <GoogleSignInLink
                   className="btn btn-primary"
-                  href={`/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`}
+                  callbackUrl={callbackUrl}
+                  wrapperClassName="auth-webview-guard-full"
                 >
                   Sign in to submit
-                </a>
+                </GoogleSignInLink>
               </div>
             )}
 

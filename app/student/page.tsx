@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import BrandBar from "@/app/components/BrandBar";
+import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import PageTitle from "@/app/components/PageTitle";
 import { listSubmissionsByStudentEmail } from "@/lib/db";
 
@@ -31,9 +32,9 @@ export default async function StudentDashboardPage() {
           <h1>Sign in to view your submissions</h1>
           <p>After you sign in, you can see all your recordings, grades, and feedback in one place.</p>
           <div className="actions hero-actions">
-            <Link className="btn btn-primary" href="/api/auth/signin?callbackUrl=/student">
+            <GoogleSignInLink className="btn btn-primary" callbackUrl="/student">
               Sign in
-            </Link>
+            </GoogleSignInLink>
             <Link className="btn btn-ghost" href="/">
               Back home
             </Link>
