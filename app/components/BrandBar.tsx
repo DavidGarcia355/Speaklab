@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import ThemeToggle from "@/app/components/ThemeToggle";
 import { APP_NAME } from "@/app/constants";
 
 type BrandBarProps = {
@@ -47,13 +48,16 @@ export default function BrandBar({ label }: BrandBarProps) {
           </span>
           <span className="brand-text">{APP_NAME}</span>
         </Link>
-        {label ? <span className="brand-context">{label}</span> : null}
+        <div className="brand-bar-right">
+          {label ? <span className="brand-context">{label}</span> : null}
+          <ThemeToggle />
+        </div>
       </header>
       {showTeacherPrompt ? (
         <div className="notice info teacher-access-notice">
           Are you a teacher?{" "}
           <Link className="teacher-access-link" href="/teacher/register">
-            Get full access →
+            Get full access
           </Link>
         </div>
       ) : null}

@@ -316,9 +316,6 @@ export default function TeacherPage() {
           <Link className="btn btn-primary" href="/teacher/class/new">
             Create class
           </Link>
-          <Link className="btn btn-ghost" href="/">
-            Back home
-          </Link>
         </div>
       </section>
 
@@ -356,7 +353,7 @@ export default function TeacherPage() {
           <div className="grid">
             <h3 className="surface-title">Set up your teacher account</h3>
             <p className="empty">
-              You're signed in, but teacher tools are only available after a one-click setup.
+              You&apos;re signed in, but teacher tools are only available after a one-click setup.
             </p>
             <div className="actions">
               <Link className="btn btn-primary" href="/teacher/register">

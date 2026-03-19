@@ -10,6 +10,10 @@ import {
   listTeacherFunnelRows,
 } from "@/lib/db";
 
+function getCurrentTimestamp() {
+  return Date.now();
+}
+
 function formatDateTime(timestamp: number | null) {
   if (!timestamp) return "No activity yet";
   return new Date(timestamp).toLocaleString(undefined, {
@@ -132,7 +136,7 @@ export default async function AdminPage() {
   const activationRate = percent(summary.activatedTeachers, summary.teacherAccounts);
   const teachingRate = percent(summary.teachingReadyTeachers, summary.teacherAccounts);
 
-  const now = Date.now();
+  const now = getCurrentTimestamp();
   const oneDayAgo = now - 24 * 60 * 60 * 1000;
   const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
   const signInsToday = allEvents.filter(
@@ -164,7 +168,7 @@ export default async function AdminPage() {
           <p className="meta kpi-note">All accounts</p>
         </article>
         <article className="card kpi-card">
-          <p className="meta stat-label">Teachers</p>
+          <p className="meta stat-label">Teacher accounts</p>
           <p className="stat-value">{summary.teacherAccounts}</p>
           <p className="meta kpi-note">{percent(summary.teacherAccounts, summary.totalUsers)}% of users</p>
         </article>
