@@ -91,10 +91,11 @@ export default function TeacherRegisterPage() {
         <p className="meta teacher-register-note">
           Already signed in? We&apos;ll take you straight into class setup after this step.
         </p>
-        <p className="meta">
-          Need to sign in first?{" "}
-          <Link href="/api/auth/signin?callbackUrl=/teacher/register">Sign in</Link>
-        </p>
+        <div className="actions" style={{ marginTop: "0.5rem" }}>
+          <Link className="btn btn-ghost" href="/api/auth/signin?callbackUrl=/teacher/register">
+            Need to sign in first?
+          </Link>
+        </div>
       </section>
     </main>
   );

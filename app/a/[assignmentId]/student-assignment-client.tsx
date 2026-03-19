@@ -457,23 +457,27 @@ export default function StudentAssignmentClient({
             {authLoading ? (
               <p className="notice info">Checking sign-in status...</p>
             ) : studentEmail ? (
-              <p className="notice success">
-                Signed in as <strong>{studentEmail}</strong>
-                {" · "}
-                <a href="/student">My submissions</a>
-                {" · "}
-                <a href={`/api/auth/signout?callbackUrl=${encodeURIComponent(callbackUrl)}`}>
-                  Sign out
-                </a>
-              </p>
+              <div className="auth-status-bar">
+                <p className="notice success auth-status-notice">
+                  Signed in as <strong>{studentEmail}</strong>
+                </p>
+                <div className="auth-status-actions">
+                  <a className="btn btn-ghost btn-sm" href="/student">My submissions</a>
+                  <a className="btn btn-ghost btn-sm" href={`/api/auth/signout?callbackUrl=${encodeURIComponent(callbackUrl)}`}>
+                    Sign out
+                  </a>
+                </div>
+              </div>
             ) : (
-              <p className="notice warning">
-                Sign in to submit your recording:
-                {" "}
-                <a href={`/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`}>
-                  Sign in
+              <div className="auth-signin-prompt">
+                <p className="meta">Sign in with your school account to submit your recording.</p>
+                <a
+                  className="btn btn-primary"
+                  href={`/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`}
+                >
+                  Sign in to submit
                 </a>
-              </p>
+              </div>
             )}
 
             <div className="record-top">
@@ -554,13 +558,13 @@ export default function StudentAssignmentClient({
             ) : null}
 
             {submittedCurrentRecording && statusMsg ? (
-              <div>
+              <div className="submission-success-block">
                 <p className="submission-confirm">
                   <CheckCircle2 size={16} aria-hidden="true" /> {statusMsg}
                 </p>
-                <p className="meta" style={{ marginTop: "0.4rem" }}>
-                  <a href="/student">View all your submissions</a>
-                </p>
+                <a className="btn btn-ghost btn-sm" href="/student" style={{ marginTop: "0.5rem" }}>
+                  View all your submissions
+                </a>
               </div>
             ) : null}
             {!submittedCurrentRecording && statusMsg ? <p className="notice info">{statusMsg}</p> : null}

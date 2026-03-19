@@ -57,61 +57,43 @@ export default function Home() {
       <BrandBar label="Habla - speaking made simple" />
 
       <section className="hero home-hero">
-        <div className="home-hero-layout">
-          <div className="home-hero-copy">
-            <p className="pill">For language teachers</p>
-            <h1>Speaking assignments, finally simple.</h1>
-            <p className="home-hero-lead">
-              Create a class, share one link, and collect speaking assignments - all in one place.
-            </p>
-            <div className="actions home-hero-actions">
-              <Link className="btn btn-primary" href="/api/auth/signin?callbackUrl=/teacher">
-                Get started free
-              </Link>
-              <a className="btn btn-ghost" href="#product-preview">
-                View demo
-              </a>
-            </div>
-            <SchoolNetworkNotice
-              className="home-network-notice"
-              message="On a school network? Open this page on your phone, or ask your IT department to allowlist tryhabla.com"
-              storageKey="habla-school-network-home-notice"
-            />
-            <div className="home-hero-support">
-              <p className="home-trust-line">Built for real classrooms - not demos.</p>
-              <p className="home-proof-line">
-                Used for Spanish speaking checks, AP oral practice, and quick in-class assessments.
-              </p>
-              <p className="home-proof-accent">Students complete assignments in minutes.</p>
-            </div>
+        <div className="home-hero-top">
+          <p className="pill">For language teachers and students</p>
+          <h1>Speaking assignments, finally simple.</h1>
+          <p className="home-hero-lead">
+            Create a class, share one link, and collect speaking assignments - all in one place.
+          </p>
+        </div>
+
+        <div className="home-entry-paths">
+          <div className="home-entry-card home-entry-teacher">
+            <div className="home-entry-icon">T</div>
+            <h2 className="home-entry-title">I&apos;m a teacher</h2>
+            <p className="meta">Create classes, assign speaking prompts, and grade recordings.</p>
+            <Link className="btn btn-primary home-entry-btn" href="/api/auth/signin?callbackUrl=/teacher">
+              Sign in as teacher
+            </Link>
+            <Link className="home-entry-secondary" href="/teacher/register">
+              New here? Set up your account
+            </Link>
           </div>
 
-          <div className="card home-hero-panel">
-            <div className="home-hero-panel-head">
-              <div>
-                <p className="home-panel-label">Teacher workflow</p>
-                <h2>One link in, clean grading out.</h2>
-              </div>
-              <span className="pill pill-success">Classroom ready</span>
-            </div>
-            <div className="home-hero-stats">
-              <div className="home-stat">
-                <span>Class setup</span>
-                <strong>Under 1 minute</strong>
-              </div>
-              <div className="home-stat">
-                <span>Student flow</span>
-                <strong>Open, record, submit</strong>
-              </div>
-            </div>
-            <div className="home-hero-checklist">
-              <div className="home-check-item is-done">Create assignment and share one student link</div>
-              <div className="home-check-item is-done">Collect recordings in the browser</div>
-              <div className="home-check-item is-done">Listen back and score submissions</div>
-              <div className="home-check-item">Export clean CSV grades for your gradebook</div>
-            </div>
+          <div className="home-entry-card home-entry-student">
+            <div className="home-entry-icon home-entry-icon-student">S</div>
+            <h2 className="home-entry-title">I&apos;m a student</h2>
+            <p className="meta">View your submitted recordings, grades, and teacher feedback.</p>
+            <Link className="btn btn-ghost home-entry-btn" href="/api/auth/signin?callbackUrl=/student">
+              Sign in as student
+            </Link>
+            <p className="home-entry-hint">Your teacher will share an assignment link with you.</p>
           </div>
         </div>
+
+        <SchoolNetworkNotice
+          className="home-network-notice"
+          message="On a school network? Open this page on your phone, or ask your IT department to allowlist tryhabla.com"
+          storageKey="habla-school-network-home-notice"
+        />
       </section>
 
       <section className="grid cols-2 section-gap home-feature-grid">
@@ -224,10 +206,10 @@ export default function Home() {
           ))}
         </div>
         <div className="actions home-links">
-          <Link className="text-link" href="/faq">
+          <Link className="btn btn-ghost" href="/faq">
             More answers in the FAQ
           </Link>
-          <Link className="text-link" href="/feedback">
+          <Link className="btn btn-ghost" href="/feedback">
             Contact us
           </Link>
         </div>
@@ -240,9 +222,9 @@ export default function Home() {
         </div>
         <div className="actions home-cta-actions">
           <Link className="btn btn-primary" href="/api/auth/signin?callbackUrl=/teacher">
-            Get started free
+            Sign in as teacher
           </Link>
-          <Link className="text-link" href="/feedback">
+          <Link className="btn btn-ghost" href="/feedback">
             Request help
           </Link>
         </div>

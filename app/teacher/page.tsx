@@ -356,7 +356,7 @@ export default function TeacherPage() {
           <div className="grid">
             <h3 className="surface-title">Set up your teacher account</h3>
             <p className="empty">
-              Your Google account is signed in, but teacher tools are only available after a one-click setup.
+              You're signed in, but teacher tools are only available after a one-click setup.
             </p>
             <div className="actions">
               <Link className="btn btn-primary" href="/teacher/register">
