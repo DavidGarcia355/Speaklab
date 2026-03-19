@@ -13,10 +13,10 @@ export default function UnauthorizedPage() {
       <section className="hero">
         <p className="pill">Access needed</p>
         <h1>This page is for teachers.</h1>
-        <p>Sign in with Google to open your teacher dashboard.</p>
+        <p>Sign in with your school account to open your teacher dashboard.</p>
         <div className="actions form-actions">
-          <Link className="btn btn-primary" href="/api/auth/signin/google?callbackUrl=/teacher">
-            Sign in with Google
+          <Link className="btn btn-primary" href="/api/auth/signin?callbackUrl=/teacher">
+            Sign in
           </Link>
         </div>
       </section>

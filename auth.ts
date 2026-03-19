@@ -1,7 +1,10 @@
 import type { NextAuthOptions } from "next-auth";
 import Google from "next-auth/providers/google";
+import AzureAD from "next-auth/providers/azure-ad";
 import { trackActivity } from "@/lib/activity";
 import { getUserRoleByEmail, upsertGoogleUserAndGetRole } from "@/lib/db";
+
+const ALLOWED_PROVIDERS = new Set(["google", "azure-ad"]);
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.AUTH_SECRET,
@@ -10,10 +13,19 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.AUTH_GOOGLE_ID ?? "",
       clientSecret: process.env.AUTH_GOOGLE_SECRET ?? "",
     }),
+    ...(process.env.AUTH_MICROSOFT_ID
+      ? [
+          AzureAD({
+            clientId: process.env.AUTH_MICROSOFT_ID,
+            clientSecret: process.env.AUTH_MICROSOFT_SECRET ?? "",
+            tenantId: process.env.AUTH_MICROSOFT_TENANT_ID || "common",
+          }),
+        ]
+      : []),
   ],
   callbacks: {
     async signIn({ account, profile }) {
-      if (account?.provider !== "google") return false;
+      if (!account?.provider || !ALLOWED_PROVIDERS.has(account.provider)) return false;
       const email = typeof profile?.email === "string" ? profile.email.toLowerCase() : "";
       const emailVerified = (profile as { email_verified?: boolean } | null)?.email_verified;
       if (!email) return false;

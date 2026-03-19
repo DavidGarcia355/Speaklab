@@ -330,7 +330,7 @@ export default function StudentAssignmentClient({
   async function submitResponse() {
     if (!assignment) return;
     if (!studentEmail && !localAuthBypassEnabled) {
-      setErrorMsg("Please sign in with Google before submitting.");
+      setErrorMsg("Please sign in before submitting.");
       return;
     }
 
@@ -408,7 +408,7 @@ export default function StudentAssignmentClient({
           ) : null}
           <div className="actions">
             <Link className="btn btn-ghost" href="/">
-              Back Home
+              Back home
             </Link>
           </div>
         </section>
@@ -432,7 +432,7 @@ export default function StudentAssignmentClient({
         <article className="card">
           <h2 className="surface-title">Instructions</h2>
           <p className="meta instruction-copy">
-            {assignment.instructions || "No instructions provided."}
+            {assignment.instructions || "Your teacher hasn't added instructions yet."}
           </p>
           {assignment.attachmentUrl ? (
             <div className="notice info assignment-attachment-notice">
@@ -466,16 +466,16 @@ export default function StudentAssignmentClient({
               </p>
             ) : (
               <p className="notice warning">
-                Sign in with Google to submit:
+                Sign in to submit your recording:
                 {" "}
-                <a href={`/api/auth/signin/google?callbackUrl=${encodeURIComponent(callbackUrl)}`}>
-                  Continue with Google
+                <a href={`/api/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`}>
+                  Sign in
                 </a>
               </p>
             )}
 
             <div className="record-top">
-              <p className="meta recorder-note">Steps: Enter name, record, play back, submit.</p>
+              <p className="meta recorder-note">Enter your name, record your response, play it back, then submit.</p>
               <p className={`state-banner ${recorderBanner.tone}`}>
                 <span className="state-banner-icon">{recorderBanner.icon}</span>
                 <span>{recorderBanner.text}</span>
@@ -496,7 +496,7 @@ export default function StudentAssignmentClient({
                 className="input"
                 value={studentName}
                 onChange={(event) => setStudentName(event.target.value)}
-                placeholder="Student name"
+                placeholder="Your full name"
                 maxLength={80}
               />
               <p className="meta field-meta">{studentName.length}/80</p>

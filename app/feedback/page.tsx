@@ -70,7 +70,7 @@ export default function FeedbackPage() {
         <p className="pill">Contact</p>
         <h1>Share feedback or ask a question</h1>
         <p>
-          Tell us about your school, your classes, or what you need help with.
+          Share feedback, ask a question, or let us know how we can help.
         </p>
       </section>
 

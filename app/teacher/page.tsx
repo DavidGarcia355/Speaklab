@@ -372,7 +372,7 @@ export default function TeacherPage() {
           <div className="grid onboarding-empty-state">
             <div>
               <h3 className="surface-title">Create your first class</h3>
-              <p className="empty">Habla works best when you move through one simple teaching flow.</p>
+              <p className="empty">Get started in three steps:</p>
             </div>
             <ul className="flow-list">
               <li>Create a class for the course or section you teach.</li>

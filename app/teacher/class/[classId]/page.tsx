@@ -853,7 +853,7 @@ export default function ClassDetailPage() {
         <section className="card">
           <h1 className="surface-title">Class unavailable</h1>
           <p className="status-danger">{errorMsg}</p>
-          <div className="actions"><Link className="btn btn-ghost" href="/teacher">Back to teacher</Link></div>
+          <div className="actions"><Link className="btn btn-ghost" href="/teacher">Back to classes</Link></div>
         </section>
       </main>
     );
@@ -868,9 +868,9 @@ export default function ClassDetailPage() {
 
       <div className="workspace-header">
         <div className="dense-row">
-          <div><h2 className="surface-title">{payload.item.name}</h2><p className="meta">Class grading studio</p></div>
+          <div><h2 className="surface-title">{payload.item.name}</h2><p className="meta">Class workspace</p></div>
           <div className="actions">
-            <Link className="btn btn-ghost" href="/teacher">Back to teacher</Link>
+            <Link className="btn btn-ghost" href="/teacher">Back to classes</Link>
             <Link className="btn btn-primary" href={`/teacher/class/${payload.item.id}/assignment/new`}>Create assignment</Link>
             <button
               type="button"
@@ -900,7 +900,7 @@ export default function ClassDetailPage() {
         <section className="workspace-split section-gap">
           <aside className="card assignment-nav panel-subtle">
             <h2 className="surface-title">Assignments</h2>
-            <p className="meta">Switch assignments quickly and triage what needs grading.</p>
+            <p className="meta">Switch between assignments and see what needs grading.</p>
             <div className="assignment-list">
               {assignmentViews.map((assignment) => (
                 <button key={assignment.id} type="button" className={`assignment-nav-item ${assignment.id === activeAssignment?.id ? "is-selected" : ""}`} onClick={() => setSelectedAssignmentId(assignment.id)}>
@@ -948,7 +948,7 @@ export default function ClassDetailPage() {
 
                 <div className="toolbar-compact">
                   <label className="label toolbar-label" htmlFor="student-filter">Find student in this assignment</label>
-                  <input id="student-filter" className="input toolbar-input" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Type student name..." />
+                  <input id="student-filter" className="input toolbar-input" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Search by student name" />
                   <button type="button" className={`btn ${showUngradedOnly ? "btn-primary" : "btn-ghost"}`} onClick={() => setShowUngradedOnly((prev) => !prev)}>{showUngradedOnly ? "Ungraded only: on" : "Ungraded only"}</button>
                   <span className="status-badge status-warning">{pluralize(activeAssignment.ungradedCount, "ungraded")}</span>
                 </div>

@@ -85,7 +85,7 @@ export default function TeacherRegisterPage() {
             onClick={() => void registerTeacher()}
             disabled={saving || checkingRole}
           >
-            {checkingRole ? "Checking account..." : saving ? "Setting up..." : "I'm a teacher, get started"}
+            {checkingRole ? "Checking account..." : saving ? "Setting up..." : "Get started as a teacher"}
           </button>
         </div>
         <p className="meta teacher-register-note">
@@ -93,7 +93,7 @@ export default function TeacherRegisterPage() {
         </p>
         <p className="meta">
           Need to sign in first?{" "}
-          <Link href="/api/auth/signin/google?callbackUrl=/teacher/register">Continue with Google</Link>
+          <Link href="/api/auth/signin?callbackUrl=/teacher/register">Sign in</Link>
         </p>
       </section>
     </main>

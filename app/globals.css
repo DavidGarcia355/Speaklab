@@ -1488,6 +1488,8 @@ h3 {
 
 .modal-card {
   width: min(560px, calc(100% - 1rem));
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
   background: #fff;
   border: 1px solid #d4e0ee;
   border-radius: 14px;
@@ -1831,6 +1833,302 @@ h3 {
   grid-column: 1 / -1;
   margin: 0.1rem 0 0;
   font-size: 0.82rem;
+}
+
+/* ── Admin Dashboard ── */
+
+.grid.cols-4 {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.admin-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-header-copy {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.admin-headline {
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  line-height: 1.1;
+}
+
+.admin-kpi-strip .kpi-card {
+  text-align: center;
+}
+
+.kpi-hero {
+  border-color: var(--primary-soft-border);
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+}
+
+/* Funnel visual */
+.admin-funnel-visual {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.funnel-bars {
+  display: grid;
+  gap: 0.62rem;
+  margin-top: 0.5rem;
+}
+
+.funnel-stage {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.72rem;
+  align-items: center;
+}
+
+.funnel-bar {
+  height: 28px;
+  border-radius: 8px;
+  transition: width 0.4s ease;
+}
+
+.funnel-bar-full {
+  width: 100%;
+  background: linear-gradient(90deg, #dbeafe 0%, #bfdbfe 100%);
+  border: 1px solid #93c5fd;
+}
+
+.funnel-bar-activated {
+  background: linear-gradient(90deg, #fef3c7 0%, #fcd34d 100%);
+  border: 1px solid #f59e0b;
+}
+
+.funnel-bar-teaching {
+  background: linear-gradient(90deg, #dcfce7 0%, #86efac 100%);
+  border: 1px solid #22c55e;
+}
+
+.funnel-stage-info {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  white-space: nowrap;
+  min-width: 160px;
+}
+
+.funnel-stage-value {
+  font-size: 1.15rem;
+  font-weight: 760;
+  color: var(--text);
+}
+
+.funnel-stage-label {
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+/* Activity panels */
+.admin-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.admin-activity-panel {
+  max-height: 540px;
+  overflow-y: auto;
+}
+
+.admin-activity-feed {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.admin-activity-feed-compact {
+  gap: 0.06rem;
+}
+
+.admin-event-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.52rem 0.4rem;
+  border-radius: 10px;
+  transition: background-color 0.14s ease;
+}
+
+.admin-event-row:hover {
+  background: var(--surface-muted);
+}
+
+.admin-event-row-compact {
+  padding: 0.38rem 0.4rem;
+}
+
+.admin-event-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.admin-event-body {
+  min-width: 0;
+}
+
+.admin-event-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 650;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-event-action {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.admin-event-meta {
+  margin: 0.1rem 0 0;
+  font-size: 0.76rem;
+  color: #64748b;
+}
+
+.admin-event-time {
+  font-size: 0.76rem;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Event tone colors */
+.event-signin .admin-event-icon { color: #64748b; }
+.event-upgrade .admin-event-icon { color: #2563eb; }
+.event-class .admin-event-icon { color: #d97706; }
+.event-assignment .admin-event-icon { color: #16a34a; }
+
+/* Right stack */
+.admin-right-stack {
+  display: grid;
+  gap: 0.82rem;
+  align-content: start;
+}
+
+.admin-teacher-actions-panel {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* Class list in admin */
+.admin-class-list {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.admin-class-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.48rem 0.4rem;
+  border-radius: 10px;
+  transition: background-color 0.14s ease;
+}
+
+.admin-class-item:hover {
+  background: var(--surface-muted);
+}
+
+.admin-class-info {
+  min-width: 0;
+}
+
+.admin-class-name {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-class-owner {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.admin-class-stats {
+  display: flex;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+/* Teacher roster table */
+.admin-roster-table {
+  min-width: 600px;
+}
+
+.admin-roster-row:hover {
+  background: var(--surface-muted);
+}
+
+.admin-roster-email {
+  font-weight: 600;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-roster-date {
+  font-size: 0.84rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.admin-roster-num {
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Admin responsive */
+@media (max-width: 900px) {
+  .workspace-split {
+    grid-template-columns: 1fr;
+  }
+
+  .funnel-stage {
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+  }
+
+  .funnel-stage-info {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-header {
+    flex-direction: column;
+  }
+
+  .grid.cols-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @keyframes fade-up {

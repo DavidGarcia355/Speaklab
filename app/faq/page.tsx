@@ -15,7 +15,7 @@ const FAQ_ITEMS = [
   {
     question: "How do students submit recordings?",
     answer:
-      "Students open one assignment link, sign in with Google, record audio, and submit.",
+      "Students open one assignment link, sign in with their school account, record audio, and submit.",
   },
   {
     question: "Can teachers control grading?",
@@ -25,7 +25,7 @@ const FAQ_ITEMS = [
   {
     question: "Is student data protected?",
     answer:
-      "Yes. Teacher routes are protected, Google sign-in is required for submissions, and audio access is restricted.",
+      "Yes. Teacher routes are protected, sign-in is required for submissions, and audio access is restricted.",
   },
   {
     question: "Can I pilot this before schoolwide rollout?",
@@ -55,13 +55,13 @@ export default function FaqPage() {
 
       <section className="card section-gap">
         <h2 className="surface-title">Still have questions?</h2>
-        <p className="meta">Send your details and we can help with setup for your classes.</p>
+        <p className="meta">Reach out and we can help get your classes set up.</p>
         <div className="actions form-actions">
           <Link className="btn btn-primary" href="/feedback">
-            Request Pilot Access
+            Request pilot access
           </Link>
           <Link className="btn btn-ghost" href="/">
-            Back Home
+            Back home
           </Link>
         </div>
       </section>

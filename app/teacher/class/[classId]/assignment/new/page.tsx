@@ -286,7 +286,7 @@ export default function NewAssignmentPage() {
           <p className="meta field-meta">{instructions.length}/500</p>
 
           <label className="label form-label-top" htmlFor="assignment-max-points">
-            {rubricEnabled ? "Points possible" : "Points possible"}
+            {rubricEnabled ? "Points (from rubric)" : "Points possible"}
           </label>
           {rubricEnabled ? (
             <div className="notice info assignment-attachment-notice">

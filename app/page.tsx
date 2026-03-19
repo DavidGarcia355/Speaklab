@@ -18,7 +18,7 @@ const featureCards = [
   {
     title: "Students record instantly - no apps, no downloads",
     description:
-      "Students sign in, record, and submit audio directly in the browser.",
+      "Students open a link, sign in, record, and submit audio directly in the browser.",
   },
   {
     title: "Listen, grade, and give feedback - fast",
@@ -35,7 +35,7 @@ const featureCards = [
 const quickQuestions = [
   {
     question: "Do students need an account?",
-    answer: "Students sign in with Google before they submit, so you know whose recording you are hearing.",
+    answer: "Students sign in with their school account before they submit, so you know whose recording you are hearing.",
   },
   {
     question: "What devices does it work on?",
@@ -65,8 +65,8 @@ export default function Home() {
               Create a class, share one link, and collect speaking assignments - all in one place.
             </p>
             <div className="actions home-hero-actions">
-              <Link className="btn btn-primary" href="/api/auth/signin/google?callbackUrl=/teacher">
-                Get started with Google
+              <Link className="btn btn-primary" href="/api/auth/signin?callbackUrl=/teacher">
+                Get started free
               </Link>
               <a className="btn btn-ghost" href="#product-preview">
                 View demo
@@ -239,8 +239,8 @@ export default function Home() {
           <p className="meta">Start today, run your first speaking assignment, and keep the workflow simple.</p>
         </div>
         <div className="actions home-cta-actions">
-          <Link className="btn btn-primary" href="/api/auth/signin/google?callbackUrl=/teacher">
-            Get started with Google
+          <Link className="btn btn-primary" href="/api/auth/signin?callbackUrl=/teacher">
+            Get started free
           </Link>
           <Link className="text-link" href="/feedback">
             Request help

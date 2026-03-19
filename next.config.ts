@@ -6,12 +6,12 @@ const csp = [
   "default-src 'self'",
   "base-uri 'self'",
   "frame-ancestors 'none'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://accounts.google.com https://apis.google.com`,
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://accounts.google.com https://apis.google.com https://login.microsoftonline.com`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://lh3.googleusercontent.com https://authjs.dev",
-  "connect-src 'self' https://accounts.google.com https://*.googleapis.com https://*.upstash.io https://*.vercel-storage.com",
+  "img-src 'self' data: blob: https://lh3.googleusercontent.com https://authjs.dev https://graph.microsoft.com",
+  "connect-src 'self' https://accounts.google.com https://*.googleapis.com https://login.microsoftonline.com https://graph.microsoft.com https://*.upstash.io https://*.vercel-storage.com",
   "media-src 'self' blob: data: https://*.public.blob.vercel-storage.com",
-  "frame-src 'self' https://accounts.google.com",
+  "frame-src 'self' https://accounts.google.com https://login.microsoftonline.com",
 ].join("; ");
 
 const nextConfig: NextConfig = {
