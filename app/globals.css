@@ -731,6 +731,36 @@ h3 {
   line-height: 1.7;
 }
 
+.home-beta-banner {
+  display: grid;
+  gap: 1rem;
+  align-items: center;
+  grid-template-columns: minmax(0, 1.7fr) auto;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.12), transparent 34%),
+    linear-gradient(180deg, #ffffff 0%, #f6fbff 100%);
+  border-color: #cfe0f3;
+}
+
+.home-beta-copy {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.home-beta-banner h2 {
+  font-size: clamp(1.2rem, 2.2vw, 1.6rem);
+  line-height: 1.15;
+}
+
+.home-beta-banner .meta {
+  max-width: 58ch;
+}
+
+.home-beta-actions {
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .home-preview-shell {
   padding: 0.92rem;
   background: linear-gradient(180deg, #ffffff 0%, #f6faff 100%);
@@ -2446,6 +2476,10 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .home-beta-banner {
+    grid-template-columns: 1fr;
+  }
+
   .home-hero-layout,
   .home-preview-grid,
   .home-preview-panels {
@@ -2507,6 +2541,10 @@ h3 {
 
   .home-links {
     gap: 0.5rem;
+  }
+
+  .home-beta-actions {
+    justify-content: flex-start;
   }
 
   .card {

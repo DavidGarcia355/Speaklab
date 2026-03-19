@@ -96,6 +96,25 @@ export default function Home() {
         />
       </section>
 
+      <section className="card home-beta-banner section-gap">
+        <div className="home-beta-copy">
+          <p className="pill pill-subtle">Habla beta</p>
+          <h2>First 20 world language teachers get Habla free forever</h2>
+          <p className="meta">
+            Create an account, try Habla with your students, and give honest feedback. Once those first
+            20 teacher spots are filled, Habla will move to paid tiers.
+          </p>
+        </div>
+        <div className="actions home-beta-actions">
+          <Link className="btn btn-primary" href="/teacher/register">
+            Claim a beta spot
+          </Link>
+          <Link className="btn btn-ghost" href="/feedback">
+            Share feedback
+          </Link>
+        </div>
+      </section>
+
       <section className="grid cols-2 section-gap home-feature-grid">
         {featureCards.map((feature) => (
           <article key={feature.title} className="card home-feature-card">
