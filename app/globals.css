@@ -2496,6 +2496,47 @@ html.dark .home-entry-student .home-entry-btn:hover {
   background: linear-gradient(180deg, #4adeaa 0%, #12c28a 100%);
 }
 
+html.dark .pill-subtle {
+  background: #121923;
+  border-color: #263244;
+  color: #b6c3d8;
+}
+
+html.dark .home-preview-shell {
+  border-color: #253247;
+  background: linear-gradient(180deg, #1a2230 0%, #131a26 100%);
+  box-shadow: 0 20px 38px rgba(2, 6, 23, 0.34);
+}
+
+html.dark .home-preview-sidebar,
+html.dark .home-preview-main,
+html.dark .home-preview-card,
+html.dark .home-preview-class,
+html.dark .home-preview-badge {
+  border-color: #2a3649;
+  background: linear-gradient(180deg, #111823 0%, #0d131d 100%);
+  color: #eef3ff;
+}
+
+html.dark .home-preview-top h3,
+html.dark .home-preview-class strong,
+html.dark .home-preview-card,
+html.dark .home-preview-badge,
+html.dark .home-preview-list {
+  color: #eef3ff;
+}
+
+html.dark .home-panel-label,
+html.dark .home-preview-class span,
+html.dark .home-preview-grade span {
+  color: #95a7c2;
+}
+
+html.dark .home-preview-class.is-active {
+  border-color: rgba(96, 165, 250, 0.42);
+  background: linear-gradient(180deg, #17253b 0%, #101a2a 100%);
+}
+
 /* Admin responsive */
 @media (max-width: 900px) {
   .workspace-split {
