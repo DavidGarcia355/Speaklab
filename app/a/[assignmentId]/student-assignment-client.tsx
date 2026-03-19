@@ -460,6 +460,8 @@ export default function StudentAssignmentClient({
               <p className="notice success">
                 Signed in as <strong>{studentEmail}</strong>
                 {" · "}
+                <a href="/student">My submissions</a>
+                {" · "}
                 <a href={`/api/auth/signout?callbackUrl=${encodeURIComponent(callbackUrl)}`}>
                   Sign out
                 </a>
@@ -552,9 +554,14 @@ export default function StudentAssignmentClient({
             ) : null}
 
             {submittedCurrentRecording && statusMsg ? (
-              <p className="submission-confirm">
-                <CheckCircle2 size={16} aria-hidden="true" /> {statusMsg}
-              </p>
+              <div>
+                <p className="submission-confirm">
+                  <CheckCircle2 size={16} aria-hidden="true" /> {statusMsg}
+                </p>
+                <p className="meta" style={{ marginTop: "0.4rem" }}>
+                  <a href="/student">View all your submissions</a>
+                </p>
+              </div>
             ) : null}
             {!submittedCurrentRecording && statusMsg ? <p className="notice info">{statusMsg}</p> : null}
           </div>

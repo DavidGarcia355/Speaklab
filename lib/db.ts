@@ -63,6 +63,18 @@ export type GradebookRow = {
   submittedAt: number;
 };
 
+export type StudentSubmissionRow = {
+  id: string;
+  assignmentId: string;
+  assignmentTitle: string;
+  className: string;
+  maxPoints: number;
+  studentName: string;
+  submittedAt: number;
+  feedback: string;
+  grade: number | null;
+};
+
 export type FeedbackRow = {
   id: string;
   name: string;
@@ -766,6 +778,41 @@ export async function listSubmissionsByClassId(classId: string, ownerEmail?: str
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
     rubricScores: parseJsonValue<RubricScore[]>(row.rubricScores),
+  }));
+}
+
+export async function listSubmissionsByStudentEmail(studentEmail: string): Promise<StudentSubmissionRow[]> {
+  const result = await query(
+    `SELECT
+      s.id as id,
+      s.assignment_id as assignmentId,
+      a.title as assignmentTitle,
+      c.name as className,
+      a.max_points as maxPoints,
+      s.student_name as studentName,
+      s.submitted_at as submittedAt,
+      COALESCE(s.feedback, '') as feedback,
+      s.grade as grade
+    FROM submissions s
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE LOWER(s.student_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    ORDER BY s.submitted_at DESC`,
+    [studentEmail]
+  );
+  return result.rows.map((row) => ({
+    id: toStringValue(row.id),
+    assignmentId: toStringValue(row.assignmentId),
+    assignmentTitle: toStringValue(row.assignmentTitle),
+    className: toStringValue(row.className),
+    maxPoints: toNumber(row.maxPoints),
+    studentName: toStringValue(row.studentName),
+    submittedAt: toNumber(row.submittedAt),
+    feedback: toStringValue(row.feedback),
+    grade: toNullableNumber(row.grade),
   }));
 }
 

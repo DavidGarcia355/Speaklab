@@ -1835,6 +1835,71 @@ h3 {
   font-size: 0.82rem;
 }
 
+/* ── Student Dashboard ── */
+
+.student-dash-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.student-dash-headline {
+  font-size: clamp(1.4rem, 2.5vw, 1.8rem);
+  line-height: 1.15;
+}
+
+.student-submission-list {
+  gap: 0.62rem;
+}
+
+.student-submission-card {
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.student-submission-card:hover {
+  border-color: #a9bdd6;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.student-sub-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.student-sub-info {
+  min-width: 0;
+}
+
+.student-sub-title {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+.student-sub-details {
+  margin-top: 0.4rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.student-sub-feedback {
+  margin-top: 0.25rem;
+  padding: 0.52rem 0.68rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--status-success-border);
+  background: var(--status-success-bg);
+}
+
+@media (max-width: 700px) {
+  .student-dash-header {
+    flex-direction: column;
+  }
+}
+
 /* ── Admin Dashboard ── */
 
 .grid.cols-4 {
