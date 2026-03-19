@@ -34,30 +34,30 @@
 }
 
 html.dark {
-  --background: #0f172a;
-  --surface: #1e293b;
-  --surface-soft: #1a2332;
-  --surface-muted: #1e293b;
-  --text: #e2e8f0;
-  --muted: #94a3b8;
-  --line: #334155;
-  --line-strong: #475569;
+  --background: #050607;
+  --surface: #0f1115;
+  --surface-soft: #14171c;
+  --surface-muted: #191d24;
+  --text: #f5f7fb;
+  --muted: #9aa4b2;
+  --line: #252a33;
+  --line-strong: #3a414d;
   --primary: #3b82f6;
   --primary-strong: #60a5fa;
-  --primary-soft: #1e3a5f;
-  --primary-soft-border: #2563eb;
+  --primary-soft: rgba(59, 130, 246, 0.16);
+  --primary-soft-border: rgba(96, 165, 250, 0.34);
   --danger: #ef4444;
   --success: #22c55e;
 
-  --status-warning-bg: #422006;
-  --status-warning-border: #92400e;
-  --status-warning-text: #fcd34d;
-  --status-success-bg: #052e16;
-  --status-success-border: #166534;
-  --status-success-text: #86efac;
-  --status-neutral-bg: #1e293b;
-  --status-neutral-border: #475569;
-  --status-neutral-text: #cbd5e1;
+  --status-warning-bg: rgba(245, 158, 11, 0.12);
+  --status-warning-border: rgba(251, 191, 36, 0.28);
+  --status-warning-text: #ffd27a;
+  --status-success-bg: rgba(34, 197, 94, 0.12);
+  --status-success-border: rgba(74, 222, 128, 0.28);
+  --status-success-text: #8ff0b2;
+  --status-neutral-bg: #14171c;
+  --status-neutral-border: #353d48;
+  --status-neutral-text: #c3ccd8;
   color-scheme: dark;
 }
 
@@ -2412,30 +2412,27 @@ h3 {
 }
 
 html.dark body {
-  background:
-    radial-gradient(circle at top left, rgba(65, 128, 255, 0.16), transparent 24%),
-    radial-gradient(circle at top right, rgba(35, 211, 156, 0.1), transparent 20%),
-    linear-gradient(180deg, #05070b 0%, #070b14 55%, #08101a 100%);
+  background: linear-gradient(180deg, #040404 0%, #090a0d 50%, #06070a 100%);
 }
 
 html.dark .brand-link {
-  color: #f4f7ff;
+  color: #f5f7fb;
 }
 
 html.dark .brand-context {
-  color: #8894ab;
+  color: #8e98a8;
 }
 
 html.dark .theme-toggle {
-  border-color: #355caa;
-  background: rgba(17, 22, 32, 0.92);
-  color: #eaf1ff;
-  box-shadow: 0 0 0 1px rgba(86, 139, 255, 0.18);
+  border-color: #353d48;
+  background: #101216;
+  color: #f5f7fb;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
 html.dark .theme-toggle:hover {
-  border-color: #5f92ff;
-  background: #141c2d;
+  border-color: rgba(96, 165, 250, 0.4);
+  background: #171a20;
 }
 
 html.dark .home-hero,
@@ -2455,7 +2452,10 @@ html.dark .kpi-card,
 html.dark .kpi-hero,
 html.dark .kpi-warning,
 html.dark .kpi-success {
-  color: #0f172a;
+  color: #f5f7fb;
+  border-color: #252a33;
+  background: linear-gradient(180deg, #16191f 0%, #101317 100%);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.34);
 }
 
 html.dark .home-hero .meta,
@@ -2472,22 +2472,22 @@ html.dark .home-faq-item .meta,
 html.dark .home-cta .meta,
 html.dark .kpi-card .meta,
 html.dark .kpi-note {
-  color: #64748b;
+  color: #98a4b5;
 }
 
 html.dark .home-network-notice.notice.info {
-  background: rgba(37, 99, 235, 0.08);
-  border-color: rgba(96, 165, 250, 0.3);
-  color: #1e3a8a;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(96, 165, 250, 0.32);
+  color: #c8dcff;
 }
 
 html.dark .home-entry-secondary {
-  color: #2563eb;
+  color: #8ab4ff;
 }
 
 html.dark .home-entry-student .home-entry-btn {
   background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
-  border-color: rgba(15, 23, 42, 0.06);
+  border-color: rgba(74, 222, 128, 0.18);
   color: #052e25;
   box-shadow: 0 10px 20px rgba(16, 185, 129, 0.22);
 }
@@ -2497,15 +2497,15 @@ html.dark .home-entry-student .home-entry-btn:hover {
 }
 
 html.dark .pill-subtle {
-  background: #121923;
-  border-color: #263244;
-  color: #b6c3d8;
+  background: #101317;
+  border-color: #252a33;
+  color: #c7d0dc;
 }
 
 html.dark .home-preview-shell {
-  border-color: #253247;
-  background: linear-gradient(180deg, #1a2230 0%, #131a26 100%);
-  box-shadow: 0 20px 38px rgba(2, 6, 23, 0.34);
+  border-color: #252a33;
+  background: linear-gradient(180deg, #181b21 0%, #111418 100%);
+  box-shadow: 0 20px 38px rgba(0, 0, 0, 0.34);
 }
 
 html.dark .home-preview-sidebar,
@@ -2513,9 +2513,9 @@ html.dark .home-preview-main,
 html.dark .home-preview-card,
 html.dark .home-preview-class,
 html.dark .home-preview-badge {
-  border-color: #2a3649;
-  background: linear-gradient(180deg, #111823 0%, #0d131d 100%);
-  color: #eef3ff;
+  border-color: #262c36;
+  background: linear-gradient(180deg, #0f1216 0%, #0b0d11 100%);
+  color: #f5f7fb;
 }
 
 html.dark .home-preview-top h3,
@@ -2523,18 +2523,18 @@ html.dark .home-preview-class strong,
 html.dark .home-preview-card,
 html.dark .home-preview-badge,
 html.dark .home-preview-list {
-  color: #eef3ff;
+  color: #f5f7fb;
 }
 
 html.dark .home-panel-label,
 html.dark .home-preview-class span,
 html.dark .home-preview-grade span {
-  color: #95a7c2;
+  color: #99a4b5;
 }
 
 html.dark .home-preview-class.is-active {
   border-color: rgba(96, 165, 250, 0.42);
-  background: linear-gradient(180deg, #17253b 0%, #101a2a 100%);
+  background: linear-gradient(180deg, #132035 0%, #0d1420 100%);
 }
 
 /* Admin responsive */
