@@ -2,24 +2,68 @@
 
 import { useEffect, useState } from "react";
 
+const LEGACY_THEME_KEY = "theme";
+
+function getUserThemeKey(email: string) {
+  return `theme:${email}`;
+}
+
 export default function ThemeToggle() {
-  const [dark, setDark] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
+  const [dark, setDark] = useState(false);
+  const [themeStorageKey, setThemeStorageKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadThemePreference() {
+      try {
+        const response = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!response.ok) throw new Error("Unable to load session.");
+        const session = (await response.json()) as { user?: { email?: string | null } } | null;
+        const email = session?.user?.email?.trim().toLowerCase();
+
+        if (!active) return;
+
+        if (!email) {
+          setThemeStorageKey(null);
+          setDark(false);
+          return;
+        }
+
+        const nextThemeKey = getUserThemeKey(email);
+        const savedTheme = localStorage.getItem(nextThemeKey) ?? localStorage.getItem(LEGACY_THEME_KEY);
+
+        if (savedTheme) {
+          localStorage.setItem(nextThemeKey, savedTheme);
+        }
+
+        setThemeStorageKey(nextThemeKey);
+        setDark(savedTheme === "dark");
+      } catch {
+        if (!active) return;
+        setThemeStorageKey(null);
+        setDark(false);
+      }
     }
 
-    const stored = localStorage.getItem("theme");
-    return stored === "dark";
-  });
+    void loadThemePreference();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
   function toggle() {
-    const next = !dark;
-    setDark(next);
-    localStorage.setItem("theme", next ? "dark" : "light");
+    setDark((current) => {
+      const next = !current;
+      if (themeStorageKey) {
+        localStorage.setItem(themeStorageKey, next ? "dark" : "light");
+      }
+      return next;
+    });
   }
 
   return (
