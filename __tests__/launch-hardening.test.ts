@@ -171,9 +171,9 @@ describe("launch hardening helpers", () => {
       getToken: mockGetToken,
     }));
 
-    const { middleware } = await import("@/middleware");
+    const { proxy } = await import("@/proxy");
 
-    const response = await middleware({
+    const response = await proxy({
       headers: new Headers(),
       nextUrl: new URL("http://localhost/admin"),
       url: "http://localhost/admin",
@@ -189,9 +189,9 @@ describe("launch hardening helpers", () => {
       getToken: mockGetToken,
     }));
 
-    const { middleware } = await import("@/middleware");
+    const { proxy } = await import("@/proxy");
 
-    const response = await middleware({
+    const response = await proxy({
       headers: new Headers(),
       nextUrl: new URL("http://localhost/admin"),
       url: "http://localhost/admin",
