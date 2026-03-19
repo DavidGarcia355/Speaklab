@@ -47,7 +47,8 @@ const quickQuestions = [
   },
   {
     question: "Is it really free?",
-    answer: "Yes. Habla is free to use right now, and you can start with your first class today.",
+    answer:
+      "The first 20 world language teachers get Habla free forever during beta. After that, Habla will move to a $9/month or $89/year teacher plan.",
   },
 ] as const;
 
@@ -102,15 +103,15 @@ export default function Home() {
           <h2>First 20 world language teachers get Habla free forever</h2>
           <p className="meta">
             Create an account, try Habla with your students, and give honest feedback. Once those first
-            20 teacher spots are filled, Habla will move to paid tiers.
+            20 teacher spots are filled, Habla will move to $9/month or $89/year.
           </p>
         </div>
         <div className="actions home-beta-actions">
           <Link className="btn btn-primary" href="/teacher/register">
             Claim a beta spot
           </Link>
-          <Link className="btn btn-ghost" href="/feedback">
-            Share feedback
+          <Link className="btn btn-ghost" href="/pricing">
+            View pricing
           </Link>
         </div>
       </section>
@@ -205,8 +206,8 @@ export default function Home() {
           <p className="home-story-copy">
             {APP_NAME} was built to make speaking practice feel manageable again for language teachers.
             Instead of stitching together forms, recordings, and gradebook notes, teachers get one focused
-            workflow that does the job cleanly. It is free right now, easy to start, and designed for real
-            classroom use.
+            workflow that does the job cleanly. It is in beta right now, easy to start, and designed for
+            real classroom use. The first 20 world language teachers get free access forever.
           </p>
         </article>
       </section>
@@ -236,15 +237,18 @@ export default function Home() {
 
       <section className="card home-cta section-gap">
         <div>
-          <p className="home-cta-copy">Built for language teachers. Free to use.</p>
-          <p className="meta">Start today, run your first speaking assignment, and keep the workflow simple.</p>
+          <p className="home-cta-copy">Free forever for the first 20 beta teachers.</p>
+          <p className="meta">
+            Join beta now, run your first speaking assignment, and see the simple $9/month or $89/year
+            teacher pricing for what comes next.
+          </p>
         </div>
         <div className="actions home-cta-actions">
           <Link className="btn btn-primary" href="/api/auth/signin?callbackUrl=/teacher">
             Sign in as teacher
           </Link>
-          <Link className="btn btn-ghost" href="/feedback">
-            Request help
+          <Link className="btn btn-ghost" href="/pricing">
+            View pricing
           </Link>
         </div>
       </section>

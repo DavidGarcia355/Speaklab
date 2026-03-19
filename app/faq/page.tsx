@@ -3,7 +3,7 @@ import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
 
 export const metadata: Metadata = {
-  title: "FAQ — Habla",
+  title: "FAQ - Habla",
 };
 
 const FAQ_ITEMS = [
@@ -30,7 +30,12 @@ const FAQ_ITEMS = [
   {
     question: "Can I pilot this before schoolwide rollout?",
     answer:
-      "Yes. Use the feedback form to request pilot access and include your school and department details.",
+      "Yes. Habla is in beta now, and the first 20 world language teachers get free access forever.",
+  },
+  {
+    question: "What does Habla cost after beta?",
+    answer:
+      "The teacher plan will be $9/month or $89/year. School pricing is coming later, and schools can contact us if they want to talk early.",
   },
 ] as const;
 
@@ -41,7 +46,7 @@ export default function FaqPage() {
       <section className="hero">
         <p className="pill">Frequently asked questions</p>
         <h1>Habla FAQ</h1>
-        <p>Answers for teachers evaluating Habla for speaking assessments.</p>
+        <p>Answers for teachers evaluating Habla, beta access, and simple upcoming pricing.</p>
       </section>
 
       <section className="grid section-gap">
@@ -55,13 +60,13 @@ export default function FaqPage() {
 
       <section className="card section-gap">
         <h2 className="surface-title">Still have questions?</h2>
-        <p className="meta">Reach out and we can help get your classes set up.</p>
+        <p className="meta">See the current beta offer and the simple teacher plan, or reach out directly.</p>
         <div className="actions form-actions">
-          <Link className="btn btn-primary" href="/feedback">
-            Request pilot access
+          <Link className="btn btn-primary" href="/pricing">
+            View pricing
           </Link>
-          <Link className="btn btn-ghost" href="/">
-            Back home
+          <Link className="btn btn-ghost" href="/feedback">
+            Contact us
           </Link>
         </div>
       </section>

@@ -961,6 +961,62 @@ h3 {
   color: #0f172a;
 }
 
+.pricing-grid {
+  align-items: stretch;
+}
+
+.pricing-card {
+  display: grid;
+  gap: 0.7rem;
+  align-content: start;
+}
+
+.pricing-card-beta {
+  border-color: #bfd4fd;
+  background: linear-gradient(180deg, #ffffff 0%, #f2f7ff 100%);
+}
+
+.pricing-card-teacher {
+  border-color: #cfe0f3;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.pricing-card-school {
+  border-color: #dbe7d6;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fcf8 100%);
+}
+
+.pricing-price {
+  margin: 0;
+  font-size: clamp(1.55rem, 3vw, 2.15rem);
+  font-weight: 780;
+  line-height: 1;
+  color: #0f172a;
+}
+
+.pricing-price-detail {
+  margin: -0.2rem 0 0;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.pricing-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+}
+
+.pricing-note {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.pricing-actions {
+  margin-top: auto;
+}
+
 .grid {
   display: grid;
   gap: 0.9rem;
@@ -2435,6 +2491,31 @@ html.dark .theme-toggle:hover {
   background: #171a20;
 }
 
+html.dark .hero {
+  color: #f5f7fb;
+  border-color: #252a33;
+  background: linear-gradient(180deg, #16191f 0%, #101317 100%);
+  box-shadow: 0 20px 38px rgba(0, 0, 0, 0.36);
+}
+
+html.dark .hero::before {
+  background: linear-gradient(120deg, rgba(59, 130, 246, 0.12), rgba(16, 185, 129, 0.08));
+}
+
+html.dark .hero h1 {
+  color: #f5f7fb;
+}
+
+html.dark .hero p {
+  color: #c3ccd8;
+}
+
+html.dark .pill {
+  border-color: rgba(96, 165, 250, 0.34);
+  background: rgba(59, 130, 246, 0.16);
+  color: #dbeafe;
+}
+
 html.dark .home-hero,
 html.dark .home-entry-card,
 html.dark .home-beta-banner,
@@ -2535,6 +2616,31 @@ html.dark .home-preview-grade span {
 html.dark .home-preview-class.is-active {
   border-color: rgba(96, 165, 250, 0.42);
   background: linear-gradient(180deg, #132035 0%, #0d1420 100%);
+}
+
+html.dark .pricing-card-beta,
+html.dark .pricing-card-teacher,
+html.dark .pricing-card-school,
+html.dark .pricing-note {
+  border-color: #252a33;
+  background: linear-gradient(180deg, #16191f 0%, #101317 100%);
+}
+
+html.dark .pricing-card-school {
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+html.dark .pricing-card-beta {
+  border-color: rgba(96, 165, 250, 0.26);
+}
+
+html.dark .pricing-price {
+  color: #f5f7fb;
+}
+
+html.dark .pricing-price-detail,
+html.dark .pricing-list {
+  color: #98a4b5;
 }
 
 /* Admin responsive */
