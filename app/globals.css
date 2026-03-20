@@ -1833,8 +1833,8 @@ h3 {
   width: min(560px, calc(100% - 1rem));
   max-height: calc(100vh - 2rem);
   overflow-y: auto;
-  background: #fff;
-  border: 1px solid #d4e0ee;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 14px;
   padding: 1rem;
   box-shadow: 0 24px 56px rgba(15, 23, 42, 0.24);
