@@ -49,7 +49,7 @@ const quickQuestions = [
   {
     question: "Is it really free?",
     answer:
-      "The first 20 world language teachers get Habla free forever during beta. After that, Habla will move to a $9/month or $89/year teacher plan.",
+      "The first 20 world language teachers get Habla free forever during beta. After that, individual teachers can use Habla for $4.99/month or $39.95/year, and departments can contact us about broader coverage.",
   },
 ] as const;
 
@@ -112,7 +112,8 @@ export default function Home() {
           <h2>First 20 world language teachers get Habla free forever</h2>
           <p className="meta">
             Create an account, try Habla with your students, and give honest feedback. Once those first
-            20 teacher spots are filled, Habla will move to $9/month or $89/year.
+            20 teacher spots are filled, individual teachers can use Habla for $4.99/month or $39.95/year,
+            and departments can contact us about broader coverage.
           </p>
         </div>
         <div className="actions home-beta-actions">
@@ -248,8 +249,8 @@ export default function Home() {
         <div>
           <p className="home-cta-copy">Free forever for the first 20 beta teachers.</p>
           <p className="meta">
-            Join beta now, run your first speaking assignment, and see the simple $9/month or $89/year
-            teacher pricing for what comes next.
+            Join beta now, run your first speaking assignment, and see the simple $4.99/month or $39.95/year
+            individual-teacher pricing for what comes next.
           </p>
         </div>
         <div className="actions home-cta-actions">

@@ -35,7 +35,7 @@ const FAQ_ITEMS = [
   {
     question: "What does Habla cost after beta?",
     answer:
-      "The teacher plan will be $9/month or $89/year. School pricing is coming later, and schools can contact us if they want to talk early.",
+      "Individual teachers will be able to use Habla for $4.99/month or $39.95/year. Departments can contact us if they want school-covered access for multiple teachers.",
   },
 ] as const;
 
@@ -46,7 +46,7 @@ export default function FaqPage() {
       <section className="hero">
         <p className="pill">Frequently asked questions</p>
         <h1>Habla FAQ</h1>
-        <p>Answers for teachers evaluating Habla, beta access, and simple upcoming pricing.</p>
+        <p>Answers for teachers evaluating Habla, beta access, and simple teacher-friendly pricing.</p>
       </section>
 
       <section className="grid section-gap">
@@ -60,7 +60,7 @@ export default function FaqPage() {
 
       <section className="card section-gap">
         <h2 className="surface-title">Still have questions?</h2>
-        <p className="meta">See the current beta offer and the simple teacher plan, or reach out directly.</p>
+        <p className="meta">See the current beta offer, individual teacher pricing, or reach out about department coverage.</p>
         <div className="actions form-actions">
           <Link className="btn btn-primary" href="/pricing">
             View pricing

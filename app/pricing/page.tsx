@@ -4,7 +4,7 @@ import BrandBar from "@/app/components/BrandBar";
 
 export const metadata: Metadata = {
   title: "Pricing - Habla",
-  description: "Beta access, teacher pricing, and upcoming school pricing for Habla.",
+  description: "Beta access, individual teacher pricing, and department coverage for Habla.",
 };
 
 const PLAN_CARDS = [
@@ -23,12 +23,12 @@ const PLAN_CARDS = [
     className: "pricing-card-beta",
   },
   {
-    label: "Teacher plan",
+    label: "Individual teacher",
     title: "Simple pricing for one teacher",
-    price: "$9/month",
-    detail: "or $89/year",
+    price: "$4.99/month",
+    detail: "or $39.95/year",
     description:
-      "This is the core Habla plan once the beta spots are filled. It stays low-friction and teacher-friendly.",
+      "This is the low-friction path for individual teachers once the beta spots are filled. It stays simple, affordable, and teacher-friendly.",
     bullets: [
       "Unlimited classes",
       "Unlimited assignments",
@@ -37,16 +37,16 @@ const PLAN_CARDS = [
     className: "pricing-card-teacher",
   },
   {
-    label: "School plan",
-    title: "Coming soon for schools",
-    price: "Coming soon",
-    detail: "contact us if your school is interested early",
+    label: "Department plan",
+    title: "Department coverage for multiple teachers",
+    price: "Contact us",
+    detail: "for departments that want to cover access for teachers",
     description:
-      "Habla will start teacher-first. If a department or school wants to talk earlier, we can have that conversation now.",
+      "Habla starts teacher-first, but departments can reach out if they want school-covered access for multiple teachers.",
     bullets: [
-      "Multi-teacher access",
-      "Admin visibility",
-      "Priority support",
+      "A department-friendly path instead of teachers paying out of pocket",
+      "Support for multiple teachers using Habla together",
+      "Direct rollout conversation and priority support",
     ],
     className: "pricing-card-school",
   },
@@ -59,10 +59,11 @@ export default function PricingPage() {
 
       <section className="hero">
         <p className="pill">Simple pricing</p>
-        <h1>Teacher-first pricing while Habla is still in beta</h1>
+        <h1>Teacher-friendly pricing while Habla is still in beta</h1>
         <p>
           Start with the beta offer if you are one of the first 20 world language teachers. After that,
-          Habla moves to a simple teacher plan with school pricing coming later.
+          individual teachers can use Habla for $4.99/month or $39.95/year, and departments can contact us
+          when they want to cover access for multiple teachers.
         </p>
         <div className="actions hero-actions">
           <Link className="btn btn-primary" href="/teacher/register">
@@ -87,7 +88,7 @@ export default function PricingPage() {
                 <li key={bullet}>{bullet}</li>
               ))}
             </ul>
-            {plan.label === "School plan" ? (
+            {plan.label === "Department plan" ? (
               <div className="actions pricing-actions">
                 <Link className="btn btn-ghost" href="/feedback">
                   Contact us
@@ -103,8 +104,8 @@ export default function PricingPage() {
         <h2 className="surface-title">Start now, then decide later</h2>
         <p className="meta">
           Habla is staying intentionally simple. There is no checkout flow on this page yet. The goal right
-          now is to help teachers understand the beta offer, the upcoming $9/month teacher plan, and the
-          fact that school pricing is not the focus yet.
+          now is to help teachers understand the beta offer, the upcoming $4.99/month individual-teacher
+          plan, and the department contact path.
         </p>
         <div className="actions pricing-actions">
           <Link className="btn btn-primary" href="/teacher/register">

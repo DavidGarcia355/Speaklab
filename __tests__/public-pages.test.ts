@@ -8,12 +8,16 @@ describe("pricing page", () => {
     const markup = renderToStaticMarkup(await PricingPage());
 
     expect(markup).toContain("First 20 world language teachers get Habla free forever");
-    expect(markup).toContain("$9/month");
-    expect(markup).toContain("$89/year");
+    expect(markup).toContain("$4.99/month");
+    expect(markup).toContain("$39.95/year");
     expect(markup).toContain("Create your teacher account");
     expect(markup).toContain("/teacher/register");
+    expect(markup).toContain("Department coverage for multiple teachers");
     expect(markup).toContain("Contact us");
     expect(markup).toContain("/feedback");
+    expect(markup).not.toContain("$9/month");
+    expect(markup).not.toContain("$89/year");
+    expect(markup).not.toContain("Coming soon for schools");
   });
 });
 
@@ -25,7 +29,8 @@ describe("homepage pricing links", () => {
 
     expect(markup).toContain("View pricing");
     expect(markup).toContain("/pricing");
-    expect(markup).toContain("$9/month or $89/year teacher plan");
+    expect(markup).toContain("$4.99/month or $39.95/year");
+    expect(markup).toContain("departments can contact us");
   });
 });
 
@@ -36,7 +41,8 @@ describe("faq pricing copy", () => {
     const markup = renderToStaticMarkup(await FaqPage());
 
     expect(markup).toContain("What does Habla cost after beta?");
-    expect(markup).toContain("$9/month or $89/year");
+    expect(markup).toContain("$4.99/month or $39.95/year");
+    expect(markup).toContain("school-covered access for multiple teachers");
     expect(markup).toContain("View pricing");
     expect(markup).toContain("/pricing");
     expect(markup).not.toContain("Request pilot access");

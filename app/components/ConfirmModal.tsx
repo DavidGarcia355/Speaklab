@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 type ConfirmModalProps = {
   open: boolean;
   title: string;
@@ -21,11 +23,19 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  useEffect(() => {
+    if (!open) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   if (!open) return null;
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="modal-card">
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={title} onClick={onCancel}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <h3 className="surface-title">{title}</h3>
         <p className="meta">{description}</p>
         <div className="actions modal-actions">
