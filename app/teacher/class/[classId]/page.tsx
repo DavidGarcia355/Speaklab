@@ -18,6 +18,8 @@ type AssignmentSummary = {
   description: string;
   instructions: string;
   maxPoints: number;
+  maxSubmissions: number;
+  maxRecordingSeconds: number;
   rubric: {
     title: string;
     criteria: {
