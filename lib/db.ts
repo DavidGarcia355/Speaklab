@@ -77,6 +77,13 @@ export type StudentSubmissionRow = {
   grade: number | null;
 };
 
+export type StudentAssignmentHistoryRow = {
+  assignmentId: string;
+  assignmentTitle: string;
+  className: string;
+  maxPoints: number;
+};
+
 export type FeedbackRow = {
   id: string;
   name: string;
@@ -418,6 +425,30 @@ export async function createClass(name: string, ownerEmail: string): Promise<Cla
   return item;
 }
 
+async function assertUniqueAssignmentTitle(
+  classId: string,
+  ownerEmail: string,
+  title: string,
+  excludeAssignmentId?: string
+) {
+  const duplicate = await query(
+    `SELECT a.id
+    FROM assignments a
+    JOIN classes c ON c.id = a.class_id
+    WHERE a.class_id = ?
+      AND LOWER(a.title) = LOWER(?)
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND (? IS NULL OR a.id <> ?)
+    LIMIT 1`,
+    [classId, title, ownerEmail, excludeAssignmentId ?? null, excludeAssignmentId ?? null]
+  );
+  if (duplicate.rows.length > 0) {
+    throw new Error("Assignment title already exists in this class.");
+  }
+}
+
 export async function updateClassName(
   classId: string,
   name: string,
@@ -544,6 +575,8 @@ export async function createAssignment(input: {
   attachmentUrl: string;
   attachmentContentType: string;
 }): Promise<AssignmentRow> {
+  await assertUniqueAssignmentTitle(input.classId, input.ownerEmail, input.title);
+
   const item: AssignmentRow = {
     id: makeId("asg"),
     classId: input.classId,
@@ -654,6 +687,11 @@ export async function updateAssignment(
     attachmentContentType: string;
   }
 ): Promise<AssignmentDetailRow | null> {
+  const current = await findAssignmentById(assignmentId, ownerEmail);
+  if (!current) return null;
+
+  await assertUniqueAssignmentTitle(current.classId, ownerEmail, input.title, assignmentId);
+
   const result = await query(
     `UPDATE assignments
     SET title = ?, instructions = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
@@ -835,6 +873,34 @@ export async function listSubmissionsByStudentEmail(studentEmail: string): Promi
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
+  }));
+}
+
+export async function listStudentAssignmentHistoryByEmail(
+  studentEmail: string
+): Promise<StudentAssignmentHistoryRow[]> {
+  const result = await query(
+    `SELECT
+      a.id as assignmentId,
+      a.title as assignmentTitle,
+      c.name as className,
+      a.max_points as maxPoints,
+      MAX(s.submitted_at) as lastSeenAt
+    FROM submissions s
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE LOWER(s.student_email) = LOWER(?)
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    GROUP BY a.id, a.title, c.name, a.max_points
+    ORDER BY lastSeenAt DESC, LOWER(c.name), LOWER(a.title)`,
+    [studentEmail]
+  );
+  return result.rows.map((row) => ({
+    assignmentId: toStringValue(row.assignmentId),
+    assignmentTitle: toStringValue(row.assignmentTitle),
+    className: toStringValue(row.className),
+    maxPoints: toNumber(row.maxPoints),
   }));
 }
 

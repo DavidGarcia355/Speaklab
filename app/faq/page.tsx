@@ -124,7 +124,7 @@ export default function FaqPage() {
       <section className="card section-gap">
         <h2 className="surface-title">Still have a question?</h2>
         <p className="meta">
-          We're a small team and we actually read every message. Ask us anything.
+          We&apos;re a small team and we actually read every message. Ask us anything.
         </p>
         <div className="actions form-actions">
           <Link className="btn btn-primary" href="/feedback">

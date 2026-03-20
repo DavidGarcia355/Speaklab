@@ -2283,6 +2283,16 @@ h3 {
   margin-bottom: 0.8rem;
 }
 
+.student-assignment-empty {
+  padding: 0.9rem 1rem;
+  border-style: dashed;
+  background: var(--surface-soft);
+}
+
+.student-assignment-empty .empty {
+  margin-top: 0.28rem;
+}
+
 .student-assignment-header {
   display: flex;
   align-items: center;
@@ -2908,6 +2918,186 @@ html.dark .pricing-price {
 html.dark .pricing-price-detail,
 html.dark .pricing-list {
   color: #98a4b5;
+}
+
+/* ── Audio player dark mode ── */
+html.dark .audio-shell {
+  border-color: #2a313d;
+  background: linear-gradient(180deg, #12151a 0%, #0d1014 100%);
+}
+
+html.dark .audio-toggle {
+  background: #3b82f6;
+  box-shadow: 0 6px 14px rgba(59, 130, 246, 0.22);
+}
+
+html.dark .audio-toggle:hover {
+  background: #2563eb;
+}
+
+html.dark .audio-toggle.is-playing {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+html.dark .audio-range {
+  background: #2a313d;
+}
+
+html.dark .audio-range::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%);
+}
+
+html.dark .audio-range::-webkit-slider-thumb {
+  background: #60a5fa;
+  border-color: #0d1014;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+html.dark .audio-range::-moz-range-track {
+  background: #2a313d;
+}
+
+html.dark .audio-range::-moz-range-thumb {
+  background: #60a5fa;
+  border-color: #0d1014;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+html.dark .audio-time {
+  color: #98a4b5;
+}
+
+html.dark .audio-speed {
+  border-color: #2a313d;
+  background: linear-gradient(180deg, #12151a 0%, #0d1014 100%);
+}
+
+html.dark .audio-speed-btn {
+  color: #98a4b5;
+}
+
+html.dark .audio-speed-btn.active {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+/* ── Notice dark mode ── */
+html.dark .notice.danger {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(127, 29, 29, 0.22);
+  color: #fca5a5;
+}
+
+html.dark .notice.info {
+  color: #93c5fd;
+}
+
+/* ── Undo toast dark mode ── */
+html.dark .undo-toast {
+  border-color: #2a313d;
+  background: linear-gradient(180deg, #16191f 0%, #101317 100%);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.44);
+}
+
+html.dark .undo-toast-message {
+  color: #f5f7fb;
+}
+
+html.dark .undo-progress {
+  background: #2a313d;
+}
+
+/* ── Modal dark mode ── */
+html.dark .modal-backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+html.dark .modal-card {
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Student dashboard dark mode ── */
+html.dark .student-submission-card:hover {
+  border-color: #3a4556;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+html.dark .student-sub-feedback {
+  border-color: rgba(74, 222, 128, 0.2);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+/* ── State banners dark mode ── */
+html.dark .state-banner {
+  color: #c3ccd8;
+}
+
+html.dark .state-requesting-permission {
+  color: #93c5fd;
+}
+
+html.dark .state-recording {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(127, 29, 29, 0.22);
+  color: #fca5a5;
+}
+
+html.dark .state-submitting {
+  background: var(--primary-soft);
+  color: #93c5fd;
+}
+
+html.dark .state-error {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(127, 29, 29, 0.22);
+  color: #fca5a5;
+}
+
+/* ── Status text dark mode ── */
+html.dark .status-danger {
+  color: #fca5a5;
+}
+
+html.dark .status-ok {
+  color: #86efac;
+}
+
+html.dark .card-inline-error {
+  color: #fca5a5;
+}
+
+/* ── Mini icon dark mode ── */
+html.dark .mini-icon {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+/* ── Button base dark mode ── */
+html.dark .btn {
+  background: linear-gradient(180deg, #181b21 0%, #111419 100%);
+  color: #f5f7fb;
+}
+
+html.dark .btn-ghost:hover {
+  border-color: rgba(96, 165, 250, 0.38);
+  background: linear-gradient(180deg, #1d2128 0%, #14181f 100%);
+}
+
+/* ── Text link dark mode ── */
+html.dark .text-link {
+  color: #60a5fa;
+}
+
+/* ── Score input dark mode ── */
+html.dark .score-input {
+  border-color: #2a313d;
+  background: linear-gradient(180deg, #12151a 0%, #0d1014 100%);
+  color: #f5f7fb;
+}
+
+html.dark .feedback-area {
+  border-color: #2a313d;
 }
 
 /* Admin responsive */

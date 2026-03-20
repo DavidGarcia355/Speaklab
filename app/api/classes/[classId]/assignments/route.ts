@@ -3,7 +3,7 @@ import { buildTeacherEventMetadata, trackActivity } from "@/lib/activity";
 import { requireTeacherEmail } from "@/lib/authz";
 import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
 import { createAssignment, findClassById } from "@/lib/db";
-import { withApiHandler } from "@/lib/http";
+import { HttpError, withApiHandler } from "@/lib/http";
 import {
   assignmentCreateSchema,
   parseAttachmentDataUrl,
@@ -51,20 +51,28 @@ export async function POST(
       attachmentContentType = body.existingAttachment.contentType ?? "";
     }
 
-    const created = await createAssignment({
-      classId,
-      ownerEmail: teacherEmail,
-      title,
-      description,
-      instructions,
-      maxPoints,
-      maxSubmissions: body.maxSubmissions ?? 0,
-      maxRecordingSeconds: body.maxRecordingSeconds ?? 180,
-      rubric,
-      attachmentName,
-      attachmentUrl,
-      attachmentContentType,
-    });
+    let created;
+    try {
+      created = await createAssignment({
+        classId,
+        ownerEmail: teacherEmail,
+        title,
+        description,
+        instructions,
+        maxPoints,
+        maxSubmissions: body.maxSubmissions ?? 0,
+        maxRecordingSeconds: body.maxRecordingSeconds ?? 180,
+        rubric,
+        attachmentName,
+        attachmentUrl,
+        attachmentContentType,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.toLowerCase().includes("already exists")) {
+        throw new HttpError(409, error.message);
+      }
+      throw error;
+    }
     let isFirstAssignment = false;
     try {
       const metadata = await buildTeacherEventMetadata(teacherEmail);

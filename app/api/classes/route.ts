@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { buildTeacherEventMetadata, trackActivity } from "@/lib/activity";
 import { requireTeacherEmail } from "@/lib/authz";
 import { createClass, listClassesByTeacher } from "@/lib/db";
-import { withApiHandler } from "@/lib/http";
+import { HttpError, withApiHandler } from "@/lib/http";
 import { classCreateSchema, parseOrThrow400 } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -19,7 +19,15 @@ export async function POST(request: Request) {
     const teacherEmail = await requireTeacherEmail();
     const body = parseOrThrow400(classCreateSchema, await request.json());
     const name = body.name ?? "";
-    const created = await createClass(name, teacherEmail);
+    let created;
+    try {
+      created = await createClass(name, teacherEmail);
+    } catch (error) {
+      if (error instanceof Error && error.message.toLowerCase().includes("already exists")) {
+        throw new HttpError(409, error.message);
+      }
+      throw error;
+    }
     let isFirstClass = false;
     try {
       const metadata = await buildTeacherEventMetadata(teacherEmail);

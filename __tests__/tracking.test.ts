@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   setUserRoleTeacher: vi.fn(),
   findClassById: vi.fn(),
   createClass: vi.fn(),
+  updateClassName: vi.fn(),
   createAssignment: vi.fn(),
   uploadAssignmentAttachment: vi.fn(),
   parseOrThrow400: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@/lib/db", () => ({
   setUserRoleTeacher: mocks.setUserRoleTeacher,
   findClassById: mocks.findClassById,
   createClass: mocks.createClass,
+  updateClassName: mocks.updateClassName,
   createAssignment: mocks.createAssignment,
 }));
 
@@ -117,6 +119,7 @@ describe("tracking hooks", () => {
     mocks.setUserRoleTeacher.mockReset();
     mocks.findClassById.mockReset();
     mocks.createClass.mockReset();
+    mocks.updateClassName.mockReset();
     mocks.createAssignment.mockReset();
     mocks.uploadAssignmentAttachment.mockReset();
     mocks.parseOrThrow400.mockReset();
@@ -159,6 +162,12 @@ describe("tracking hooks", () => {
     mocks.sendTeacherUpgradeConfirmationEmail.mockImplementation(() => undefined);
     mocks.findClassById.mockResolvedValue({ id: "class_1", name: "Spanish 1" });
     mocks.createClass.mockResolvedValue({
+      id: "class_1",
+      name: "Spanish 1",
+      ownerEmail: "teacher@example.com",
+      createdAt: Date.now(),
+    });
+    mocks.updateClassName.mockResolvedValue({
       id: "class_1",
       name: "Spanish 1",
       ownerEmail: "teacher@example.com",
@@ -264,6 +273,28 @@ describe("tracking hooks", () => {
     );
   });
 
+  it("returns 409 when a duplicate class name is submitted", async () => {
+    mocks.createClass.mockRejectedValueOnce(new Error("Class name already exists."));
+    const { POST } = await import("@/app/api/classes/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/classes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Spanish 1" }),
+      })
+    );
+    const data = (await response.json()) as { error?: string };
+
+    expect(response.status).toBe(409);
+    expect(data.error).toBe("Class name already exists.");
+    expect(mocks.trackActivity).not.toHaveBeenCalledWith(
+      "class_created",
+      "teacher@example.com",
+      expect.anything()
+    );
+  });
+
   it("logs assignment_created from the assignment creation route", async () => {
     const { POST } = await import("@/app/api/classes/[classId]/assignments/route");
 
@@ -291,6 +322,34 @@ describe("tracking hooks", () => {
         classId: "class_1",
         isFirstAssignment: true,
       })
+    );
+  });
+
+  it("returns 409 when a duplicate assignment title is submitted", async () => {
+    mocks.createAssignment.mockRejectedValueOnce(new Error("Assignment title already exists in this class."));
+    const { POST } = await import("@/app/api/classes/[classId]/assignments/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/classes/class_1/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Oral quiz",
+          description: "",
+          instructions: "Speak",
+          maxPoints: 10,
+        }),
+      }),
+      { params: Promise.resolve({ classId: "class_1" }) }
+    );
+    const data = (await response.json()) as { error?: string };
+
+    expect(response.status).toBe(409);
+    expect(data.error).toBe("Assignment title already exists in this class.");
+    expect(mocks.trackActivity).not.toHaveBeenCalledWith(
+      "assignment_created",
+      "teacher@example.com",
+      expect.anything()
     );
   });
 });

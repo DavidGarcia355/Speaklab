@@ -7,7 +7,7 @@ import {
   listSubmissionsByClassId,
   updateClassName,
 } from "@/lib/db";
-import { withApiHandler } from "@/lib/http";
+import { HttpError, withApiHandler } from "@/lib/http";
 import { classUpdateSchema, parseOrThrow400 } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -54,7 +54,15 @@ export async function PATCH(
 
     const body = parseOrThrow400(classUpdateSchema, await request.json());
     const name = body.name ?? "";
-    const updated = await updateClassName(classId, name, teacherEmail);
+    let updated;
+    try {
+      updated = await updateClassName(classId, name, teacherEmail);
+    } catch (error) {
+      if (error instanceof Error && error.message.toLowerCase().includes("already exists")) {
+        throw new HttpError(409, error.message);
+      }
+      throw error;
+    }
     if (!updated) {
       return NextResponse.json({ error: "Class not found." }, { status: 404 });
     }

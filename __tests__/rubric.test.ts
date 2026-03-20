@@ -364,6 +364,29 @@ describe("rubric routes", () => {
     );
   });
 
+  it("returns 409 when updating an assignment to a duplicate title", async () => {
+    mocks.updateAssignment.mockRejectedValueOnce(
+      new Error("Assignment title already exists in this class.")
+    );
+
+    const response = await updateAssignmentRoute(
+      new Request("http://localhost/api/assignments/asg_1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Updated oral quiz",
+          instructions: "Respond fully.",
+          maxPoints: 20,
+        }),
+      }),
+      { params: Promise.resolve({ assignmentId: "asg_1" }) }
+    );
+    const data = (await response.json()) as { error?: string };
+
+    expect(response.status).toBe(409);
+    expect(data.error).toBe("Assignment title already exists in this class.");
+  });
+
   it("keeps the legacy submission grading path working", async () => {
     mocks.findAssignmentById.mockResolvedValueOnce({
       id: "asg_1",

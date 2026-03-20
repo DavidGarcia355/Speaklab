@@ -20,6 +20,13 @@ type StudentSubmission = {
   grade: number | null;
 };
 
+type StudentAssignmentHistory = {
+  assignmentId: string;
+  assignmentTitle: string;
+  className: string;
+  maxPoints: number;
+};
+
 type SessionResponse = {
   user?: {
     name?: string | null;
@@ -45,27 +52,58 @@ type GroupedClass = {
   assignments: {
     assignmentId: string;
     assignmentTitle: string;
+    maxPoints: number;
     submissions: StudentSubmission[];
   }[];
 };
 
-function groupByClass(submissions: StudentSubmission[]): GroupedClass[] {
-  const classMap = new Map<string, Map<string, StudentSubmission[]>>();
+function groupByClass(
+  assignments: StudentAssignmentHistory[],
+  submissions: StudentSubmission[]
+): GroupedClass[] {
+  const classMap = new Map<
+    string,
+    Map<string, { assignmentId: string; assignmentTitle: string; maxPoints: number; submissions: StudentSubmission[] }>
+  >();
   const classOrder: string[] = [];
   const assignmentOrder = new Map<string, string[]>();
 
+  function ensureAssignment(
+    className: string,
+    assignmentId: string,
+    assignmentTitle: string,
+    maxPoints: number
+  ) {
+    if (!classMap.has(className)) {
+      classMap.set(className, new Map());
+      classOrder.push(className);
+      assignmentOrder.set(className, []);
+    }
+
+    const aMap = classMap.get(className)!;
+    if (!aMap.has(assignmentId)) {
+      aMap.set(assignmentId, {
+        assignmentId,
+        assignmentTitle,
+        maxPoints,
+        submissions: [],
+      });
+      assignmentOrder.get(className)!.push(assignmentId);
+    }
+  }
+
+  for (const assignment of assignments) {
+    ensureAssignment(
+      assignment.className,
+      assignment.assignmentId,
+      assignment.assignmentTitle,
+      assignment.maxPoints
+    );
+  }
+
   for (const sub of submissions) {
-    if (!classMap.has(sub.className)) {
-      classMap.set(sub.className, new Map());
-      classOrder.push(sub.className);
-      assignmentOrder.set(sub.className, []);
-    }
-    const aMap = classMap.get(sub.className)!;
-    if (!aMap.has(sub.assignmentId)) {
-      aMap.set(sub.assignmentId, []);
-      assignmentOrder.get(sub.className)!.push(sub.assignmentId);
-    }
-    aMap.get(sub.assignmentId)!.push(sub);
+    ensureAssignment(sub.className, sub.assignmentId, sub.assignmentTitle, sub.maxPoints);
+    classMap.get(sub.className)!.get(sub.assignmentId)!.submissions.push(sub);
   }
 
   return classOrder.map((className) => {
@@ -73,20 +111,14 @@ function groupByClass(submissions: StudentSubmission[]): GroupedClass[] {
     const aOrder = assignmentOrder.get(className)!;
     return {
       className,
-      assignments: aOrder.map((assignmentId) => {
-        const subs = aMap.get(assignmentId)!;
-        return {
-          assignmentId,
-          assignmentTitle: subs[0].assignmentTitle,
-          submissions: subs,
-        };
-      }),
+      assignments: aOrder.map((assignmentId) => aMap.get(assignmentId)!),
     };
   });
 }
 
 export default function StudentDashboardPage() {
   const [submissions, setSubmissions] = useState<StudentSubmission[]>([]);
+  const [assignmentHistory, setAssignmentHistory] = useState<StudentAssignmentHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -124,8 +156,12 @@ export default function StudentDashboardPage() {
       try {
         const response = await fetch("/api/student/submissions", { cache: "no-store" });
         if (!response.ok) throw new Error();
-        const data = (await response.json()) as { items: StudentSubmission[] };
+        const data = (await response.json()) as {
+          items: StudentSubmission[];
+          assignments: StudentAssignmentHistory[];
+        };
         setSubmissions(data.items);
+        setAssignmentHistory(data.assignments);
       } catch {
         setErrorMsg("Unable to load submissions.");
       } finally {
@@ -184,7 +220,7 @@ export default function StudentDashboardPage() {
 
   const gradedCount = submissions.filter((s) => s.grade !== null).length;
   const pendingCount = submissions.length - gradedCount;
-  const grouped = groupByClass(submissions);
+  const grouped = groupByClass(assignmentHistory, submissions);
 
   return (
     <main className="page-wrap">
@@ -224,7 +260,7 @@ export default function StudentDashboardPage() {
 
       {loading ? (
         <p className="meta">Loading submissions...</p>
-      ) : submissions.length === 0 ? (
+      ) : grouped.length === 0 ? (
         <section className="card section-gap">
           <h2 className="surface-title">No submissions yet</h2>
           <p className="empty">
@@ -244,43 +280,50 @@ export default function StudentDashboardPage() {
                     Open assignment
                   </Link>
                 </div>
-                <div className="grid student-submission-list">
-                  {asg.submissions.map((sub) => {
-                    const grade = gradeDisplay(sub.grade, sub.maxPoints);
-                    return (
-                      <article key={sub.id} className="card student-submission-card">
-                        <div className="student-sub-top">
-                          <div className="student-sub-info">
-                            <p className="meta">Submitted {formatDate(sub.submittedAt)}</p>
+                {asg.submissions.length === 0 ? (
+                  <article className="card student-assignment-empty">
+                    <p className="meta">No submissions saved right now.</p>
+                    <p className="empty">This assignment stays here so you can reopen it and submit again if needed.</p>
+                  </article>
+                ) : (
+                  <div className="grid student-submission-list">
+                    {asg.submissions.map((sub) => {
+                      const grade = gradeDisplay(sub.grade, sub.maxPoints);
+                      return (
+                        <article key={sub.id} className="card student-submission-card">
+                          <div className="student-sub-top">
+                            <div className="student-sub-info">
+                              <p className="meta">Submitted {formatDate(sub.submittedAt)}</p>
+                            </div>
+                            <div className="student-sub-actions">
+                              <span className={`pill ${grade.tone}`}>{grade.text}</span>
+                              {sub.grade === null ? (
+                                <button
+                                  type="button"
+                                  className="icon-btn icon-btn-danger"
+                                  title="Delete submission"
+                                  onClick={() => setDeleteTarget(sub)}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
-                          <div className="student-sub-actions">
-                            <span className={`pill ${grade.tone}`}>{grade.text}</span>
-                            {sub.grade === null ? (
-                              <button
-                                type="button"
-                                className="icon-btn icon-btn-danger"
-                                title="Delete submission"
-                                onClick={() => setDeleteTarget(sub)}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                        {sub.feedback ? (
-                          <div className="student-sub-feedback">
-                            <p className="label" style={{ marginBottom: "0.2rem", fontSize: "0.84rem" }}>
-                              Teacher feedback
-                            </p>
-                            <p className="meta">{sub.feedback}</p>
-                          </div>
-                        ) : sub.grade !== null ? (
-                          <p className="meta" style={{ fontStyle: "italic" }}>No written feedback</p>
-                        ) : null}
-                      </article>
-                    );
-                  })}
-                </div>
+                          {sub.feedback ? (
+                            <div className="student-sub-feedback">
+                              <p className="label" style={{ marginBottom: "0.2rem", fontSize: "0.84rem" }}>
+                                Teacher feedback
+                              </p>
+                              <p className="meta">{sub.feedback}</p>
+                            </div>
+                          ) : sub.grade !== null ? (
+                            <p className="meta" style={{ fontStyle: "italic" }}>No written feedback</p>
+                          ) : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ))}
           </section>

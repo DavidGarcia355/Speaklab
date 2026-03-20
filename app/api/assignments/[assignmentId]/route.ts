@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTeacherEmail } from "@/lib/authz";
 import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
 import { deleteAssignmentCascade, findAssignmentById, updateAssignment } from "@/lib/db";
-import { withApiHandler } from "@/lib/http";
+import { HttpError, withApiHandler } from "@/lib/http";
 import {
   assignmentUpdateSchema,
   parseAttachmentDataUrl,
@@ -65,17 +65,25 @@ export async function PATCH(
       });
     }
 
-    const updated = await updateAssignment(assignmentId, teacherEmail, {
-      title,
-      instructions,
-      maxPoints,
-      maxSubmissions: body.maxSubmissions ?? found.maxSubmissions,
-      maxRecordingSeconds: body.maxRecordingSeconds ?? found.maxRecordingSeconds,
-      rubric,
-      attachmentName,
-      attachmentUrl,
-      attachmentContentType,
-    });
+    let updated;
+    try {
+      updated = await updateAssignment(assignmentId, teacherEmail, {
+        title,
+        instructions,
+        maxPoints,
+        maxSubmissions: body.maxSubmissions ?? found.maxSubmissions,
+        maxRecordingSeconds: body.maxRecordingSeconds ?? found.maxRecordingSeconds,
+        rubric,
+        attachmentName,
+        attachmentUrl,
+        attachmentContentType,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.toLowerCase().includes("already exists")) {
+        throw new HttpError(409, error.message);
+      }
+      throw error;
+    }
     if (!updated) {
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
     }
