@@ -238,7 +238,12 @@ export default function StudentDashboardPage() {
             <h2 className="student-class-heading">{group.className}</h2>
             {group.assignments.map((asg) => (
               <div key={asg.assignmentId} className="student-assignment-group">
-                <h3 className="student-assignment-title">{asg.assignmentTitle}</h3>
+                <div className="student-assignment-header">
+                  <h3 className="student-assignment-title">{asg.assignmentTitle}</h3>
+                  <Link className="btn btn-ghost btn-sm" href={`/a/${asg.assignmentId}`}>
+                    Open assignment
+                  </Link>
+                </div>
                 <div className="grid student-submission-list">
                   {asg.submissions.map((sub) => {
                     const grade = gradeDisplay(sub.grade, sub.maxPoints);

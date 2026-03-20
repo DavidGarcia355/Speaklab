@@ -5,6 +5,16 @@ import {
   type ActivityEventType,
 } from "@/lib/db";
 
+const INTERNAL_TEST_EMAILS = new Set([
+  "eddiegarcia814@gmail.com",
+  "kyrie2celtics@gmail.com",
+  "davidsgarcia325@gmail.com",
+]);
+
+export function isInternalTestEmail(email: string) {
+  return INTERNAL_TEST_EMAILS.has(email.trim().toLowerCase());
+}
+
 function getDiscordWebhookUrl() {
   return process.env.DISCORD_WEBHOOK_URL?.trim() || "";
 }
@@ -71,7 +81,9 @@ export async function trackActivity(
     console.warn("Failed to log activity event", error);
   }
 
-  notifyDiscordActivity(eventType, normalizedEmail, metadata);
+  if (!isInternalTestEmail(normalizedEmail)) {
+    notifyDiscordActivity(eventType, normalizedEmail, metadata);
+  }
 }
 
 export async function buildTeacherEventMetadata(email: string) {
