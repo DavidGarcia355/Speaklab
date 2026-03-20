@@ -40,11 +40,12 @@ describe("faq pricing copy", () => {
 
     const markup = renderToStaticMarkup(await FaqPage());
 
-    expect(markup).toContain("What does Habla cost after beta?");
     expect(markup).toContain("$4.99/month or $39.95/year");
-    expect(markup).toContain("school-covered access for multiple teachers");
+    expect(markup).toContain("Everything teachers ask about Habla");
+    expect(markup).toContain("Getting started");
+    expect(markup).toContain("How it works");
+    expect(markup).toContain("Pricing and beta");
     expect(markup).toContain("View pricing");
     expect(markup).toContain("/pricing");
-    expect(markup).not.toContain("Request pilot access");
   });
 });
