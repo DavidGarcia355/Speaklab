@@ -58,6 +58,8 @@ export async function POST(
       description,
       instructions,
       maxPoints,
+      maxSubmissions: body.maxSubmissions ?? 0,
+      maxRecordingSeconds: body.maxRecordingSeconds ?? 180,
       rubric,
       attachmentName,
       attachmentUrl,

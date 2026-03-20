@@ -116,6 +116,18 @@ export const assignmentCreateSchema = z.object({
     })
     .nullable()
     .optional(),
+  maxSubmissions: z
+    .number()
+    .int("Max submissions must be a whole number.")
+    .min(0, "Max submissions must be 0 or higher.")
+    .max(50, "Max submissions must be 50 or fewer.")
+    .default(0),
+  maxRecordingSeconds: z
+    .number()
+    .int("Recording length must be a whole number.")
+    .min(10, "Recording length must be at least 10 seconds.")
+    .max(300, "Recording length must be 300 seconds or fewer.")
+    .default(180),
   rubric: rubricSchema.nullable().optional(),
 }).superRefine((value, context) => {
   if (value.attachment && value.existingAttachment) {
@@ -135,6 +147,18 @@ export const assignmentUpdateSchema = z.object({
     .int("Points possible must be a whole number.")
     .min(LIMITS.assignmentPointsMin, `Points possible must be at least ${LIMITS.assignmentPointsMin}.`)
     .max(LIMITS.assignmentPointsMax, `Points possible must be ${LIMITS.assignmentPointsMax} or fewer.`),
+  maxSubmissions: z
+    .number()
+    .int("Max submissions must be a whole number.")
+    .min(0, "Max submissions must be 0 or higher.")
+    .max(50, "Max submissions must be 50 or fewer.")
+    .default(0),
+  maxRecordingSeconds: z
+    .number()
+    .int("Recording length must be a whole number.")
+    .min(10, "Recording length must be at least 10 seconds.")
+    .max(300, "Recording length must be 300 seconds or fewer.")
+    .default(180),
   attachment: z
     .object({
       fileName: cleanTextSchema("Attachment file name", 1, LIMITS.attachmentNameMax),

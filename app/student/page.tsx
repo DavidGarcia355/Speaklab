@@ -1,10 +1,31 @@
+"use client";
+
 import Link from "next/link";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/auth";
+import { useEffect, useState } from "react";
+import { Trash2 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
+import ConfirmModal from "@/app/components/ConfirmModal";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import PageTitle from "@/app/components/PageTitle";
-import { listSubmissionsByStudentEmail } from "@/lib/db";
+
+type StudentSubmission = {
+  id: string;
+  assignmentId: string;
+  assignmentTitle: string;
+  className: string;
+  maxPoints: number;
+  studentName: string;
+  submittedAt: number;
+  feedback: string;
+  grade: number | null;
+};
+
+type SessionResponse = {
+  user?: {
+    name?: string | null;
+    email?: string | null;
+  };
+};
 
 function formatDate(timestamp: number) {
   return new Date(timestamp).toLocaleDateString(undefined, {
@@ -19,9 +40,126 @@ function gradeDisplay(grade: number | null, maxPoints: number) {
   return { text: `${grade}/${maxPoints}`, tone: "pill-success" };
 }
 
-export default async function StudentDashboardPage() {
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email?.trim().toLowerCase();
+type GroupedClass = {
+  className: string;
+  assignments: {
+    assignmentId: string;
+    assignmentTitle: string;
+    submissions: StudentSubmission[];
+  }[];
+};
+
+function groupByClass(submissions: StudentSubmission[]): GroupedClass[] {
+  const classMap = new Map<string, Map<string, StudentSubmission[]>>();
+  const classOrder: string[] = [];
+  const assignmentOrder = new Map<string, string[]>();
+
+  for (const sub of submissions) {
+    if (!classMap.has(sub.className)) {
+      classMap.set(sub.className, new Map());
+      classOrder.push(sub.className);
+      assignmentOrder.set(sub.className, []);
+    }
+    const aMap = classMap.get(sub.className)!;
+    if (!aMap.has(sub.assignmentId)) {
+      aMap.set(sub.assignmentId, []);
+      assignmentOrder.get(sub.className)!.push(sub.assignmentId);
+    }
+    aMap.get(sub.assignmentId)!.push(sub);
+  }
+
+  return classOrder.map((className) => {
+    const aMap = classMap.get(className)!;
+    const aOrder = assignmentOrder.get(className)!;
+    return {
+      className,
+      assignments: aOrder.map((assignmentId) => {
+        const subs = aMap.get(assignmentId)!;
+        return {
+          assignmentId,
+          assignmentTitle: subs[0].assignmentTitle,
+          submissions: subs,
+        };
+      }),
+    };
+  });
+}
+
+export default function StudentDashboardPage() {
+  const [submissions, setSubmissions] = useState<StudentSubmission[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [authLoading, setAuthLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<StudentSubmission | null>(null);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    async function loadSession() {
+      setAuthLoading(true);
+      try {
+        const response = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!response.ok) throw new Error();
+        const data = (await response.json()) as SessionResponse | null;
+        const userEmail = data?.user?.email?.trim().toLowerCase() ?? "";
+        const userName = data?.user?.name?.trim() ?? "";
+        setEmail(userEmail);
+        setName(userName || (userEmail ? userEmail.split("@")[0] : ""));
+      } catch {
+        setEmail("");
+      } finally {
+        setAuthLoading(false);
+      }
+    }
+    void loadSession();
+  }, []);
+
+  useEffect(() => {
+    if (!email) {
+      setLoading(false);
+      return;
+    }
+    async function loadSubmissions() {
+      setLoading(true);
+      try {
+        const response = await fetch("/api/student/submissions", { cache: "no-store" });
+        if (!response.ok) throw new Error();
+        const data = (await response.json()) as { items: StudentSubmission[] };
+        setSubmissions(data.items);
+      } catch {
+        setErrorMsg("Unable to load submissions.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    void loadSubmissions();
+  }, [email]);
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setDeleteTarget(null);
+    try {
+      const response = await fetch(`/api/student/submissions/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        throw new Error(data.error || "Unable to delete submission.");
+      }
+      setSubmissions((prev) => prev.filter((s) => s.id !== id));
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "Unable to delete submission.");
+    }
+  }
+
+  if (authLoading) {
+    return (
+      <main className="page-wrap">
+        <PageTitle title="My submissions" />
+        <BrandBar label="Student" />
+        <p className="meta">Loading...</p>
+      </main>
+    );
+  }
 
   if (!email) {
     return (
@@ -44,10 +182,9 @@ export default async function StudentDashboardPage() {
     );
   }
 
-  const submissions = await listSubmissionsByStudentEmail(email);
-  const name = session?.user?.name || email.split("@")[0];
   const gradedCount = submissions.filter((s) => s.grade !== null).length;
   const pendingCount = submissions.length - gradedCount;
+  const grouped = groupByClass(submissions);
 
   return (
     <main className="page-wrap">
@@ -83,7 +220,11 @@ export default async function StudentDashboardPage() {
         </article>
       </section>
 
-      {submissions.length === 0 ? (
+      {errorMsg ? <p className="notice danger">{errorMsg}</p> : null}
+
+      {loading ? (
+        <p className="meta">Loading submissions...</p>
+      ) : submissions.length === 0 ? (
         <section className="card section-gap">
           <h2 className="surface-title">No submissions yet</h2>
           <p className="empty">
@@ -92,39 +233,64 @@ export default async function StudentDashboardPage() {
           </p>
         </section>
       ) : (
-        <section className="section-gap">
-          <h2 className="surface-title" style={{ marginBottom: "0.6rem" }}>Your submissions</h2>
-          <div className="grid student-submission-list">
-            {submissions.map((sub) => {
-              const grade = gradeDisplay(sub.grade, sub.maxPoints);
-              return (
-                <article key={sub.id} className="card student-submission-card">
-                  <div className="student-sub-top">
-                    <div className="student-sub-info">
-                      <p className="student-sub-title">{sub.assignmentTitle}</p>
-                      <p className="meta">{sub.className}</p>
-                    </div>
-                    <span className={`pill ${grade.tone}`}>{grade.text}</span>
-                  </div>
-                  <div className="student-sub-details">
-                    <p className="meta">Submitted {formatDate(sub.submittedAt)}</p>
-                    {sub.feedback ? (
-                      <div className="student-sub-feedback">
-                        <p className="label" style={{ marginBottom: "0.2rem", fontSize: "0.84rem" }}>
-                          Teacher feedback
-                        </p>
-                        <p className="meta">{sub.feedback}</p>
-                      </div>
-                    ) : sub.grade !== null ? (
-                      <p className="meta" style={{ fontStyle: "italic" }}>No written feedback</p>
-                    ) : null}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
+        grouped.map((group) => (
+          <section key={group.className} className="section-gap">
+            <h2 className="student-class-heading">{group.className}</h2>
+            {group.assignments.map((asg) => (
+              <div key={asg.assignmentId} className="student-assignment-group">
+                <h3 className="student-assignment-title">{asg.assignmentTitle}</h3>
+                <div className="grid student-submission-list">
+                  {asg.submissions.map((sub) => {
+                    const grade = gradeDisplay(sub.grade, sub.maxPoints);
+                    return (
+                      <article key={sub.id} className="card student-submission-card">
+                        <div className="student-sub-top">
+                          <div className="student-sub-info">
+                            <p className="meta">Submitted {formatDate(sub.submittedAt)}</p>
+                          </div>
+                          <div className="student-sub-actions">
+                            <span className={`pill ${grade.tone}`}>{grade.text}</span>
+                            {sub.grade === null ? (
+                              <button
+                                type="button"
+                                className="icon-btn icon-btn-danger"
+                                title="Delete submission"
+                                onClick={() => setDeleteTarget(sub)}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                        {sub.feedback ? (
+                          <div className="student-sub-feedback">
+                            <p className="label" style={{ marginBottom: "0.2rem", fontSize: "0.84rem" }}>
+                              Teacher feedback
+                            </p>
+                            <p className="meta">{sub.feedback}</p>
+                          </div>
+                        ) : sub.grade !== null ? (
+                          <p className="meta" style={{ fontStyle: "italic" }}>No written feedback</p>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </section>
+        ))
       )}
+
+      <ConfirmModal
+        open={deleteTarget !== null}
+        title="Delete submission?"
+        description="This will permanently remove this submission. If the assignment allows resubmission, you can record and submit again."
+        confirmLabel="Delete"
+        destructive
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void handleDelete()}
+      />
     </main>
   );
 }

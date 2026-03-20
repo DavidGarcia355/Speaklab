@@ -196,6 +196,8 @@ export default function ClassDetailPage() {
   const [assignmentRubricEnabled, setAssignmentRubricEnabled] = useState(false);
   const [assignmentRubricTitleDraft, setAssignmentRubricTitleDraft] = useState("");
   const [assignmentRubricCriteriaDraft, setAssignmentRubricCriteriaDraft] = useState<RubricCriterionDraft[]>([]);
+  const [assignmentMaxSubmissionsDraft, setAssignmentMaxSubmissionsDraft] = useState("");
+  const [assignmentMaxRecordingSecondsDraft, setAssignmentMaxRecordingSecondsDraft] = useState("180");
   const [assignmentAttachmentDraft, setAssignmentAttachmentDraft] = useState<AttachmentDraft>(null);
   const [assignmentAttachmentRemoved, setAssignmentAttachmentRemoved] = useState(false);
   const [assignmentSaving, setAssignmentSaving] = useState(false);
@@ -503,6 +505,8 @@ export default function ClassDetailPage() {
     setAssignmentRubricCriteriaDraft(
       activeAssignment.rubric ? rubricDraftsFromAssignment(activeAssignment) : []
     );
+    setAssignmentMaxSubmissionsDraft(String(activeAssignment.maxSubmissions || ""));
+    setAssignmentMaxRecordingSecondsDraft(String(activeAssignment.maxRecordingSeconds || 180));
     setAssignmentAttachmentDraft(null);
     setAssignmentAttachmentRemoved(false);
     setAssignmentError("");
@@ -627,6 +631,8 @@ export default function ClassDetailPage() {
           title,
           instructions,
           maxPoints: assignmentRubricEnabled ? rubricTotal : parsedMaxPoints,
+          maxSubmissions: assignmentMaxSubmissionsDraft.trim() === "" ? 0 : Number(assignmentMaxSubmissionsDraft),
+          maxRecordingSeconds: Number(assignmentMaxRecordingSecondsDraft) || 180,
           rubric: rubricPayload,
           attachment: attachmentPayload,
         }),
@@ -1118,6 +1124,12 @@ export default function ClassDetailPage() {
                 )
               }
             />
+            <label className="label form-label-top" htmlFor="edit-assignment-max-submissions">Max submissions per student</label>
+            <input id="edit-assignment-max-submissions" className="input" type="number" min={0} max={50} step={1} inputMode="numeric" value={assignmentMaxSubmissionsDraft} onChange={(event) => setAssignmentMaxSubmissionsDraft(event.target.value)} placeholder="Unlimited" />
+            <p className="meta field-meta">0 or blank = unlimited. Students can delete and resubmit.</p>
+            <label className="label form-label-top" htmlFor="edit-assignment-max-recording">Max recording length (seconds)</label>
+            <input id="edit-assignment-max-recording" className="input" type="number" min={10} max={300} step={1} inputMode="numeric" value={assignmentMaxRecordingSecondsDraft} onChange={(event) => setAssignmentMaxRecordingSecondsDraft(event.target.value)} />
+            <p className="meta field-meta">10–300 seconds. Default 180.</p>
             <label className="label form-label-top" htmlFor="edit-assignment-attachment">Attachment (optional)</label>
             <input
               id="edit-assignment-attachment"

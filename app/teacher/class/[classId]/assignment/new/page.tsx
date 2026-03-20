@@ -61,6 +61,8 @@ export default function NewAssignmentPage() {
   const [rubricEnabled, setRubricEnabled] = useState(false);
   const [rubricTitle, setRubricTitle] = useState("");
   const [rubricCriteria, setRubricCriteria] = useState<RubricCriterionDraft[]>([]);
+  const [maxSubmissions, setMaxSubmissions] = useState("");
+  const [maxRecordingSeconds, setMaxRecordingSeconds] = useState("180");
   const [attachment, setAttachment] = useState<AttachmentDraft | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [hintMsg, setHintMsg] = useState("");
@@ -168,6 +170,16 @@ export default function NewAssignmentPage() {
       setErrorMsg("Points possible must be a whole number from 1 to 1000.");
       return;
     }
+    const parsedMaxSubmissions = maxSubmissions.trim() === "" ? 0 : Number(maxSubmissions);
+    if (!Number.isInteger(parsedMaxSubmissions) || parsedMaxSubmissions < 0 || parsedMaxSubmissions > 50) {
+      setErrorMsg("Max submissions must be a whole number from 0 to 50 (0 = unlimited).");
+      return;
+    }
+    const parsedMaxRecordingSeconds = Number(maxRecordingSeconds);
+    if (!Number.isInteger(parsedMaxRecordingSeconds) || parsedMaxRecordingSeconds < 10 || parsedMaxRecordingSeconds > 300) {
+      setErrorMsg("Recording length must be a whole number from 10 to 300 seconds.");
+      return;
+    }
 
     setSaving(true);
     setErrorMsg("");
@@ -181,6 +193,8 @@ export default function NewAssignmentPage() {
           description,
           instructions,
           maxPoints: rubricEnabled ? rubricTotal : parsedMaxPoints,
+          maxSubmissions: parsedMaxSubmissions,
+          maxRecordingSeconds: parsedMaxRecordingSeconds,
           ...(rubricEnabled
             ? {
                 rubric: {
@@ -308,6 +322,39 @@ export default function NewAssignmentPage() {
               <p className="meta field-meta">Students will be graded out of this number of points.</p>
             </>
           )}
+
+          <label className="label form-label-top" htmlFor="assignment-max-submissions">
+            Max submissions per student
+          </label>
+          <input
+            id="assignment-max-submissions"
+            className="input"
+            type="number"
+            min={0}
+            max={50}
+            step={1}
+            inputMode="numeric"
+            value={maxSubmissions}
+            onChange={(event) => setMaxSubmissions(event.target.value)}
+            placeholder="Unlimited"
+          />
+          <p className="meta field-meta">Leave blank or 0 for unlimited. Students can delete and resubmit.</p>
+
+          <label className="label form-label-top" htmlFor="assignment-max-recording">
+            Max recording length (seconds)
+          </label>
+          <input
+            id="assignment-max-recording"
+            className="input"
+            type="number"
+            min={10}
+            max={300}
+            step={1}
+            inputMode="numeric"
+            value={maxRecordingSeconds}
+            onChange={(event) => setMaxRecordingSeconds(event.target.value)}
+          />
+          <p className="meta field-meta">Between 10 and 300 seconds. Default is 180 (3 minutes).</p>
 
           <RubricBuilder
             enabled={rubricEnabled}

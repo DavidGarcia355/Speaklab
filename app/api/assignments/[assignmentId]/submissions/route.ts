@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSchoolStudentEmail } from "@/lib/authz";
 import { uploadSubmissionAudio } from "@/lib/audio-storage";
-import { createSubmission, findAssignmentById } from "@/lib/db";
+import { countStudentSubmissions, createSubmission, findAssignmentById } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 import { enforceSubmissionRateLimit } from "@/lib/rate-limit";
 import { getEnv } from "@/lib/env";
@@ -47,6 +47,16 @@ export async function POST(
     }
 
     await enforceSubmissionRateLimit(studentEmail);
+
+    if (assignment.maxSubmissions > 0) {
+      const existing = await countStudentSubmissions(assignmentId, studentEmail);
+      if (existing >= assignment.maxSubmissions) {
+        throw new HttpError(
+          403,
+          `You have reached the maximum of ${assignment.maxSubmissions} submission${assignment.maxSubmissions === 1 ? "" : "s"} for this assignment. Delete a previous submission to submit again.`
+        );
+      }
+    }
 
     const body = parseOrThrow400(submissionCreateSchema, await request.json());
     const studentName = body.studentName ?? "";

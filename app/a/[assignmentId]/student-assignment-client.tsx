@@ -17,6 +17,8 @@ type AssignmentDetail = {
   description: string;
   instructions: string;
   maxPoints: number;
+  maxSubmissions: number;
+  maxRecordingSeconds: number;
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
@@ -31,7 +33,7 @@ type SessionResponse = {
 };
 
 type RecorderState = "idle" | "requesting-permission" | "recording" | "ready" | "submitting";
-const MAX_RECORDING_SECONDS = 180;
+const DEFAULT_MAX_RECORDING_SECONDS = 180;
 
 type BannerTone =
   | "state-idle"
@@ -58,11 +60,12 @@ type LoadErrorKind = "none" | "not-found" | "network";
 function getRecorderBanner(options: {
   state: RecorderState;
   seconds: number;
+  maxSeconds: number;
   statusMsg: string;
   errorMsg: string;
   submittedCurrentRecording: boolean;
 }): RecorderBanner {
-  const { state, seconds, statusMsg, errorMsg, submittedCurrentRecording } = options;
+  const { state, seconds, maxSeconds, statusMsg, errorMsg, submittedCurrentRecording } = options;
 
   if (errorMsg) {
     return {
@@ -92,7 +95,7 @@ function getRecorderBanner(options: {
     return {
       tone: "state-recording",
       icon: <CircleDot size={16} aria-hidden="true" />,
-      text: `Recording in progress (${seconds}s of ${MAX_RECORDING_SECONDS}s).`,
+      text: `Recording in progress (${seconds}s of ${maxSeconds}s).`,
     };
   }
 
@@ -145,6 +148,7 @@ export default function StudentAssignmentClient({
     "unknown"
   );
   const [submittedCurrentRecording, setSubmittedCurrentRecording] = useState(false);
+  const [submissionCount, setSubmissionCount] = useState(0);
   const [statusMsg, setStatusMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
@@ -226,6 +230,22 @@ export default function StudentAssignmentClient({
   }, []);
 
   useEffect(() => {
+    if (!studentEmail || !assignmentId) return;
+    async function loadSubmissionCount() {
+      try {
+        const response = await fetch(`/api/student/assignments/${assignmentId}/submissions`, { cache: "no-store" });
+        if (response.ok) {
+          const data = (await response.json()) as { count: number };
+          setSubmissionCount(data.count);
+        }
+      } catch {
+        // non-critical
+      }
+    }
+    void loadSubmissionCount();
+  }, [studentEmail, assignmentId, submittedCurrentRecording]);
+
+  useEffect(() => {
     if (
       typeof window === "undefined" ||
       !navigator.mediaDevices ||
@@ -292,9 +312,10 @@ export default function StudentAssignmentClient({
       timerRef.current = window.setInterval(() => {
         setRecordingSeconds((prev) => {
           const next = prev + 1;
-          if (next >= MAX_RECORDING_SECONDS) {
+          const maxSec = assignment?.maxRecordingSeconds || DEFAULT_MAX_RECORDING_SECONDS;
+          if (next >= maxSec) {
             stopRecording();
-            setStatusMsg("Recording stopped automatically after 3 minutes.");
+            setStatusMsg(`Recording stopped automatically at ${maxSec} seconds.`);
           }
           return next;
         });
@@ -368,6 +389,7 @@ export default function StudentAssignmentClient({
         throw new Error(data.error || "Something went wrong — try refreshing the page.");
       }
       setSubmittedCurrentRecording(true);
+      setSubmissionCount((prev) => prev + 1);
       setStatusMsg("Submitted! Your teacher will review your recording.");
       setRecorderState("ready");
     } catch (error) {
@@ -378,9 +400,14 @@ export default function StudentAssignmentClient({
     }
   }
 
+  const maxRecSec = assignment?.maxRecordingSeconds || DEFAULT_MAX_RECORDING_SECONDS;
+  const maxSubs = assignment?.maxSubmissions || 0;
+  const atSubmissionLimit = maxSubs > 0 && submissionCount >= maxSubs;
+
   const recorderBanner = getRecorderBanner({
     state: recorderState,
     seconds: recordingSeconds,
+    maxSeconds: maxRecSec,
     statusMsg,
     errorMsg,
     submittedCurrentRecording,
@@ -484,6 +511,16 @@ export default function StudentAssignmentClient({
 
             <div className="record-top">
               <p className="meta recorder-note">Enter your name, record your response, play it back, then submit.</p>
+              {maxSubs > 0 ? (
+                <p className={`notice ${atSubmissionLimit ? "danger" : "info"}`}>
+                  {atSubmissionLimit
+                    ? `You've used all ${maxSubs} submission${maxSubs === 1 ? "" : "s"}. Delete a previous one from your dashboard to submit again.`
+                    : `${submissionCount} of ${maxSubs} submission${maxSubs === 1 ? "" : "s"} used.`}
+                </p>
+              ) : null}
+              {maxRecSec !== DEFAULT_MAX_RECORDING_SECONDS ? (
+                <p className="meta">Max recording length: {maxRecSec} seconds</p>
+              ) : null}
               <p className={`state-banner ${recorderBanner.tone}`}>
                 <span className="state-banner-icon">{recorderBanner.icon}</span>
                 <span>{recorderBanner.text}</span>
@@ -520,7 +557,8 @@ export default function StudentAssignmentClient({
                     (!studentEmail && !localAuthBypassEnabled) ||
                     !micSupported ||
                     recorderState === "requesting-permission" ||
-                    recorderState === "submitting"
+                    recorderState === "submitting" ||
+                    atSubmissionLimit
                   }
                 >
                   Start recording
@@ -539,7 +577,8 @@ export default function StudentAssignmentClient({
                   (!studentEmail && !localAuthBypassEnabled) ||
                   recorderState === "submitting" ||
                   !recordingBlob ||
-                  submittedCurrentRecording
+                  submittedCurrentRecording ||
+                  atSubmissionLimit
                 }
               >
                 {recorderState === "submitting" ? "Submitting..." : "Submit response"}

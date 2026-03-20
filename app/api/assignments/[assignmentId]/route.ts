@@ -69,6 +69,8 @@ export async function PATCH(
       title,
       instructions,
       maxPoints,
+      maxSubmissions: body.maxSubmissions ?? found.maxSubmissions,
+      maxRecordingSeconds: body.maxRecordingSeconds ?? found.maxRecordingSeconds,
       rubric,
       attachmentName,
       attachmentUrl,

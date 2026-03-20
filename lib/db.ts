@@ -25,6 +25,8 @@ export type AssignmentRow = {
   description: string;
   instructions: string;
   maxPoints: number;
+  maxSubmissions: number;
+  maxRecordingSeconds: number;
   rubric: Rubric | null;
   attachmentName: string;
   attachmentUrl: string;
@@ -281,6 +283,8 @@ async function ensureInitialized() {
       await ensureColumn("assignments", "attachment_name", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "attachment_url", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "attachment_content_type", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn("assignments", "max_submissions", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("assignments", "max_recording_seconds", "INTEGER NOT NULL DEFAULT 180");
       await ensureColumn("submissions", "student_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
       await ensureColumn("submissions", "rubric_scores", "TEXT");
@@ -489,6 +493,8 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
       a.description as description,
       a.instructions as instructions,
       COALESCE(a.max_points, 100) as maxPoints,
+      COALESCE(a.max_submissions, 0) as maxSubmissions,
+      COALESCE(a.max_recording_seconds, 180) as maxRecordingSeconds,
       a.rubric as rubric,
       COALESCE(a.attachment_name, '') as attachmentName,
       COALESCE(a.attachment_url, '') as attachmentUrl,
@@ -513,6 +519,8 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
     maxPoints: toNumber(row.maxPoints),
+    maxSubmissions: toNumber(row.maxSubmissions),
+    maxRecordingSeconds: toNumber(row.maxRecordingSeconds),
     rubric: parseJsonValue<Rubric>(row.rubric),
     attachmentName: toStringValue(row.attachmentName),
     attachmentUrl: toStringValue(row.attachmentUrl),
@@ -529,6 +537,8 @@ export async function createAssignment(input: {
   description: string;
   instructions: string;
   maxPoints: number;
+  maxSubmissions: number;
+  maxRecordingSeconds: number;
   rubric: Rubric | null;
   attachmentName: string;
   attachmentUrl: string;
@@ -541,6 +551,8 @@ export async function createAssignment(input: {
     description: input.description,
     instructions: input.instructions,
     maxPoints: input.maxPoints,
+    maxSubmissions: input.maxSubmissions,
+    maxRecordingSeconds: input.maxRecordingSeconds,
     rubric: input.rubric,
     attachmentName: input.attachmentName,
     attachmentUrl: input.attachmentUrl,
@@ -549,9 +561,9 @@ export async function createAssignment(input: {
   };
   await query(
     `INSERT INTO assignments (
-      id, class_id, title, description, instructions, max_points, rubric, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at
+      id, class_id, title, description, instructions, max_points, max_submissions, max_recording_seconds, rubric, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
     WHERE EXISTS (
       SELECT 1 FROM classes c
       WHERE c.id = ?
@@ -565,6 +577,8 @@ export async function createAssignment(input: {
       item.description,
       item.instructions,
       item.maxPoints,
+      item.maxSubmissions,
+      item.maxRecordingSeconds,
       stringifyJsonValue(item.rubric),
       item.attachmentName,
       item.attachmentUrl,
@@ -588,6 +602,8 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
       a.description as description,
       a.instructions as instructions,
       COALESCE(a.max_points, 100) as maxPoints,
+      COALESCE(a.max_submissions, 0) as maxSubmissions,
+      COALESCE(a.max_recording_seconds, 180) as maxRecordingSeconds,
       a.rubric as rubric,
       COALESCE(a.attachment_name, '') as attachmentName,
       COALESCE(a.attachment_url, '') as attachmentUrl,
@@ -613,6 +629,8 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
     maxPoints: toNumber(row.maxPoints),
+    maxSubmissions: toNumber(row.maxSubmissions),
+    maxRecordingSeconds: toNumber(row.maxRecordingSeconds),
     rubric: parseJsonValue<Rubric>(row.rubric),
     attachmentName: toStringValue(row.attachmentName),
     attachmentUrl: toStringValue(row.attachmentUrl),
@@ -628,6 +646,8 @@ export async function updateAssignment(
     title: string;
     instructions: string;
     maxPoints: number;
+    maxSubmissions: number;
+    maxRecordingSeconds: number;
     rubric: Rubric | null;
     attachmentName: string;
     attachmentUrl: string;
@@ -636,7 +656,7 @@ export async function updateAssignment(
 ): Promise<AssignmentDetailRow | null> {
   const result = await query(
     `UPDATE assignments
-    SET title = ?, instructions = ?, max_points = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
+    SET title = ?, instructions = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
     WHERE id = ?
       AND deleted_at IS NULL
       AND id IN (
@@ -651,6 +671,8 @@ export async function updateAssignment(
       input.title,
       input.instructions,
       input.maxPoints,
+      input.maxSubmissions,
+      input.maxRecordingSeconds,
       stringifyJsonValue(input.rubric),
       input.attachmentName,
       input.attachmentUrl,
@@ -932,6 +954,30 @@ export async function deleteSubmission(submissionId: string, ownerEmail: string)
       )
       AND deleted_at IS NULL`,
     [Date.now(), submissionId, submissionId, ownerEmail]
+  );
+  return toNumber(result.rowsAffected) > 0;
+}
+
+export async function countStudentSubmissions(assignmentId: string, studentEmail: string): Promise<number> {
+  const result = await query(
+    `SELECT COUNT(*) as cnt
+    FROM submissions
+    WHERE assignment_id = ?
+      AND LOWER(student_email) = LOWER(?)
+      AND deleted_at IS NULL`,
+    [assignmentId, studentEmail]
+  );
+  return toNumber(result.rows[0]?.cnt);
+}
+
+export async function deleteSubmissionByStudent(submissionId: string, studentEmail: string): Promise<boolean> {
+  const result = await query(
+    `UPDATE submissions
+    SET deleted_at = ?
+    WHERE id = ?
+      AND LOWER(student_email) = LOWER(?)
+      AND deleted_at IS NULL`,
+    [Date.now(), submissionId, studentEmail]
   );
   return toNumber(result.rowsAffected) > 0;
 }

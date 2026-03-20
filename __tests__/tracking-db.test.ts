@@ -58,6 +58,8 @@ describe("tracking db helpers", () => {
       description: "",
       instructions: "Speak",
       maxPoints: 10,
+      maxSubmissions: 0,
+      maxRecordingSeconds: 180,
       rubric: null,
       attachmentName: "",
       attachmentUrl: "",

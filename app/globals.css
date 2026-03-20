@@ -2273,6 +2273,30 @@ h3 {
   background: var(--status-success-bg);
 }
 
+.student-class-heading {
+  font-size: clamp(1.1rem, 1.6vw, 1.3rem);
+  font-weight: 750;
+  margin-bottom: 0.4rem;
+}
+
+.student-assignment-group {
+  margin-bottom: 0.8rem;
+}
+
+.student-assignment-title {
+  font-size: 0.98rem;
+  font-weight: 650;
+  margin-bottom: 0.35rem;
+  color: var(--muted);
+}
+
+.student-sub-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 @media (max-width: 700px) {
   .student-dash-header {
     flex-direction: column;
