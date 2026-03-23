@@ -49,7 +49,7 @@ const quickQuestions = [
   {
     question: "Is it really free?",
     answer:
-      "The first 20 world language teachers get Habla free forever during beta. After that, individual teachers can use Habla for $4.99/month or $39.95/year, and departments can contact us about broader coverage.",
+      "Habla is free for all beta teachers while it's in beta. After beta, individual teachers can use Habla for $4.99/month or $39.95/year. Departments can contact us about broader coverage.",
   },
 ] as const;
 
@@ -109,16 +109,15 @@ export default function Home() {
       <section className="card home-beta-banner section-gap">
         <div className="home-beta-copy">
           <p className="pill pill-subtle">Habla beta</p>
-          <h2>First 20 world language teachers get Habla free forever</h2>
+          <h2>Free for all beta teachers while Habla is in beta</h2>
           <p className="meta">
-            Create an account, try Habla with your students, and give honest feedback. Once those first
-            20 teacher spots are filled, individual teachers can use Habla for $4.99/month or $39.95/year,
-            and departments can contact us about broader coverage.
+            Create an account, try Habla with your students, and give honest feedback. Individual teacher
+            pricing is $4.99/month or $39.95/year when beta ends — and we&apos;ll be in touch before anything changes.
           </p>
         </div>
         <div className="actions home-beta-actions">
           <Link className="btn btn-primary" href="/teacher/register">
-            Claim a beta spot
+            Create your account
           </Link>
           <Link className="btn btn-ghost" href="/pricing">
             View pricing
@@ -247,10 +246,10 @@ export default function Home() {
 
       <section className="card home-cta section-gap">
         <div>
-          <p className="home-cta-copy">Free forever for the first 20 beta teachers.</p>
+          <p className="home-cta-copy">Free for all beta teachers while Habla is in beta.</p>
           <p className="meta">
-            Join beta now, run your first speaking assignment, and see the simple $4.99/month or $39.95/year
-            individual-teacher pricing for what comes next.
+            Create your account, run your first speaking assignment, and see the simple $4.99/month or $39.95/year
+            individual-teacher pricing for what comes after beta.
           </p>
         </div>
         <div className="actions home-cta-actions">

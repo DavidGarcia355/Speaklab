@@ -10,13 +10,13 @@ export const metadata: Metadata = {
 const PLAN_CARDS = [
   {
     label: "Beta",
-    title: "First 20 world language teachers get Habla free forever",
+    title: "Free for all beta teachers while Habla is in beta",
     price: "$0",
-    detail: "during beta, then free forever",
+    detail: "free during beta",
     description:
       "Create your account, use Habla with real students, and give honest feedback while the product is still taking shape.",
     bullets: [
-      "Free forever for the first 20 teacher accounts",
+      "Free for all active beta teachers",
       "Full classroom use during beta",
       "Direct feedback helps shape what ships next",
     ],
@@ -61,9 +61,8 @@ export default function PricingPage() {
         <p className="pill">Simple pricing</p>
         <h1>Teacher-friendly pricing while Habla is still in beta</h1>
         <p>
-          Start with the beta offer if you are one of the first 20 world language teachers. After that,
-          individual teachers can use Habla for $4.99/month or $39.95/year, and departments can contact us
-          when they want to cover access for multiple teachers.
+          Habla is free for all active beta teachers. After beta, individual teachers can use Habla for
+          $4.99/month or $39.95/year, and departments can contact us about covering access for multiple teachers.
         </p>
         <div className="actions hero-actions">
           <Link className="btn btn-primary" href="/teacher/register">
