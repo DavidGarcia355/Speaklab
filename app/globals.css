@@ -251,7 +251,8 @@ h3 {
 }
 
 .home-network-notice,
-.student-network-notice {
+.student-network-notice,
+.home-external-browser-notice {
   margin-top: 0.8rem;
 }
 
@@ -1437,6 +1438,12 @@ h3 {
   border-color: var(--primary-soft-border);
   background: var(--primary-soft);
   color: #1e3a8a;
+}
+
+.notice.warning {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
 }
 
 .workspace-header,

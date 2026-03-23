@@ -3,6 +3,7 @@ import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
+import ExternalBrowserNotice from "@/app/components/ExternalBrowserNotice";
 import { APP_NAME } from "@/app/constants";
 
 export const metadata: Metadata = {
@@ -57,6 +58,7 @@ export default function Home() {
   return (
     <main className="page-wrap">
       <BrandBar label="Habla - speaking made simple" />
+      <ExternalBrowserNotice className="home-external-browser-notice" />
 
       <section className="hero home-hero">
         <div className="home-hero-top">
