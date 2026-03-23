@@ -1093,6 +1093,158 @@ export default function ClassDetailPage() {
         <article className="card kpi-card kpi-success"><p className="meta stat-label"><CheckCircle2 size={14} /> Graded</p><p className="stat-value">{workspaceStats.graded}</p><p className="meta kpi-note">Completed scores</p></article>
       </section>
 
+      {assignmentViews.length === 0 ? (
+        <section className="card section-gap"><h2 className="surface-title">Assignments</h2><p className="empty">No assignments yet. Create one to start collecting recordings.</p></section>
+      ) : (
+        <section className="workspace-split section-gap">
+          <aside className="card assignment-nav panel-subtle">
+            <h2 className="surface-title">Assignments</h2>
+            <p className="meta">Switch between assignments and see what needs grading.</p>
+            <div className="assignment-list">
+              {assignmentViews.map((assignment) => (
+                <button key={assignment.id} type="button" className={`assignment-nav-item ${assignment.id === activeAssignment?.id ? "is-selected" : ""}`} onClick={() => setSelectedAssignmentId(assignment.id)}>
+                  <div className="assignment-nav-head"><p className="assignment-nav-title">{assignment.title}</p><span className={`status-badge status-${assignment.tone}`}>{assignment.label}</span></div>
+                  <div className="assignment-nav-counts"><span className="pill pill-subtle">{pluralize(assignment.totalSubmissions, "submission")}</span>{assignment.totalSubmissions === 0 ? <span className="pill pill-neutral">No activity</span> : assignment.ungradedCount > 0 ? <span className="pill pill-warning">{pluralize(assignment.ungradedCount, "ungraded")}</span> : <span className="pill pill-success">All graded</span>}</div>
+                </button>
+              ))}
+            </div>
+          </aside>
+
+          <div className="card assignment-main">
+            {!activeAssignment ? null : (
+              <>
+                <div className="dense-row assignment-main-header">
+                  <div><h2 className="assignment-title">{activeAssignment.title}</h2>{activeAssignment.description ? <p className="meta assignment-description">{activeAssignment.description}</p> : null}<p className="meta assignment-meta">Created {formatDate(activeAssignment.createdAt)}</p></div>
+                  <div className="assignment-header-actions"><span className={`status-badge status-${activeAssignment.tone}`}>{activeAssignment.label}</span><button type="button" className="icon-btn" onClick={openAssignmentEditModal}><Pencil size={15} /></button><button type="button" className="icon-btn icon-btn-danger" onClick={() => setDeleteTarget({ type: "assignment", assignment: activeAssignment })}><Trash2 size={15} /></button></div>
+                </div>
+
+                <div className="actions assignment-actions">
+                  <Link className="btn btn-ghost" href={`/a/${activeAssignment.id}`}>Open student page</Link>
+                  <button type="button" className="btn btn-ghost" onClick={() => void copyStudentLink(activeAssignment.id)}>{copiedId === activeAssignment.id ? "Copied" : "Copy link"}</button>
+                  <button type="button" className="btn btn-ghost" onClick={() => copyAssignment(activeAssignment)}>
+                    Copy assignment
+                  </button>
+                  <span className="pill pill-subtle">{pluralize(activeAssignment.totalSubmissions, "submission")}</span>
+                  <span className={`pill ${activeAssignment.totalSubmissions === 0 ? "pill-neutral" : activeAssignment.ungradedCount > 0 ? "pill-warning" : "pill-success"}`}>{activeAssignment.totalSubmissions === 0 ? "No activity" : activeAssignment.ungradedCount > 0 ? pluralize(activeAssignment.ungradedCount, "ungraded") : "All graded"}</span>
+                </div>
+                {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
+                <div className="assignment-instructions"><p className="meta"><strong>Instructions:</strong> {activeAssignment.instructions?.trim() || "No instructions provided."}</p></div>
+                <p className="meta"><strong>Points possible:</strong> {activeAssignment.maxPoints}</p>
+                {activeAssignment.rubric ? (
+                  <div className="notice info assignment-attachment-notice">
+                    Rubric: <strong>{activeAssignment.rubric.title}</strong> with{" "}
+                    {pluralize(activeAssignment.rubric.criteria.length, "criterion")}
+                  </div>
+                ) : null}
+                {activeAssignment.attachmentUrl ? (
+                  <div className="notice info assignment-attachment-notice">
+                    Attachment: <strong>{activeAssignment.attachmentName || "Directions file"}</strong>
+                    <a className="text-link" href={activeAssignment.attachmentUrl} target="_blank" rel="noreferrer">
+                      Open file
+                    </a>
+                  </div>
+                ) : null}
+
+                <div className="toolbar-compact">
+                  <label className="label toolbar-label" htmlFor="student-filter">Find student in this assignment</label>
+                  <input id="student-filter" className="input toolbar-input" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Search by student name" />
+                  <button type="button" className={`btn ${showUngradedOnly ? "btn-primary" : "btn-ghost"}`} onClick={() => setShowUngradedOnly((prev) => !prev)}>{showUngradedOnly ? "Ungraded only: on" : "Ungraded only"}</button>
+                  <span className="status-badge status-warning">{pluralize(activeAssignment.ungradedCount, "ungraded")}</span>
+                </div>
+
+                {activeAllSubmissions.length === 0 ? <p className="empty">No submissions yet for this assignment.</p> : activeFilteredSubmissions.length === 0 ? <p className="empty">No submissions match current filters.</p> : (
+                  <div className="grid submission-grid assignment-submissions">
+                    {activeFilteredSubmissions.map((submission) => {
+                      const draft = drafts[submission.id] ?? {
+                        gradeInput: submission.grade === null ? "" : String(submission.grade),
+                        feedback: submission.feedback ?? "",
+                        saving: false,
+                        rubricScoreInputs: rubricInputsFromSubmission(submission, activeAssignment),
+                      };
+                      const isEditing = editingSubmissionId === submission.id;
+                      const rubricTotal = activeAssignment.rubric
+                        ? activeAssignment.rubric.criteria.reduce((sum, criterion) => {
+                            const value = draft.rubricScoreInputs[criterion.id]?.trim() ?? "";
+                            return sum + (value === "" ? 0 : Number(value) || 0);
+                          }, 0)
+                        : null;
+                      return (
+                        <div key={submission.id} className="card submission-card">
+                          <div className="dense-row">
+                            <div>
+                              {isEditing ? (
+                                <div className="inline-edit-row"><input className="input inline-edit-input" value={editingSubmissionName} onChange={(event) => setEditingSubmissionName(event.target.value)} maxLength={80} autoFocus /><button type="button" className="icon-btn icon-btn-confirm" onClick={() => void saveSubmissionName(submission)} disabled={nameSaving}><Check size={15} /></button><button type="button" className="icon-btn" onClick={() => { setEditingSubmissionId(""); setEditingSubmissionName(""); }}><X size={15} /></button></div>
+                              ) : (
+                                <div className="submission-name-row"><strong>{submission.studentName}</strong><button type="button" className="icon-btn" onClick={() => { setEditingSubmissionId(submission.id); setEditingSubmissionName(submission.studentName); }}><Pencil size={14} /></button><button type="button" className="icon-btn icon-btn-danger" onClick={() => setDeleteTarget({ type: "submission", submission })}><Trash2 size={14} /></button></div>
+                              )}
+                              <div className="meta">{formatDateTime(submission.submittedAt)}</div>
+                              <div className="meta">{submission.studentEmail || "No email captured"}</div>
+                            </div>
+                            {activeAssignment.rubric ? (
+                              <div className="score-control">
+                                <label className="meta score-label">Total</label>
+                                <div className="score-field">
+                                  <span className="score-suffix">
+                                    {rubricTotal} / {activeAssignment.maxPoints}
+                                  </span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="score-control"><label className="meta score-label" htmlFor={`grade-${submission.id}`}>Score</label><div className="score-field"><input id={`grade-${submission.id}`} className="input score-input" type="number" min={0} max={activeAssignment.maxPoints} step={1} inputMode="numeric" placeholder="0" value={draft.gradeInput} onChange={(event) => setDraft(submission.id, { gradeInput: event.target.value })} /><span className="score-suffix">/{activeAssignment.maxPoints}</span></div></div>
+                            )}
+                          </div>
+                          <AudioPlayer src={submission.audioData} variant="compact" showSpeed={false} />
+                          {activeAssignment.rubric ? (
+                            <div className="grid section-gap">
+                              {activeAssignment.rubric.criteria.map((criterion) => (
+                                <div key={criterion.id} className="card panel-subtle">
+                                  <div className="dense-row">
+                                    <div>
+                                      <p className="label" style={{ marginBottom: 0 }}>{criterion.name}</p>
+                                      {criterion.description ? <p className="meta">{criterion.description}</p> : null}
+                                    </div>
+                                    <div className="score-field">
+                                      <input
+                                        id={`criterion-score-${submission.id}-${criterion.id}`}
+                                        className="input score-input"
+                                        type="number"
+                                        min={0}
+                                        max={criterion.maxPoints}
+                                        step={1}
+                                        inputMode="numeric"
+                                        placeholder="0"
+                                        value={draft.rubricScoreInputs[criterion.id] ?? ""}
+                                        onChange={(event) =>
+                                          setDraft(submission.id, {
+                                            rubricScoreInputs: {
+                                              ...draft.rubricScoreInputs,
+                                              [criterion.id]: event.target.value,
+                                            },
+                                          })
+                                        }
+                                      />
+                                      <span className="score-suffix">/{criterion.maxPoints}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                          <label className="label feedback-label" htmlFor={`feedback-${submission.id}`}>Feedback (optional)</label>
+                          <textarea id={`feedback-${submission.id}`} className="textarea feedback-area" value={draft.feedback} onChange={(event) => setDraft(submission.id, { feedback: event.target.value })} onInput={(event) => autoResizeTextarea(event.currentTarget)} onFocus={(event) => autoResizeTextarea(event.currentTarget)} placeholder="Optional student feedback..." rows={2} />
+                          <div className="actions submission-actions"><button type="button" className="btn btn-primary" onClick={() => void saveSubmission(submission.id)} disabled={draft.saving}>{draft.saving ? "Saving..." : "Save grade"}</button></div>
+                          {submissionErrors[submission.id] ? <p className="card-inline-error">{submissionErrors[submission.id]}</p> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </section>
+      )}
+
       <section id="roster" className="card section-gap">
         <div className="dense-row">
           <div>
@@ -1248,158 +1400,6 @@ export default function ClassDetailPage() {
           </div>
         ) : null}
       </section>
-
-      {assignmentViews.length === 0 ? (
-        <section className="card section-gap"><h2 className="surface-title">Assignments</h2><p className="empty">No assignments yet. Create one to start collecting recordings.</p></section>
-      ) : (
-        <section className="workspace-split section-gap">
-          <aside className="card assignment-nav panel-subtle">
-            <h2 className="surface-title">Assignments</h2>
-            <p className="meta">Switch between assignments and see what needs grading.</p>
-            <div className="assignment-list">
-              {assignmentViews.map((assignment) => (
-                <button key={assignment.id} type="button" className={`assignment-nav-item ${assignment.id === activeAssignment?.id ? "is-selected" : ""}`} onClick={() => setSelectedAssignmentId(assignment.id)}>
-                  <div className="assignment-nav-head"><p className="assignment-nav-title">{assignment.title}</p><span className={`status-badge status-${assignment.tone}`}>{assignment.label}</span></div>
-                  <div className="assignment-nav-counts"><span className="pill pill-subtle">{pluralize(assignment.totalSubmissions, "submission")}</span>{assignment.totalSubmissions === 0 ? <span className="pill pill-neutral">No activity</span> : assignment.ungradedCount > 0 ? <span className="pill pill-warning">{pluralize(assignment.ungradedCount, "ungraded")}</span> : <span className="pill pill-success">All graded</span>}</div>
-                </button>
-              ))}
-            </div>
-          </aside>
-
-          <div className="card assignment-main">
-            {!activeAssignment ? null : (
-              <>
-                <div className="dense-row assignment-main-header">
-                  <div><h2 className="assignment-title">{activeAssignment.title}</h2>{activeAssignment.description ? <p className="meta assignment-description">{activeAssignment.description}</p> : null}<p className="meta assignment-meta">Created {formatDate(activeAssignment.createdAt)}</p></div>
-                  <div className="assignment-header-actions"><span className={`status-badge status-${activeAssignment.tone}`}>{activeAssignment.label}</span><button type="button" className="icon-btn" onClick={openAssignmentEditModal}><Pencil size={15} /></button><button type="button" className="icon-btn icon-btn-danger" onClick={() => setDeleteTarget({ type: "assignment", assignment: activeAssignment })}><Trash2 size={15} /></button></div>
-                </div>
-
-                <div className="actions assignment-actions">
-                  <Link className="btn btn-ghost" href={`/a/${activeAssignment.id}`}>Open student page</Link>
-                  <button type="button" className="btn btn-ghost" onClick={() => void copyStudentLink(activeAssignment.id)}>{copiedId === activeAssignment.id ? "Copied" : "Copy link"}</button>
-                  <button type="button" className="btn btn-ghost" onClick={() => copyAssignment(activeAssignment)}>
-                    Copy assignment
-                  </button>
-                  <span className="pill pill-subtle">{pluralize(activeAssignment.totalSubmissions, "submission")}</span>
-                  <span className={`pill ${activeAssignment.totalSubmissions === 0 ? "pill-neutral" : activeAssignment.ungradedCount > 0 ? "pill-warning" : "pill-success"}`}>{activeAssignment.totalSubmissions === 0 ? "No activity" : activeAssignment.ungradedCount > 0 ? pluralize(activeAssignment.ungradedCount, "ungraded") : "All graded"}</span>
-                </div>
-                {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
-                <div className="assignment-instructions"><p className="meta"><strong>Instructions:</strong> {activeAssignment.instructions?.trim() || "No instructions provided."}</p></div>
-                <p className="meta"><strong>Points possible:</strong> {activeAssignment.maxPoints}</p>
-                {activeAssignment.rubric ? (
-                  <div className="notice info assignment-attachment-notice">
-                    Rubric: <strong>{activeAssignment.rubric.title}</strong> with{" "}
-                    {pluralize(activeAssignment.rubric.criteria.length, "criterion")}
-                  </div>
-                ) : null}
-                {activeAssignment.attachmentUrl ? (
-                  <div className="notice info assignment-attachment-notice">
-                    Attachment: <strong>{activeAssignment.attachmentName || "Directions file"}</strong>
-                    <a className="text-link" href={activeAssignment.attachmentUrl} target="_blank" rel="noreferrer">
-                      Open file
-                    </a>
-                  </div>
-                ) : null}
-
-                <div className="toolbar-compact">
-                  <label className="label toolbar-label" htmlFor="student-filter">Find student in this assignment</label>
-                  <input id="student-filter" className="input toolbar-input" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Search by student name" />
-                  <button type="button" className={`btn ${showUngradedOnly ? "btn-primary" : "btn-ghost"}`} onClick={() => setShowUngradedOnly((prev) => !prev)}>{showUngradedOnly ? "Ungraded only: on" : "Ungraded only"}</button>
-                  <span className="status-badge status-warning">{pluralize(activeAssignment.ungradedCount, "ungraded")}</span>
-                </div>
-
-                {activeAllSubmissions.length === 0 ? <p className="empty">No submissions yet for this assignment.</p> : activeFilteredSubmissions.length === 0 ? <p className="empty">No submissions match current filters.</p> : (
-                  <div className="grid submission-grid assignment-submissions">
-                    {activeFilteredSubmissions.map((submission) => {
-                      const draft = drafts[submission.id] ?? {
-                        gradeInput: submission.grade === null ? "" : String(submission.grade),
-                        feedback: submission.feedback ?? "",
-                        saving: false,
-                        rubricScoreInputs: rubricInputsFromSubmission(submission, activeAssignment),
-                      };
-                      const isEditing = editingSubmissionId === submission.id;
-                      const rubricTotal = activeAssignment.rubric
-                        ? activeAssignment.rubric.criteria.reduce((sum, criterion) => {
-                            const value = draft.rubricScoreInputs[criterion.id]?.trim() ?? "";
-                            return sum + (value === "" ? 0 : Number(value) || 0);
-                          }, 0)
-                        : null;
-                      return (
-                        <div key={submission.id} className="card submission-card">
-                          <div className="dense-row">
-                            <div>
-                              {isEditing ? (
-                                <div className="inline-edit-row"><input className="input inline-edit-input" value={editingSubmissionName} onChange={(event) => setEditingSubmissionName(event.target.value)} maxLength={80} autoFocus /><button type="button" className="icon-btn icon-btn-confirm" onClick={() => void saveSubmissionName(submission)} disabled={nameSaving}><Check size={15} /></button><button type="button" className="icon-btn" onClick={() => { setEditingSubmissionId(""); setEditingSubmissionName(""); }}><X size={15} /></button></div>
-                              ) : (
-                                <div className="submission-name-row"><strong>{submission.studentName}</strong><button type="button" className="icon-btn" onClick={() => { setEditingSubmissionId(submission.id); setEditingSubmissionName(submission.studentName); }}><Pencil size={14} /></button><button type="button" className="icon-btn icon-btn-danger" onClick={() => setDeleteTarget({ type: "submission", submission })}><Trash2 size={14} /></button></div>
-                              )}
-                              <div className="meta">{formatDateTime(submission.submittedAt)}</div>
-                              <div className="meta">{submission.studentEmail || "No email captured"}</div>
-                            </div>
-                            {activeAssignment.rubric ? (
-                              <div className="score-control">
-                                <label className="meta score-label">Total</label>
-                                <div className="score-field">
-                                  <span className="score-suffix">
-                                    {rubricTotal} / {activeAssignment.maxPoints}
-                                  </span>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="score-control"><label className="meta score-label" htmlFor={`grade-${submission.id}`}>Score</label><div className="score-field"><input id={`grade-${submission.id}`} className="input score-input" type="number" min={0} max={activeAssignment.maxPoints} step={1} inputMode="numeric" placeholder="0" value={draft.gradeInput} onChange={(event) => setDraft(submission.id, { gradeInput: event.target.value })} /><span className="score-suffix">/{activeAssignment.maxPoints}</span></div></div>
-                            )}
-                          </div>
-                          <AudioPlayer src={submission.audioData} variant="compact" showSpeed={false} />
-                          {activeAssignment.rubric ? (
-                            <div className="grid section-gap">
-                              {activeAssignment.rubric.criteria.map((criterion) => (
-                                <div key={criterion.id} className="card panel-subtle">
-                                  <div className="dense-row">
-                                    <div>
-                                      <p className="label" style={{ marginBottom: 0 }}>{criterion.name}</p>
-                                      {criterion.description ? <p className="meta">{criterion.description}</p> : null}
-                                    </div>
-                                    <div className="score-field">
-                                      <input
-                                        id={`criterion-score-${submission.id}-${criterion.id}`}
-                                        className="input score-input"
-                                        type="number"
-                                        min={0}
-                                        max={criterion.maxPoints}
-                                        step={1}
-                                        inputMode="numeric"
-                                        placeholder="0"
-                                        value={draft.rubricScoreInputs[criterion.id] ?? ""}
-                                        onChange={(event) =>
-                                          setDraft(submission.id, {
-                                            rubricScoreInputs: {
-                                              ...draft.rubricScoreInputs,
-                                              [criterion.id]: event.target.value,
-                                            },
-                                          })
-                                        }
-                                      />
-                                      <span className="score-suffix">/{criterion.maxPoints}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-                          <label className="label feedback-label" htmlFor={`feedback-${submission.id}`}>Feedback (optional)</label>
-                          <textarea id={`feedback-${submission.id}`} className="textarea feedback-area" value={draft.feedback} onChange={(event) => setDraft(submission.id, { feedback: event.target.value })} onInput={(event) => autoResizeTextarea(event.currentTarget)} onFocus={(event) => autoResizeTextarea(event.currentTarget)} placeholder="Optional student feedback..." rows={2} />
-                          <div className="actions submission-actions"><button type="button" className="btn btn-primary" onClick={() => void saveSubmission(submission.id)} disabled={draft.saving}>{draft.saving ? "Saving..." : "Save grade"}</button></div>
-                          {submissionErrors[submission.id] ? <p className="card-inline-error">{submissionErrors[submission.id]}</p> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </section>
-      )}
 
       <ConfirmModal
         open={deleteTarget !== null}
