@@ -1330,6 +1330,66 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
   }));
 }
 
+export async function findTeacherFunnelRowByEmail(
+  teacherEmail: string
+): Promise<TeacherFunnelRow | null> {
+  const result = await query(
+    `SELECT
+      u.email as email,
+      u.role as role,
+      u.created_at as joinedAt,
+      COALESCE(class_counts.classCount, 0) as classCount,
+      COALESCE(assignment_counts.assignmentCount, 0) as assignmentCount,
+      COALESCE(submission_counts.submissionCount, 0) as submissionCount,
+      activity.latestActivityAt as latestActivityAt
+    FROM users u
+    LEFT JOIN (
+      SELECT LOWER(owner_email) as email, COUNT(*) as classCount
+      FROM classes
+      WHERE deleted_at IS NULL
+      GROUP BY LOWER(owner_email)
+    ) class_counts ON class_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT LOWER(c.owner_email) as email, COUNT(*) as assignmentCount
+      FROM assignments a
+      JOIN classes c ON c.id = a.class_id
+      WHERE a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+      GROUP BY LOWER(c.owner_email)
+    ) assignment_counts ON assignment_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT LOWER(c.owner_email) as email, COUNT(*) as submissionCount
+      FROM submissions s
+      JOIN assignments a ON a.id = s.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      WHERE s.deleted_at IS NULL
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+      GROUP BY LOWER(c.owner_email)
+    ) submission_counts ON submission_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT LOWER(email) as email, MAX(occurred_at) as latestActivityAt
+      FROM activity_events
+      GROUP BY LOWER(email)
+    ) activity ON activity.email = LOWER(u.email)
+    WHERE u.role = 'teacher'
+      AND LOWER(u.email) = LOWER(?)
+    LIMIT 1`,
+    [teacherEmail]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    email: toStringValue(row.email),
+    role: normalizeUserRole(row.role),
+    joinedAt: toNumber(row.joinedAt),
+    classCount: toNumber(row.classCount),
+    assignmentCount: toNumber(row.assignmentCount),
+    submissionCount: toNumber(row.submissionCount),
+    latestActivityAt: row.latestActivityAt === null ? null : toNumber(row.latestActivityAt),
+  };
+}
+
 export async function getTrackingSummary(): Promise<TrackingSummaryRow> {
   const result = await query(
     `SELECT

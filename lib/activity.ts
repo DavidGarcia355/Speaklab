@@ -1,6 +1,6 @@
 import "server-only";
 import {
-  listTeacherFunnelRows,
+  findTeacherFunnelRowByEmail,
   logActivityEvent,
   type ActivityEventType,
 } from "@/lib/db";
@@ -88,8 +88,7 @@ export async function trackActivity(
 
 export async function buildTeacherEventMetadata(email: string) {
   const normalizedEmail = email.trim().toLowerCase();
-  const funnelRows = await listTeacherFunnelRows();
-  const teacher = funnelRows.find((row) => row.email === normalizedEmail);
+  const teacher = await findTeacherFunnelRowByEmail(normalizedEmail);
   return {
     teacher,
     isFirstClass: (teacher?.classCount ?? 0) === 1,
