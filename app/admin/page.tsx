@@ -5,6 +5,7 @@ import { requireAdminEmail } from "@/lib/admin";
 import {
   getTrackingSummary,
   listClasses,
+  listFeedbackMessages,
   listRecentActivityEvents,
   listRecentTeacherActivityEvents,
   listTeacherFunnelRows,
@@ -123,12 +124,13 @@ export default async function AdminPage() {
     );
   }
 
-  const [summary, allEvents, teacherEvents, funnelRows, allClasses] = await Promise.all([
+  const [summary, allEvents, teacherEvents, funnelRows, allClasses, feedbackMessages] = await Promise.all([
     getTrackingSummary(),
     listRecentActivityEvents(50),
     listRecentTeacherActivityEvents(30),
     listTeacherFunnelRows(),
     listClasses(),
+    listFeedbackMessages(),
   ]);
 
   const totalSubmissions = allClasses.reduce((sum, c) => sum + c.submissionCount, 0);
@@ -344,6 +346,31 @@ export default async function AdminPage() {
             )}
           </article>
         </div>
+      </section>
+
+      <section className="card section-gap">
+        <div className="admin-panel-head">
+          <h2 className="surface-title">Contact messages</h2>
+          <span className="pill pill-subtle">{feedbackMessages.length} messages</span>
+        </div>
+        {feedbackMessages.length === 0 ? (
+          <p className="empty">No messages yet.</p>
+        ) : (
+          <div className="admin-feedback-list">
+            {feedbackMessages.map((msg) => (
+              <div key={msg.id} className="admin-feedback-item">
+                <div className="admin-feedback-header">
+                  <div>
+                    <p className="admin-event-title">{msg.name || "(no name)"}</p>
+                    <p className="meta">{msg.email}{msg.school ? ` · ${msg.school}` : ""}{msg.role ? ` · ${msg.role}` : ""}</p>
+                  </div>
+                  <span className="admin-event-time">{formatDateTime(msg.createdAt)}</span>
+                </div>
+                <p className="admin-feedback-body">{msg.message}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="card section-gap">

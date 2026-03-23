@@ -42,6 +42,33 @@ export function sendTeacherUpgradeConfirmationEmail(email: string) {
   });
 }
 
+export async function sendFeedbackNotification(input: {
+  name: string;
+  email: string;
+  school: string;
+  role: string;
+  message: string;
+}) {
+  const apiKey = getResendApiKey();
+  if (!apiKey) return;
+
+  const resend = new Resend(apiKey);
+  await resend.emails.send({
+    from: "Habla <onboarding@resend.dev>",
+    to: "davidsgarcia325@gmail.com",
+    subject: `New contact message from ${input.name || input.email}`,
+    text: [
+      `From: ${input.name} <${input.email}>`,
+      `School: ${input.school}`,
+      `Role: ${input.role}`,
+      ``,
+      input.message,
+    ].join("\n"),
+  }).catch((error) => {
+    console.warn("Failed to send feedback notification", error);
+  });
+}
+
 export const teacherUpgradeEmailCopy = {
   subject: TEACHER_UPGRADE_SUBJECT,
   text: TEACHER_UPGRADE_TEXT,

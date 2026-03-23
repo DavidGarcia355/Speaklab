@@ -1153,6 +1153,22 @@ export async function createFeedbackMessage(input: {
   return item;
 }
 
+export async function listFeedbackMessages(): Promise<FeedbackRow[]> {
+  const result = await query(
+    `SELECT id, name, email, school, role, message, created_at FROM feedback_messages ORDER BY created_at DESC`,
+    []
+  );
+  return result.rows.map((r) => ({
+    id: toStringValue(r.id),
+    name: toStringValue(r.name),
+    email: toStringValue(r.email),
+    school: toStringValue(r.school),
+    role: toStringValue(r.role),
+    message: toStringValue(r.message),
+    createdAt: toNumber(r.created_at),
+  }));
+}
+
 export async function logActivityEvent(input: {
   email: string;
   eventType: ActivityEventType;
