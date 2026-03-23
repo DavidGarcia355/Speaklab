@@ -135,6 +135,15 @@ export type RosterRow = {
   addedBy: "submission" | "teacher";
 };
 
+export type StudentEnrolledRow = {
+  classId: string;
+  className: string;
+  assignmentId: string | null;
+  assignmentTitle: string | null;
+  maxPoints: number;
+  submissionCount: number;
+};
+
 export type StudentAssignmentRow = {
   assignmentId: string;
   assignmentTitle: string;
@@ -933,6 +942,42 @@ export async function listStudentAssignmentHistoryByEmail(
     assignmentTitle: toStringValue(row.assignmentTitle),
     className: toStringValue(row.className),
     maxPoints: toNumber(row.maxPoints),
+  }));
+}
+
+export async function listEnrolledClassesWithAssignmentsByEmail(
+  studentEmail: string
+): Promise<StudentEnrolledRow[]> {
+  const result = await query(
+    `SELECT
+      c.id as classId,
+      c.name as className,
+      a.id as assignmentId,
+      a.title as assignmentTitle,
+      COALESCE(a.max_points, 0) as maxPoints,
+      COALESCE(sub_counts.submissionCount, 0) as submissionCount
+    FROM roster r
+    JOIN classes c ON c.id = r.class_id
+    LEFT JOIN assignments a ON a.class_id = c.id AND a.deleted_at IS NULL
+    LEFT JOIN (
+      SELECT assignment_id, COUNT(*) as submissionCount
+      FROM submissions
+      WHERE LOWER(student_email) = LOWER(?)
+        AND deleted_at IS NULL
+      GROUP BY assignment_id
+    ) sub_counts ON sub_counts.assignment_id = a.id
+    WHERE LOWER(r.student_email) = LOWER(?)
+      AND c.deleted_at IS NULL
+    ORDER BY c.created_at DESC, a.created_at ASC`,
+    [studentEmail, studentEmail]
+  );
+  return result.rows.map((row) => ({
+    classId: toStringValue(row.classId),
+    className: toStringValue(row.className),
+    assignmentId: row.assignmentId === null ? null : toStringValue(row.assignmentId),
+    assignmentTitle: row.assignmentTitle === null ? null : toStringValue(row.assignmentTitle),
+    maxPoints: toNumber(row.maxPoints),
+    submissionCount: toNumber(row.submissionCount),
   }));
 }
 
