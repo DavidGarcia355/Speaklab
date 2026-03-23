@@ -4,8 +4,10 @@ import { POST } from "@/app/api/assignments/[assignmentId]/submissions/route";
 const mocks = vi.hoisted(() => ({
   mockRequireSchoolStudentEmail: vi.fn(),
   mockUploadSubmissionAudio: vi.fn(),
+  mockCountStudentSubmissions: vi.fn(),
   mockCreateSubmission: vi.fn(),
   mockFindAssignmentById: vi.fn(),
+  mockUpsertRosterEntry: vi.fn(),
   mockEnforceSubmissionRateLimit: vi.fn(),
   mockParseOrThrow400: vi.fn(),
   mockParseAudioDataUrl: vi.fn(),
@@ -21,8 +23,10 @@ vi.mock("@/lib/audio-storage", () => ({
 }));
 
 vi.mock("@/lib/db", () => ({
+  countStudentSubmissions: mocks.mockCountStudentSubmissions,
   createSubmission: mocks.mockCreateSubmission,
   findAssignmentById: mocks.mockFindAssignmentById,
+  upsertRosterEntry: mocks.mockUpsertRosterEntry,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -90,8 +94,10 @@ describe("submission route domain enforcement", () => {
 
     mocks.mockRequireSchoolStudentEmail.mockReset();
     mocks.mockUploadSubmissionAudio.mockReset();
+    mocks.mockCountStudentSubmissions.mockReset();
     mocks.mockCreateSubmission.mockReset();
     mocks.mockFindAssignmentById.mockReset();
+    mocks.mockUpsertRosterEntry.mockReset();
     mocks.mockEnforceSubmissionRateLimit.mockReset();
     mocks.mockParseOrThrow400.mockReset();
     mocks.mockParseAudioDataUrl.mockReset();
@@ -100,8 +106,11 @@ describe("submission route domain enforcement", () => {
     mocks.mockRequireSchoolStudentEmail.mockResolvedValue("student@gmail.com");
     mocks.mockFindAssignmentById.mockResolvedValue({
       id: "asg_1",
+      classId: "class_1",
       ownerEmail: "teacher@school.edu",
+      maxSubmissions: 0,
     });
+    mocks.mockCountStudentSubmissions.mockResolvedValue(0);
     mocks.mockEnforceSubmissionRateLimit.mockResolvedValue(undefined);
     mocks.mockParseOrThrow400.mockResolvedValue({
       studentName: "Student One",
@@ -120,6 +129,7 @@ describe("submission route domain enforcement", () => {
       audioBlobUrl: "https://blob.example/audio.webm",
       submittedAt: 1,
     });
+    mocks.mockUpsertRosterEntry.mockResolvedValue(undefined);
     mocks.mockGetEnv.mockReturnValue({ isDev: false });
   });
 

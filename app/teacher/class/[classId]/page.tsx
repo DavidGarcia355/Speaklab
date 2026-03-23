@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, Check, CheckCircle2, Clock3, Pencil, Trash2, X } from "lucide-react";
 import AudioPlayer from "@/app/components/AudioPlayer";
 import BrandBar from "@/app/components/BrandBar";
@@ -75,6 +75,27 @@ type AssignmentView = AssignmentSummary & {
   label: string;
 };
 type UndoState = { message: string; expiresAt: number };
+type RosterEntry = {
+  id: string;
+  classId: string;
+  studentEmail: string;
+  studentName: string;
+  addedAt: number;
+  addedBy: "submission" | "teacher";
+};
+type StudentDetailPayload = {
+  studentEmail: string;
+  assignments: {
+    assignmentId: string;
+    assignmentTitle: string;
+    maxPoints: number;
+    createdAt: number;
+    submissionId: string | null;
+    submittedAt: number | null;
+    grade: number | null;
+    feedback: string;
+  }[];
+};
 type AttachmentDraft = { fileName: string; dataUrl: string } | null;
 type DeleteTarget =
   | { type: "assignment"; assignment: AssignmentView }
@@ -212,6 +233,18 @@ export default function ClassDetailPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
+  const [roster, setRoster] = useState<RosterEntry[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterError, setRosterError] = useState("");
+  const [addStudentName, setAddStudentName] = useState("");
+  const [addStudentEmail, setAddStudentEmail] = useState("");
+  const [addStudentSaving, setAddStudentSaving] = useState(false);
+  const [selectedStudentEmail, setSelectedStudentEmail] = useState<string | null>(null);
+  const [studentDetail, setStudentDetail] = useState<StudentDetailPayload | null>(null);
+  const [studentDetailLoading, setStudentDetailLoading] = useState(false);
+  const [csvUploading, setCsvUploading] = useState(false);
+  const [csvResult, setCsvResult] = useState<{ added: number; skipped: number } | null>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
   const pendingDeleteRef = useRef<{
     key: string;
     rollback: () => void;
@@ -220,7 +253,163 @@ export default function ClassDetailPage() {
     timerId: number;
   } | null>(null);
 
-  async function loadData(targetClassId: string) {
+  const loadRoster = useCallback(async (targetClassId: string) => {
+    setRosterLoading(true);
+    setRosterError("");
+    try {
+      const response = await fetch(`/api/classes/${targetClassId}/roster`, { cache: "no-store" });
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        throw new Error(data.error || "Failed to load roster.");
+      }
+      const data = (await response.json()) as { items: RosterEntry[] };
+      setRoster(data.items);
+    } catch (error) {
+      setRosterError(error instanceof Error ? error.message : "Failed to load roster.");
+    } finally {
+      setRosterLoading(false);
+    }
+  }, []);
+
+  const loadStudentDetail = useCallback(async (targetClassId: string, email: string) => {
+    setStudentDetailLoading(true);
+    try {
+      const response = await fetch(
+        `/api/classes/${targetClassId}/students/${encodeURIComponent(email)}`,
+        { cache: "no-store" }
+      );
+      if (!response.ok) throw new Error("Failed to load student detail.");
+      const data = (await response.json()) as StudentDetailPayload;
+      setStudentDetail(data);
+    } catch {
+      setStudentDetail(null);
+    } finally {
+      setStudentDetailLoading(false);
+    }
+  }, []);
+
+  async function handleAddStudent() {
+    const name = addStudentName.trim();
+    const email = addStudentEmail.trim().toLowerCase();
+    if (!name || !email || !classId) {
+      setRosterError("Student name and email are required.");
+      return;
+    }
+    setAddStudentSaving(true);
+    setRosterError("");
+    try {
+      const response = await fetch(`/api/classes/${classId}/roster`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email }),
+      });
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        throw new Error(data.error || "Failed to add student.");
+      }
+      const data = (await response.json()) as { items: RosterEntry[] };
+      setRoster(data.items);
+      setAddStudentName("");
+      setAddStudentEmail("");
+    } catch (error) {
+      setRosterError(error instanceof Error ? error.message : "Failed to add student.");
+    } finally {
+      setAddStudentSaving(false);
+    }
+  }
+
+  async function handleRemoveStudent(studentEmail: string) {
+    if (!classId) return;
+    const entry = roster.find((r) => r.studentEmail === studentEmail);
+    const label = entry?.studentName ? `${entry.studentName} (${studentEmail})` : studentEmail;
+    if (!confirm(`Remove ${label} from the roster?`)) return;
+    setRoster((prev) => prev.filter((entry) => entry.studentEmail !== studentEmail));
+    if (selectedStudentEmail === studentEmail) {
+      setSelectedStudentEmail(null);
+      setStudentDetail(null);
+    }
+    try {
+      const response = await fetch(
+        `/api/classes/${classId}/roster/${encodeURIComponent(studentEmail)}`,
+        { method: "DELETE" }
+      );
+      if (!response.ok) {
+        await loadRoster(classId);
+      }
+    } catch {
+      await loadRoster(classId);
+    }
+  }
+
+  async function handleCsvUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !classId) return;
+    if (csvInputRef.current) csvInputRef.current.value = "";
+    setCsvUploading(true);
+    setCsvResult(null);
+    setRosterError("");
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      if (lines.length === 0) throw new Error("CSV file is empty.");
+
+      // Detect header row — supports: name, first name/last name, first_name/last_name, email
+      let nameIdx = 0;
+      let firstNameIdx = -1;
+      let lastNameIdx = -1;
+      let emailIdx = 1;
+      let dataStart = 0;
+      const firstCols = lines[0].split(",").map((c) => c.trim().toLowerCase().replace(/^"|"$/g, ""));
+      const headerEmailIdx = firstCols.findIndex((c) => c === "email" || c === "email address");
+      const headerNameIdx = firstCols.findIndex((c) => c === "name" || c === "full name" || c === "student name");
+      const headerFirstIdx = firstCols.findIndex((c) => c === "first name" || c === "first_name" || c === "firstname");
+      const headerLastIdx = firstCols.findIndex((c) => c === "last name" || c === "last_name" || c === "lastname");
+      if (headerEmailIdx !== -1) {
+        emailIdx = headerEmailIdx;
+        if (headerNameIdx !== -1) {
+          nameIdx = headerNameIdx;
+        } else if (headerFirstIdx !== -1) {
+          firstNameIdx = headerFirstIdx;
+          lastNameIdx = headerLastIdx;
+        } else {
+          nameIdx = emailIdx === 0 ? 1 : 0;
+        }
+        dataStart = 1;
+      }
+
+      const students: { name: string; email: string }[] = [];
+      const parseErrors: string[] = [];
+      for (let i = dataStart; i < lines.length; i++) {
+        const cols = lines[i].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+        const name = firstNameIdx !== -1
+          ? [cols[firstNameIdx] ?? "", lastNameIdx !== -1 ? (cols[lastNameIdx] ?? "") : ""].filter(Boolean).join(" ")
+          : (cols[nameIdx] ?? "");
+        const email = (cols[emailIdx] ?? "").toLowerCase();
+        if (!name && !email) continue;
+        if (!name) { parseErrors.push(`Row ${i + 1}: missing name.`); continue; }
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { parseErrors.push(`Row ${i + 1}: invalid email "${email}".`); continue; }
+        students.push({ name, email });
+      }
+      if (parseErrors.length > 0) throw new Error(parseErrors.slice(0, 3).join(" ") + (parseErrors.length > 3 ? ` (+${parseErrors.length - 3} more)` : ""));
+      if (students.length === 0) throw new Error("No valid students found in CSV.");
+
+      const response = await fetch(`/api/classes/${classId}/roster/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ students }),
+      });
+      const data = (await response.json()) as { items?: RosterEntry[]; added?: number; skipped?: number; error?: string };
+      if (!response.ok) throw new Error(data.error || "Failed to import roster.");
+      setRoster(data.items ?? []);
+      setCsvResult({ added: data.added ?? 0, skipped: data.skipped ?? 0 });
+    } catch (error) {
+      setRosterError(error instanceof Error ? error.message : "Failed to import CSV.");
+    } finally {
+      setCsvUploading(false);
+    }
+  }
+
+  const loadData = useCallback(async (targetClassId: string) => {
     setLoading(true);
     setErrorMsg("");
     try {
@@ -249,7 +438,8 @@ export default function ClassDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+    void loadRoster(targetClassId);
+  }, [loadRoster]);
 
   useEffect(() => {
     if (!classId) {
@@ -274,7 +464,7 @@ export default function ClassDetailPage() {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("storage", onStorage);
     };
-  }, [classId]);
+  }, [classId, loadData]);
 
   useEffect(() => {
     const created = searchParams.get("created");
@@ -880,6 +1070,7 @@ export default function ClassDetailPage() {
           <div className="actions">
             <Link className="btn btn-ghost" href="/teacher">Back to classes</Link>
             <Link className="btn btn-primary" href={`/teacher/class/${payload.item.id}/assignment/new`}>Create assignment</Link>
+            <a className="btn btn-ghost" href="#roster">Roster</a>
             <button
               type="button"
               className="btn btn-ghost"
@@ -900,6 +1091,162 @@ export default function ClassDetailPage() {
         <article className="card kpi-card"><p className="meta stat-label"><BookOpen size={14} /> Assignments</p><p className="stat-value">{payload.stats.assignmentCount}</p><p className="meta kpi-note">Published tasks</p></article>
         <article className="card kpi-card kpi-warning"><p className="meta stat-label"><Clock3 size={14} /> Needs grading</p><p className="stat-value">{workspaceStats.pending}</p><p className="meta kpi-note">Ungraded submissions</p></article>
         <article className="card kpi-card kpi-success"><p className="meta stat-label"><CheckCircle2 size={14} /> Graded</p><p className="stat-value">{workspaceStats.graded}</p><p className="meta kpi-note">Completed scores</p></article>
+      </section>
+
+      <section id="roster" className="card section-gap">
+        <div className="dense-row">
+          <div>
+            <h2 className="surface-title">Roster</h2>
+            <p className="meta">Students appear here automatically when they submit. You can also add them manually.</p>
+          </div>
+          <span className="pill pill-subtle">{pluralize(roster.length, "student")}</span>
+        </div>
+
+        <div className="toolbar-compact">
+          <input
+            className="input toolbar-input"
+            placeholder="Student name"
+            value={addStudentName}
+            onChange={(event) => setAddStudentName(event.target.value)}
+            maxLength={80}
+          />
+          <input
+            className="input toolbar-input"
+            placeholder="student@school.edu"
+            type="email"
+            value={addStudentEmail}
+            onChange={(event) => setAddStudentEmail(event.target.value)}
+            maxLength={254}
+          />
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void handleAddStudent()}
+            disabled={addStudentSaving}
+          >
+            {addStudentSaving ? "Adding..." : "Add student"}
+          </button>
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="sr-only"
+            onChange={(event) => void handleCsvUpload(event)}
+          />
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => csvInputRef.current?.click()}
+            disabled={csvUploading}
+            title="Upload a CSV with name and email columns"
+          >
+            {csvUploading ? "Importing..." : "Upload CSV"}
+          </button>
+        </div>
+
+        {rosterError ? <p className="card-inline-error">{rosterError}</p> : null}
+        {csvResult ? (
+          <p className="meta">
+            CSV imported: {csvResult.added} added{csvResult.skipped > 0 ? `, ${csvResult.skipped} already on roster (skipped)` : ""}.
+          </p>
+        ) : null}
+
+        {rosterLoading ? (
+          <p className="meta">Loading roster...</p>
+        ) : roster.length === 0 ? (
+          <p className="empty">No students yet. They appear here automatically after submitting an assignment.</p>
+        ) : (
+          <div className="grid submission-grid">
+            {roster.map((entry) => (
+              <div
+                key={entry.id}
+                className={`card submission-card${selectedStudentEmail === entry.studentEmail ? " is-selected" : ""}`}
+              >
+                <div className="dense-row">
+                  <div>
+                    <strong>{entry.studentName}</strong>
+                    <div className="meta">{entry.studentEmail}</div>
+                    <div className="meta">
+                      {entry.addedBy === "teacher" ? "Added manually" : "Added via submission"} &middot;{" "}
+                      {formatDate(entry.addedAt)}
+                    </div>
+                  </div>
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => {
+                        if (!classId) return;
+                        setSelectedStudentEmail(entry.studentEmail);
+                        void loadStudentDetail(classId, entry.studentEmail);
+                      }}
+                    >
+                      View
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn-danger"
+                      onClick={() => void handleRemoveStudent(entry.studentEmail)}
+                      aria-label="Remove from roster"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {selectedStudentEmail ? (
+          <div className="card panel-subtle section-gap">
+            <div className="dense-row">
+              <h3 className="surface-title">
+                {roster.find((entry) => entry.studentEmail === selectedStudentEmail)?.studentName ??
+                  selectedStudentEmail}
+              </h3>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setSelectedStudentEmail(null);
+                  setStudentDetail(null);
+                }}
+              >
+                Close
+              </button>
+            </div>
+            <p className="meta">{selectedStudentEmail}</p>
+            {studentDetailLoading ? (
+              <p className="meta">Loading...</p>
+            ) : studentDetail ? (
+              studentDetail.assignments.length === 0 ? (
+                <p className="empty">No assignments in this class yet.</p>
+              ) : (
+                <div className="grid submission-grid">
+                  {studentDetail.assignments.map((item) => (
+                    <div key={item.assignmentId} className="card">
+                      <strong>{item.assignmentTitle}</strong>
+                      {item.submissionId ? (
+                        <>
+                          <div className="meta">Submitted {formatDateTime(item.submittedAt!)}</div>
+                          <div className="meta">
+                            Score: {item.grade !== null ? `${item.grade} / ${item.maxPoints}` : "Not graded"}
+                          </div>
+                          {item.feedback ? <div className="meta">Feedback: {item.feedback}</div> : null}
+                        </>
+                      ) : (
+                        <div className="meta empty">No submission</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : (
+              <p className="empty">Could not load assignment data.</p>
+            )}
+          </div>
+        ) : null}
       </section>
 
       {assignmentViews.length === 0 ? (

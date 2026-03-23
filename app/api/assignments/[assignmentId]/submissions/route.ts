@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireSchoolStudentEmail } from "@/lib/authz";
 import { uploadSubmissionAudio } from "@/lib/audio-storage";
-import { countStudentSubmissions, createSubmission, findAssignmentById } from "@/lib/db";
+import {
+  countStudentSubmissions,
+  createSubmission,
+  findAssignmentById,
+  upsertRosterEntry,
+} from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 import { enforceSubmissionRateLimit } from "@/lib/rate-limit";
 import { getEnv } from "@/lib/env";
@@ -89,6 +94,16 @@ export async function POST(
       studentEmail,
       audioBlobUrl,
     });
+
+    upsertRosterEntry({
+      classId: assignment.classId,
+      studentEmail,
+      studentName,
+      addedBy: "submission",
+    }).catch((error: unknown) => {
+      console.error("roster upsert failed", error);
+    });
+
     return NextResponse.json({ item: created }, { status: 201 });
   });
 }

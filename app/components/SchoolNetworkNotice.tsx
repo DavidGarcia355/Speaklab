@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 
 type SchoolNetworkNoticeProps = {
@@ -14,14 +14,20 @@ export default function SchoolNetworkNotice({
   storageKey,
   className = "",
 }: SchoolNetworkNoticeProps) {
-  const [visible, setVisible] = useState(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      return localStorage.getItem(storageKey) !== "dismissed";
-    } catch {
-      return true;
-    }
-  });
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        setVisible(localStorage.getItem(storageKey) !== "dismissed");
+      } catch {
+        setVisible(true);
+      }
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [storageKey]);
 
   function dismiss() {
     setVisible(false);

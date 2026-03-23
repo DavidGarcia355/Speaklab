@@ -125,6 +125,26 @@ export type TrackingSummaryRow = {
   teachingReadyTeachers: number;
 };
 
+export type RosterRow = {
+  id: string;
+  classId: string;
+  studentEmail: string;
+  studentName: string;
+  addedAt: number;
+  addedBy: "submission" | "teacher";
+};
+
+export type StudentAssignmentRow = {
+  assignmentId: string;
+  assignmentTitle: string;
+  maxPoints: number;
+  createdAt: number;
+  submissionId: string | null;
+  submittedAt: number | null;
+  grade: number | null;
+  feedback: string;
+};
+
 function getTeacherAllowlist(): Set<string> {
   return new Set(
     (process.env.TEACHER_ALLOWLIST ?? "")
@@ -256,6 +276,17 @@ async function ensureInitialized() {
           occurred_at INTEGER NOT NULL,
           metadata TEXT
         )`,
+        `CREATE TABLE IF NOT EXISTS roster (
+          id TEXT PRIMARY KEY,
+          class_id TEXT NOT NULL,
+          student_email TEXT NOT NULL,
+          student_name TEXT NOT NULL DEFAULT '',
+          added_at INTEGER NOT NULL,
+          added_by TEXT NOT NULL DEFAULT 'submission' CHECK (added_by IN ('submission', 'teacher')),
+          FOREIGN KEY(class_id) REFERENCES classes(id) ON DELETE CASCADE
+        )`,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_roster_class_student ON roster(class_id, LOWER(student_email))",
+        "CREATE INDEX IF NOT EXISTS idx_roster_class_id ON roster(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_class_id ON assignments(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_deleted_at ON assignments(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON submissions(assignment_id)",
@@ -1301,4 +1332,126 @@ export async function setUserRoleTeacher(email: string): Promise<void> {
     ON CONFLICT(email) DO UPDATE SET role = 'teacher'`,
     [normalized, Date.now()]
   );
+}
+
+export async function upsertRosterEntry(input: {
+  classId: string;
+  studentEmail: string;
+  studentName: string;
+  addedBy: "submission" | "teacher";
+}): Promise<boolean> {
+  const result = await query(
+    `INSERT OR IGNORE INTO roster (id, class_id, student_email, student_name, added_at, added_by)
+     VALUES (?, ?, LOWER(?), ?, ?, ?)`,
+    [makeId("roster"), input.classId, input.studentEmail, input.studentName, Date.now(), input.addedBy]
+  );
+  return toNumber(result.rowsAffected) > 0;
+}
+
+export async function bulkUpsertRosterEntries(
+  classId: string,
+  students: { studentEmail: string; studentName: string }[]
+): Promise<{ added: number; skipped: number }> {
+  let added = 0;
+  let skipped = 0;
+  for (const student of students) {
+    const result = await query(
+      `INSERT OR IGNORE INTO roster (id, class_id, student_email, student_name, added_at, added_by)
+       VALUES (?, ?, LOWER(?), ?, ?, 'teacher')`,
+      [makeId("roster"), classId, student.studentEmail, student.studentName, Date.now()]
+    );
+    if (toNumber(result.rowsAffected) > 0) {
+      added++;
+    } else {
+      skipped++;
+    }
+  }
+  return { added, skipped };
+}
+
+export async function listRosterByClassId(classId: string, ownerEmail: string): Promise<RosterRow[]> {
+  const result = await query(
+    `SELECT
+       r.id,
+       r.class_id as classId,
+       r.student_email as studentEmail,
+       r.student_name as studentName,
+       r.added_at as addedAt,
+       r.added_by as addedBy
+     FROM roster r
+     JOIN classes c ON c.id = r.class_id
+     WHERE r.class_id = ?
+       AND c.deleted_at IS NULL
+       AND LOWER(c.owner_email) = LOWER(?)
+     ORDER BY LOWER(r.student_name), r.added_at ASC`,
+    [classId, ownerEmail]
+  );
+  return result.rows.map((row) => ({
+    id: toStringValue(row.id),
+    classId: toStringValue(row.classId),
+    studentEmail: toStringValue(row.studentEmail),
+    studentName: toStringValue(row.studentName),
+    addedAt: toNumber(row.addedAt),
+    addedBy: toStringValue(row.addedBy) === "teacher" ? "teacher" : "submission",
+  }));
+}
+
+export async function deleteRosterEntry(
+  classId: string,
+  studentEmail: string,
+  ownerEmail: string
+): Promise<boolean> {
+  const result = await query(
+    `DELETE FROM roster
+     WHERE class_id = ?
+       AND LOWER(student_email) = LOWER(?)
+       AND class_id IN (
+         SELECT id FROM classes
+         WHERE id = ?
+           AND LOWER(owner_email) = LOWER(?)
+           AND deleted_at IS NULL
+       )`,
+    [classId, studentEmail, classId, ownerEmail]
+  );
+  return toNumber(result.rowsAffected) > 0;
+}
+
+export async function listStudentAssignmentSummaries(
+  classId: string,
+  studentEmail: string,
+  ownerEmail: string
+): Promise<StudentAssignmentRow[]> {
+  const result = await query(
+    `SELECT
+       a.id as assignmentId,
+       a.title as assignmentTitle,
+       COALESCE(a.max_points, 100) as maxPoints,
+       a.created_at as createdAt,
+       s.id as submissionId,
+       s.submitted_at as submittedAt,
+       s.grade as grade,
+       COALESCE(s.feedback, '') as feedback
+     FROM assignments a
+     JOIN classes c ON c.id = a.class_id
+     LEFT JOIN submissions s
+       ON s.assignment_id = a.id
+       AND LOWER(s.student_email) = LOWER(?)
+       AND s.deleted_at IS NULL
+     WHERE a.class_id = ?
+       AND a.deleted_at IS NULL
+       AND c.deleted_at IS NULL
+       AND LOWER(c.owner_email) = LOWER(?)
+     ORDER BY a.created_at ASC`,
+    [studentEmail, classId, ownerEmail]
+  );
+  return result.rows.map((row) => ({
+    assignmentId: toStringValue(row.assignmentId),
+    assignmentTitle: toStringValue(row.assignmentTitle),
+    maxPoints: toNumber(row.maxPoints),
+    createdAt: toNumber(row.createdAt),
+    submissionId: row.submissionId ? toStringValue(row.submissionId) : null,
+    submittedAt: row.submittedAt ? toNumber(row.submittedAt) : null,
+    grade: toNullableNumber(row.grade),
+    feedback: toStringValue(row.feedback),
+  }));
 }

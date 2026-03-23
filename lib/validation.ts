@@ -205,6 +205,23 @@ export const submissionPatchSchema = z
     path: ["_form"],
   });
 
+export const rosterAddSchema = z.object({
+  name: cleanTextSchema("Student name", 1, LIMITS.studentNameMax),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email("Email must be valid.")
+    .max(254, "Email must be 254 characters or fewer."),
+});
+
+export const rosterBulkSchema = z.object({
+  students: z
+    .array(rosterAddSchema)
+    .min(1, "At least one student is required.")
+    .max(500, "Cannot add more than 500 students at once."),
+});
+
 export const feedbackCreateSchema = z.object({
   name: cleanTextSchema("Name", 1, 80),
   email: z
