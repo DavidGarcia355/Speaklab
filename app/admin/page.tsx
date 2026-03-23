@@ -16,12 +16,13 @@ function getCurrentTimestamp() {
 
 function formatDateTime(timestamp: number | null) {
   if (!timestamp) return "No activity yet";
-  return new Date(timestamp).toLocaleString(undefined, {
+  return new Date(timestamp).toLocaleString("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "America/Chicago",
   });
 }
 
