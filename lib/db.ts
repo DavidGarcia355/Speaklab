@@ -603,6 +603,7 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
 }
 
 export async function createAssignment(input: {
+  id?: string;
   classId: string;
   ownerEmail: string;
   title: string;
@@ -619,7 +620,7 @@ export async function createAssignment(input: {
   await assertUniqueAssignmentTitle(input.classId, input.ownerEmail, input.title);
 
   const item: AssignmentRow = {
-    id: makeId("asg"),
+    id: input.id ?? makeId("asg"),
     classId: input.classId,
     title: input.title,
     description: input.description,

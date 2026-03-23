@@ -26,6 +26,7 @@ export async function POST(
     }
 
     const body = parseOrThrow400(assignmentCreateSchema, await request.json());
+    const pendingAssignmentId = `asg_${crypto.randomUUID()}`;
     const title = body.title ?? "";
     const description = body.description ?? "";
     const instructions = body.instructions ?? "";
@@ -40,7 +41,7 @@ export async function POST(
       attachmentName = body.attachment.fileName ?? "";
       attachmentContentType = parsedAttachment.mimeType;
       attachmentUrl = await uploadAssignmentAttachment({
-        assignmentId: `asg_${crypto.randomUUID()}`,
+        assignmentId: pendingAssignmentId,
         fileName: body.attachment.fileName ?? "attachment",
         mimeType: parsedAttachment.mimeType,
         buffer: parsedAttachment.buffer,
@@ -54,6 +55,7 @@ export async function POST(
     let created;
     try {
       created = await createAssignment({
+        id: pendingAssignmentId,
         classId,
         ownerEmail: teacherEmail,
         title,
