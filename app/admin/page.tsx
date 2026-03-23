@@ -390,6 +390,7 @@ export default async function AdminPage() {
                   <th>Joined</th>
                   <th>Classes</th>
                   <th>Assignments</th>
+                  <th>Submissions</th>
                   <th>Last active</th>
                 </tr>
               </thead>
@@ -405,6 +406,7 @@ export default async function AdminPage() {
                       <td className="admin-roster-date">{formatDateTime(teacher.joinedAt)}</td>
                       <td className="admin-roster-num">{teacher.classCount}</td>
                       <td className="admin-roster-num">{teacher.assignmentCount}</td>
+                      <td className="admin-roster-num">{teacher.submissionCount}</td>
                       <td className="admin-roster-date">
                         {teacher.latestActivityAt
                           ? formatTimeAgo(teacher.latestActivityAt)
