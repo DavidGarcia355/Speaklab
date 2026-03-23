@@ -42,6 +42,7 @@ export async function PATCH(
 
     const body = parseOrThrow400(assignmentUpdateSchema, await request.json());
     const title = body.title ?? "";
+    const description = body.description ?? found.description;
     const instructions = body.instructions ?? "";
     const rubric = typeof body.rubric === "undefined" ? found.rubric : body.rubric ?? null;
     const maxPoints = rubric ? rubricTotalPoints(rubric) : (body.maxPoints ?? found.maxPoints);
@@ -69,6 +70,7 @@ export async function PATCH(
     try {
       updated = await updateAssignment(assignmentId, teacherEmail, {
         title,
+        description,
         instructions,
         maxPoints,
         maxSubmissions: body.maxSubmissions ?? found.maxSubmissions,

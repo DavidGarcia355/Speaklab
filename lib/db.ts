@@ -718,6 +718,7 @@ export async function updateAssignment(
   ownerEmail: string,
   input: {
     title: string;
+    description: string;
     instructions: string;
     maxPoints: number;
     maxSubmissions: number;
@@ -735,7 +736,7 @@ export async function updateAssignment(
 
   const result = await query(
     `UPDATE assignments
-    SET title = ?, instructions = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
+    SET title = ?, description = ?, instructions = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
     WHERE id = ?
       AND deleted_at IS NULL
       AND id IN (
@@ -748,6 +749,7 @@ export async function updateAssignment(
       )`,
     [
       input.title,
+      input.description,
       input.instructions,
       input.maxPoints,
       input.maxSubmissions,

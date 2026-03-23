@@ -141,6 +141,7 @@ export const assignmentCreateSchema = z.object({
 
 export const assignmentUpdateSchema = z.object({
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
+  description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true).default(""),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
   maxPoints: z
     .number()

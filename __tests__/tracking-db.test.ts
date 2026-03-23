@@ -203,6 +203,7 @@ describe("tracking db helpers", () => {
     await expect(
       db.updateAssignment(second.id, teacherEmail, {
         title: "oral warmup",
+        description: second.description,
         instructions: second.instructions,
         maxPoints: second.maxPoints,
         maxSubmissions: second.maxSubmissions,
@@ -217,6 +218,7 @@ describe("tracking db helpers", () => {
     await expect(
       db.updateAssignment(first.id, teacherEmail, {
         title: "ORAL WARMUP",
+        description: first.description,
         instructions: first.instructions,
         maxPoints: first.maxPoints,
         maxSubmissions: first.maxSubmissions,
