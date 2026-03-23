@@ -19,37 +19,11 @@ function getDiscordWebhookUrl() {
   return process.env.DISCORD_WEBHOOK_URL?.trim() || "";
 }
 
-export function formatDiscordActivityMessage(
-  eventType: ActivityEventType,
-  email: string,
-  metadata?: Record<string, unknown> | null
-) {
-  switch (eventType) {
-    case "user_signed_in":
-      return `🟢 New sign-in: ${email}`;
-    case "teacher_upgraded":
-      return `⬆️ Teacher upgraded: ${email}`;
-    case "class_created":
-      return metadata?.isFirstClass
-        ? `🏫 First class created: ${email}`
-        : `🏫 Class created: ${email}`;
-    case "assignment_created":
-      return metadata?.isFirstAssignment
-        ? `📝 First assignment created: ${email}`
-        : `📝 Assignment created: ${email}`;
-    default:
-      return `Activity: ${email}`;
-  }
-}
+const DISCORD_NOTIFIED_EVENTS = new Set<ActivityEventType>(["teacher_upgraded"]);
 
-export function notifyDiscordActivity(
-  eventType: ActivityEventType,
-  email: string,
-  metadata?: Record<string, unknown> | null
-) {
+function sendDiscordMessage(message: string) {
   const webhookUrl = getDiscordWebhookUrl();
   if (!webhookUrl) return;
-  const message = formatDiscordActivityMessage(eventType, email, metadata);
   void fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -63,6 +37,25 @@ export function notifyDiscordActivity(
     .catch((error) => {
       console.warn("Failed to notify Discord webhook", error);
     });
+}
+
+export function notifyDiscordActivity(
+  eventType: ActivityEventType,
+  email: string,
+) {
+  if (!DISCORD_NOTIFIED_EVENTS.has(eventType)) return;
+  sendDiscordMessage(`⬆️ Teacher upgraded: ${email}`);
+}
+
+export function notifyDiscordFeedback(input: {
+  name: string;
+  email: string;
+  school: string;
+  role: string;
+}) {
+  const who = input.name ? `${input.name} <${input.email}>` : input.email;
+  const detail = [input.school, input.role].filter(Boolean).join(", ");
+  sendDiscordMessage(`📬 New contact message from ${who}${detail ? ` · ${detail}` : ""}`);
 }
 
 export async function trackActivity(
@@ -82,7 +75,7 @@ export async function trackActivity(
   }
 
   if (!isInternalTestEmail(normalizedEmail)) {
-    notifyDiscordActivity(eventType, normalizedEmail, metadata);
+    notifyDiscordActivity(eventType, normalizedEmail);
   }
 }
 

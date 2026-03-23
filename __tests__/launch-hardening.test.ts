@@ -36,28 +36,28 @@ describe("launch hardening helpers", () => {
     vi.unstubAllGlobals();
   });
 
-  it("formats Discord activity messages with the launch-day wording", async () => {
+  it("only sends Discord notifications for teacher_upgraded, not sign-ins or class/assignment events", async () => {
     vi.doMock("@/lib/db", () => ({
-      listTeacherFunnelRows: vi.fn().mockResolvedValue([]),
+      findTeacherFunnelRowByEmail: vi.fn().mockResolvedValue(null),
       logActivityEvent: vi.fn().mockResolvedValue(undefined),
     }));
 
-    const { formatDiscordActivityMessage } = await import("@/lib/activity");
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", mockFetch);
 
-    expect(formatDiscordActivityMessage("user_signed_in", "teacher@example.com")).toBe(
-      "🟢 New sign-in: teacher@example.com"
+    const { notifyDiscordActivity } = await import("@/lib/activity");
+
+    notifyDiscordActivity("user_signed_in", "teacher@example.com");
+    notifyDiscordActivity("class_created", "teacher@example.com");
+    notifyDiscordActivity("assignment_created", "teacher@example.com");
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    notifyDiscordActivity("teacher_upgraded", "teacher@example.com");
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ body: expect.stringContaining("teacher@example.com") })
     );
-    expect(formatDiscordActivityMessage("teacher_upgraded", "teacher@example.com")).toBe(
-      "⬆️ Teacher upgraded: teacher@example.com"
-    );
-    expect(
-      formatDiscordActivityMessage("class_created", "teacher@example.com", { isFirstClass: true })
-    ).toBe("🏫 First class created: teacher@example.com");
-    expect(
-      formatDiscordActivityMessage("assignment_created", "teacher@example.com", {
-        isFirstAssignment: false,
-      })
-    ).toBe("📝 Assignment created: teacher@example.com");
   });
 
   it("keeps Google sign-in working when activity logging or Discord fail", async () => {
@@ -102,16 +102,14 @@ describe("launch hardening helpers", () => {
     vi.doMock("@/lib/db", () => ({
       createClass: mockCreateClass,
       listClassesByTeacher: vi.fn().mockResolvedValue([]),
-      listTeacherFunnelRows: vi.fn().mockResolvedValue([
-        {
-          email: "teacher@example.com",
-          role: "teacher",
-          joinedAt: Date.now(),
-          classCount: 1,
-          assignmentCount: 0,
-          latestActivityAt: Date.now(),
-        },
-      ]),
+      findTeacherFunnelRowByEmail: vi.fn().mockResolvedValue({
+        email: "teacher@example.com",
+        role: "teacher",
+        joinedAt: Date.now(),
+        classCount: 1,
+        assignmentCount: 0,
+        latestActivityAt: Date.now(),
+      }),
       logActivityEvent: mockLogActivityEvent,
     }));
     vi.doMock("@/lib/http", () => ({
