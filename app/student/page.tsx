@@ -233,6 +233,7 @@ export default function StudentDashboardPage() {
           <p className="meta">Signed in as {email}</p>
         </div>
         <div className="actions">
+          <Link className="btn btn-ghost" href="/student/dashboard">My classes</Link>
           <Link className="btn btn-ghost" href="/">Back home</Link>
           <Link className="btn btn-ghost" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
         </div>

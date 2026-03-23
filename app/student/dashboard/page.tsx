@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import BrandBar from "@/app/components/BrandBar";
@@ -47,6 +48,11 @@ export default async function StudentDashboardPage() {
   const session = await getServerSession(authOptions);
   const email = session?.user?.email?.trim().toLowerCase() ?? "";
   const name = session?.user?.name?.trim() ?? email.split("@")[0] ?? "";
+  const role = (session?.user as { role?: string } | undefined)?.role;
+
+  if (email && role === "teacher") {
+    redirect("/teacher");
+  }
 
   if (!email) {
     return (

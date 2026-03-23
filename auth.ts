@@ -55,5 +55,15 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
+    async redirect({ url, baseUrl }) {
+      // After sign-in with no explicit callbackUrl, send users to the student
+      // dashboard. Teachers are then redirected onward to /teacher from there.
+      if (url === baseUrl || url === `${baseUrl}/`) {
+        return `${baseUrl}/student/dashboard`;
+      }
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      if (url.startsWith(baseUrl)) return url;
+      return baseUrl;
+    },
   },
 };
