@@ -10,15 +10,16 @@ export const metadata: Metadata = {
 const PLAN_CARDS = [
   {
     label: "Beta",
-    title: "Free for all beta teachers while Habla is in beta",
+    title: "Free for the rest of this school year while Habla is in beta",
     price: "$0",
-    detail: "free during beta",
+    detail: "free through June 2026",
     description:
-      "Create your account, use Habla with real students, and give honest feedback while the product is still taking shape.",
+      "Create your account, use Habla with real students, and give honest feedback while the product is still taking shape. You'll be notified before anything changes in August.",
     bullets: [
-      "Free for all active beta teachers",
+      "Free for all active beta teachers through June 2026",
       "Full classroom use during beta",
       "Direct feedback helps shape what ships next",
+      "No interruption mid-semester",
     ],
     className: "pricing-card-beta",
   },

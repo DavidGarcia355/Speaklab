@@ -139,7 +139,7 @@ const FAQ_SECTIONS = [
       {
         question: "Is Habla free?",
         answer:
-          "Habla is currently in beta and free for all active beta teachers. Individual teacher pricing is $4.99/month or $39.95/year when beta ends. If you signed up during beta, we'll be in touch before anything changes.",
+          "Habla is currently in beta and free for all active beta teachers through the end of this school year (June 2026). Individual teacher pricing is $4.99/month or $39.95/year when beta ends in August. If you signed up during beta, we'll be in touch before anything changes.",
       },
       {
         question: "What does the plan include?",

@@ -50,7 +50,7 @@ const quickQuestions = [
   {
     question: "Is it really free?",
     answer:
-      "Habla is free for all beta teachers while it's in beta. After beta, individual teachers can use Habla for $4.99/month or $39.95/year. Departments can contact us about broader coverage.",
+      "Habla is free for all beta teachers through the end of this school year (June 2026) while it's in beta. You'll be notified before anything changes in August. After beta, individual teachers can use Habla for $4.99/month or $39.95/year. Departments can contact us about broader coverage.",
   },
 ] as const;
 
@@ -111,10 +111,10 @@ export default function Home() {
       <section className="card home-beta-banner section-gap">
         <div className="home-beta-copy">
           <p className="pill pill-subtle">Habla beta</p>
-          <h2>Free for all beta teachers while Habla is in beta</h2>
+          <h2>Free for the rest of this school year while Habla is in beta</h2>
           <p className="meta">
             Create an account, try Habla with your students, and give honest feedback. Individual teacher
-            pricing is $4.99/month or $39.95/year when beta ends — and we&apos;ll be in touch before anything changes.
+            pricing is $4.99/month or $39.95/year when beta ends in August — and we&apos;ll be in touch before anything changes.
           </p>
         </div>
         <div className="actions home-beta-actions">
@@ -248,10 +248,10 @@ export default function Home() {
 
       <section className="card home-cta section-gap">
         <div>
-          <p className="home-cta-copy">Free for all beta teachers while Habla is in beta.</p>
+          <p className="home-cta-copy">Free for the rest of this school year while Habla is in beta.</p>
           <p className="meta">
             Create your account, run your first speaking assignment, and see the simple $4.99/month or $39.95/year
-            individual-teacher pricing for what comes after beta.
+            individual-teacher pricing for what comes after beta in August.
           </p>
         </div>
         <div className="actions home-cta-actions">
