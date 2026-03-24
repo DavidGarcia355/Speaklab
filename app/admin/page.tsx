@@ -2,6 +2,7 @@ import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
 import { requireAdminEmail } from "@/lib/admin";
+import DeleteFeedbackButton from "./DeleteFeedbackButton";
 import {
   getTrackingSummary,
   listClasses,
@@ -364,7 +365,10 @@ export default async function AdminPage() {
                     <p className="admin-event-title">{msg.name || "(no name)"}</p>
                     <p className="meta">{msg.email}{msg.school ? ` · ${msg.school}` : ""}{msg.role ? ` · ${msg.role}` : ""}</p>
                   </div>
-                  <span className="admin-event-time">{formatDateTime(msg.createdAt)}</span>
+                  <div className="actions">
+                    <span className="admin-event-time">{formatDateTime(msg.createdAt)}</span>
+                    <DeleteFeedbackButton messageId={msg.id} />
+                  </div>
                 </div>
                 <p className="admin-feedback-body">{msg.message}</p>
               </div>

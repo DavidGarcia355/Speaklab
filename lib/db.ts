@@ -1218,6 +1218,11 @@ export async function listFeedbackMessages(): Promise<FeedbackRow[]> {
   }));
 }
 
+export async function deleteFeedbackMessage(id: string): Promise<boolean> {
+  const result = await query(`DELETE FROM feedback_messages WHERE id = ?`, [id]);
+  return result.rowsAffected > 0;
+}
+
 export async function logActivityEvent(input: {
   email: string;
   eventType: ActivityEventType;
