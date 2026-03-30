@@ -1,11 +1,39 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 export type RubricCriterionDraft = {
   id: string;
   name: string;
   description: string;
   maxPoints: string;
 };
+
+type RubricTemplate = {
+  id: string;
+  name: string;
+  title: string;
+  criteria: RubricCriterionDraft[];
+};
+
+const RUBRIC_TEMPLATES_KEY = "habla.rubricTemplates";
+
+function loadTemplates(): RubricTemplate[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(RUBRIC_TEMPLATES_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as RubricTemplate[];
+  } catch {
+    return [];
+  }
+}
+
+function saveTemplates(templates: RubricTemplate[]): void {
+  try {
+    window.localStorage.setItem(RUBRIC_TEMPLATES_KEY, JSON.stringify(templates));
+  } catch {}
+}
 
 type Props = {
   enabled: boolean;
@@ -17,6 +45,7 @@ type Props = {
   onCriterionChange: (index: number, update: Partial<RubricCriterionDraft>) => void;
   onAddCriterion: () => void;
   onRemoveCriterion: (index: number) => void;
+  onLoadTemplate?: (title: string, criteria: RubricCriterionDraft[]) => void;
 };
 
 export default function RubricBuilder({
@@ -29,7 +58,40 @@ export default function RubricBuilder({
   onCriterionChange,
   onAddCriterion,
   onRemoveCriterion,
+  onLoadTemplate,
 }: Props) {
+  const [templates, setTemplates] = useState<RubricTemplate[]>([]);
+  const [savedFeedback, setSavedFeedback] = useState(false);
+
+  useEffect(() => {
+    setTemplates(loadTemplates());
+  }, []);
+
+  function handleSaveTemplate() {
+    if (!title.trim() || criteria.length === 0) return;
+    const name = title.trim();
+    const template: RubricTemplate = {
+      id: `tpl_${crypto.randomUUID()}`,
+      name,
+      title: name,
+      criteria,
+    };
+    const updated = [...templates.filter((t) => t.name !== name), template];
+    saveTemplates(updated);
+    setTemplates(updated);
+    setSavedFeedback(true);
+    window.setTimeout(() => setSavedFeedback(false), 2000);
+  }
+
+  function handleLoadTemplate(templateId: string) {
+    const template = templates.find((t) => t.id === templateId);
+    if (!template || !onLoadTemplate) return;
+    onLoadTemplate(
+      template.title,
+      template.criteria.map((c) => ({ ...c, id: `criterion_${crypto.randomUUID()}` }))
+    );
+  }
+
   return (
     <section className="section-gap">
       <div className="dense-row">
@@ -65,6 +127,34 @@ export default function RubricBuilder({
             maxLength={80}
           />
           <p className="meta field-meta">{title.length}/80</p>
+
+          {onLoadTemplate ? (
+            <div className="dense-row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+              {templates.length > 0 ? (
+                <select
+                  className="input"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) handleLoadTemplate(e.target.value);
+                  }}
+                  style={{ flex: 1, minWidth: 0 }}
+                >
+                  <option value="" disabled>Load a saved rubric...</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={handleSaveTemplate}
+                disabled={!title.trim() || criteria.length === 0}
+              >
+                {savedFeedback ? "Saved!" : "Save rubric as template"}
+              </button>
+            </div>
+          ) : null}
 
           <div className="dense-row">
             <p className="label" style={{ marginBottom: 0 }}>

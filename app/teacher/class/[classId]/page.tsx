@@ -920,7 +920,7 @@ export default function ClassDetailPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: clipboard.title,
+          title: clipboard.title + " (Copy)",
           description: clipboard.description,
           instructions: clipboard.instructions,
           maxPoints: clipboard.maxPoints,
@@ -1472,6 +1472,10 @@ export default function ClassDetailPage() {
                   prev.filter((_, criterionIndex) => criterionIndex !== index)
                 )
               }
+              onLoadTemplate={(templateTitle, templateCriteria) => {
+                setAssignmentRubricTitleDraft(templateTitle);
+                setAssignmentRubricCriteriaDraft(templateCriteria);
+              }}
             />
             <label className="label form-label-top" htmlFor="edit-assignment-max-submissions">Max submissions per student</label>
             <input id="edit-assignment-max-submissions" className="input" type="number" min={0} max={50} step={1} inputMode="numeric" value={assignmentMaxSubmissionsDraft} onChange={(event) => setAssignmentMaxSubmissionsDraft(event.target.value)} placeholder="Unlimited" />

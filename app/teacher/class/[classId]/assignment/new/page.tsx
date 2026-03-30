@@ -382,6 +382,10 @@ export default function NewAssignmentPage() {
             onRemoveCriterion={(index) =>
               setRubricCriteria((prev) => prev.filter((_, criterionIndex) => criterionIndex !== index))
             }
+            onLoadTemplate={(templateTitle, templateCriteria) => {
+              setRubricTitle(templateTitle);
+              setRubricCriteria(templateCriteria);
+            }}
           />
 
           <label className="label form-label-top" htmlFor="assignment-attachment">
