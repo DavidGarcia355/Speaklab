@@ -2684,6 +2684,7 @@ html.dark .textarea {
   border-color: #2e3440;
   background: linear-gradient(180deg, #12151a 0%, #0d1014 100%);
   color: #f5f7fb;
+  color-scheme: dark;
 }
 
 html.dark .input::placeholder,
