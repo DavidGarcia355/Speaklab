@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find c:/Users/david/Downloads/speaklab -name *roster* -o -name *students*)",
+      "Bash(xargs grep:*)",
+      "Bash(npm run:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(node -e \":*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest:*)",
+      "Bash(gh run:*)"
+    ]
+  }
+}

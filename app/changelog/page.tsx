@@ -13,7 +13,7 @@ const RELEASES = [
     items: [
       {
         type: "new" as const,
-        text: "Download student recordings directly from the review page. Files save with the student's name and correct format (webm, mp4, etc.) — ready to drop into an AI grader.",
+        text: "Download student recordings directly from the review page. Files save with the student's name and correct format (webm, mp4, etc.)",
       },
       {
         type: "new" as const,
@@ -21,7 +21,7 @@ const RELEASES = [
       },
       {
         type: "fix" as const,
-        text: "Fixed: switching to another app and coming back would reset your scroll position in the submissions list, sending you back to the top.",
+        text: "Fixed: playing a recording, scrolling to the next student, and hitting play would hard-refresh the page and send you back to the top — forcing you to scroll all the way down again.",
       },
     ],
   },
