@@ -7,6 +7,7 @@ import {
   Check,
   CheckCircle2,
   Clock3,
+  Heart,
   Pencil,
   Trash2,
   Users2,
@@ -60,6 +61,17 @@ export default function TeacherPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [needsTeacherAccess, setNeedsTeacherAccess] = useState(false);
+
+  const [showChangelogBanner, setShowChangelogBanner] = useState(false);
+
+  useEffect(() => {
+    if (!localStorage.getItem("habla-changelog-seen-v1")) setShowChangelogBanner(true);
+  }, []);
+
+  function dismissChangelogBanner() {
+    localStorage.setItem("habla-changelog-seen-v1", "1");
+    setShowChangelogBanner(false);
+  }
 
   const [editingClassId, setEditingClassId] = useState("");
   const [editingClassName, setEditingClassName] = useState("");
@@ -302,6 +314,19 @@ export default function TeacherPage() {
     <main className="page-wrap">
       <PageTitle title="Teacher Studio" />
       <BrandBar label="Teacher Studio" />
+
+      {showChangelogBanner ? (
+        <div className="notice info" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.85rem" }}>
+          <span>
+            <strong>What&apos;s new:</strong> Download recordings, expanded playback speeds, and more.{" "}
+            <Link className="teacher-access-link" href="/changelog">See patch notes</Link>
+          </span>
+          <button type="button" className="icon-btn" onClick={dismissChangelogBanner} aria-label="Dismiss">
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
+
       <p className="meta page-intent">
         Daily classroom workspace for assignment setup, grading triage, and export.
       </p>
@@ -493,6 +518,21 @@ export default function TeacherPage() {
             })}
           </div>
         ) : null}
+      </section>
+
+      <section className="card section-gap" style={{ textAlign: "center", padding: "1.5rem" }}>
+        <p style={{ marginBottom: "0.5rem" }}>
+          <Heart size={16} style={{ display: "inline", verticalAlign: "middle", marginRight: "0.35rem" }} aria-hidden="true" />
+          <strong>Enjoying Habla?</strong> It&apos;s built and maintained by a college student. If it saves you time, any contribution helps.
+        </p>
+        <a
+          className="btn btn-ghost"
+          href="https://paypal.me/DavidGarcia355"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Help fund my tuition
+        </a>
       </section>
 
       <ConfirmModal
