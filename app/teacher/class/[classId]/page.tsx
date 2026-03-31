@@ -409,9 +409,12 @@ export default function ClassDetailPage() {
     }
   }
 
-  const loadData = useCallback(async (targetClassId: string) => {
-    setLoading(true);
-    setErrorMsg("");
+  const loadData = useCallback(async (targetClassId: string, options?: { background?: boolean }) => {
+    const background = options?.background ?? false;
+    if (!background) {
+      setLoading(true);
+      setErrorMsg("");
+    }
     try {
       const response = await fetch(`/api/classes/${targetClassId}`, { cache: "no-store" });
       if (!response.ok) {
@@ -436,7 +439,9 @@ export default function ClassDetailPage() {
     } catch (error) {
       setErrorMsg(error instanceof Error ? error.message : "Failed to load class.");
     } finally {
-      setLoading(false);
+      if (!background) {
+        setLoading(false);
+      }
     }
     void loadRoster(targetClassId);
   }, [loadRoster]);
@@ -448,10 +453,10 @@ export default function ClassDetailPage() {
       return;
     }
     setHasAssignmentClipboard(Boolean(readAssignmentClipboard()));
-    loadData(classId);
+    void loadData(classId);
     const onFocus = () => {
       setHasAssignmentClipboard(Boolean(readAssignmentClipboard()));
-      loadData(classId);
+      void loadData(classId, { background: true });
     };
     const onStorage = (event: StorageEvent) => {
       if (event.key === ASSIGNMENT_CLIPBOARD_KEY) {
@@ -1193,7 +1198,7 @@ export default function ClassDetailPage() {
                               <div className="score-control"><label className="meta score-label" htmlFor={`grade-${submission.id}`}>Score</label><div className="score-field"><input id={`grade-${submission.id}`} className="input score-input" type="number" min={0} max={activeAssignment.maxPoints} step={1} inputMode="numeric" placeholder="0" value={draft.gradeInput} onChange={(event) => setDraft(submission.id, { gradeInput: event.target.value })} /><span className="score-suffix">/{activeAssignment.maxPoints}</span></div></div>
                             )}
                           </div>
-                          <AudioPlayer src={submission.audioData} variant="compact" showSpeed={false} />
+                          <AudioPlayer src={submission.audioData} variant="compact" downloadFilename={submission.studentName} />
                           {activeAssignment.rubric ? (
                             <div className="grid section-gap">
                               {activeAssignment.rubric.criteria.map((criterion) => (

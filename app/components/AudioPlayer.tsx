@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play } from "lucide-react";
+import { Download, Pause, Play } from "lucide-react";
 
 type AudioPlayerProps = {
   src: string;
   variant?: "default" | "compact";
   showSpeed?: boolean;
+  downloadFilename?: string;
 };
 
-const SPEED_OPTIONS = [1, 1.25, 1.5] as const;
+const SPEED_OPTIONS = [0.5, 1, 1.5, 2, 3] as const;
 
 function formatTime(seconds: number) {
   const safe = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
@@ -26,6 +27,7 @@ export default function AudioPlayer({
   src,
   variant = "default",
   showSpeed = true,
+  downloadFilename,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -33,6 +35,7 @@ export default function AudioPlayer({
   const [currentTime, setCurrentTime] = useState(0);
   const [speed, setSpeed] = useState<number>(1);
   const [errorMsg, setErrorMsg] = useState("");
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -79,6 +82,27 @@ export default function AudioPlayer({
     }
   }
 
+  async function handleDownload() {
+    if (!downloadFilename || downloading) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error("Download failed.");
+      const blob = await res.blob();
+      const ext = blob.type.split("/")[1]?.split(";")[0] ?? "webm";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${downloadFilename}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silent fail — download just won't happen
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   function seekTo(next: number) {
     const audio = audioRef.current;
     if (!audio) return;
@@ -99,6 +123,18 @@ export default function AudioPlayer({
       >
         {isPlaying ? <Pause size={16} strokeWidth={2.3} /> : <Play size={16} strokeWidth={2.3} />}
       </button>
+
+      {downloadFilename ? (
+        <button
+          type="button"
+          className="audio-toggle"
+          onClick={() => void handleDownload()}
+          disabled={downloading}
+          aria-label="Download recording"
+        >
+          <Download size={16} strokeWidth={2.3} />
+        </button>
+      ) : null}
 
       <div className="audio-main">
         <div className="audio-progress-row">
