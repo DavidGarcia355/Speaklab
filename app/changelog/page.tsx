@@ -13,7 +13,7 @@ const RELEASES = [
     items: [
       {
         type: "new" as const,
-        text: "Download student recordings directly from the review page. Files save with the student's name and correct format (webm, mp4, etc.)",
+        text: "Download student recordings directly from the review page. Files save with the student's name and correct audio format (webm, mp4, etc.).",
       },
       {
         type: "new" as const,
