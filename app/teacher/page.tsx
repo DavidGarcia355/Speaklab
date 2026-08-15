@@ -1,14 +1,18 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
+  ArrowRight,
   Check,
   CheckCircle2,
   Clock3,
   Heart,
   Pencil,
+  Plus,
+  Sparkles,
   Trash2,
   Users2,
   X,
@@ -327,39 +331,56 @@ export default function TeacherPage() {
         </div>
       ) : null}
 
-      <p className="meta page-intent">
-        Daily classroom workspace for assignment setup, grading triage, and export.
-      </p>
-
-      <section className="hero">
-        <p className="pill">Teacher workspace</p>
-        <h1>Manage classes, assignments, and grading in one place</h1>
-        <p>
-          Set up quickly before class, share links with students, and keep grading organized.
-        </p>
-        <div className="actions hero-actions">
-          <Link className="btn btn-primary" href="/teacher/class/new">
-            Create class
-          </Link>
+      <section className="teacher-hero">
+        <div className="teacher-hero-copy">
+          <p className="pill teacher-hero-pill">
+            <Sparkles size={14} aria-hidden="true" />
+            Teacher workspace
+          </p>
+          <h1>Your speaking classroom, all in one place.</h1>
+          <p>
+            Create assignments, share student links, and move through grading without losing your place.
+          </p>
+          <div className="actions teacher-hero-actions">
+            <Link className="btn btn-primary" href="/teacher/class/new">
+              <Plus size={17} aria-hidden="true" />
+              Create class
+            </Link>
+            <Link className="btn btn-ghost" href="#teacher-classes">
+              View classes
+              <ArrowRight size={17} aria-hidden="true" />
+            </Link>
+          </div>
+        </div>
+        <div className="teacher-hero-art" aria-hidden="true">
+          <span className="teacher-hero-sticker">Ready to speak</span>
+          <Image
+            className="teacher-hero-mascot"
+            src="/images/habla-mascot.png"
+            alt=""
+            width={280}
+            height={280}
+            priority
+          />
         </div>
       </section>
 
-      <section className="grid cols-3 section-gap">
-        <article className="card kpi-card">
+      <section className="grid cols-3 section-gap teacher-kpi-grid" aria-label="Classroom summary">
+        <article className="card kpi-card teacher-kpi teacher-kpi-classes">
           <p className="meta stat-label">
             <Users2 size={14} aria-hidden="true" /> Classes
           </p>
           <p className="stat-value">{totals.classCount}</p>
           <p className="meta kpi-note">Active teaching groups</p>
         </article>
-        <article className="card kpi-card kpi-success">
+        <article className="card kpi-card kpi-success teacher-kpi teacher-kpi-assignments">
           <p className="meta stat-label">
             <BookOpen size={14} aria-hidden="true" /> Assignments
           </p>
           <p className="stat-value">{totals.assignmentCount}</p>
           <p className="meta kpi-note">Published speaking tasks</p>
         </article>
-        <article className="card kpi-card kpi-warning">
+        <article className="card kpi-card kpi-warning teacher-kpi teacher-kpi-grading">
           <p className="meta stat-label">
             <Clock3 size={14} aria-hidden="true" /> Needs grading
           </p>
@@ -370,8 +391,17 @@ export default function TeacherPage() {
         </article>
       </section>
 
-      <section className="card section-gap">
-        <h2 className="surface-title">Your classes</h2>
+      <section id="teacher-classes" className="teacher-class-section section-gap">
+        <div className="teacher-section-head">
+          <div>
+            <p className="teacher-section-label">Classroom hub</p>
+            <h2 className="surface-title">Your classes</h2>
+          </div>
+          <Link className="btn btn-primary btn-sm" href="/teacher/class/new">
+            <Plus size={16} aria-hidden="true" />
+            New class
+          </Link>
+        </div>
         {loading ? <p className="meta">Loading classes...</p> : null}
         {errorMsg ? <p className="status-danger">{errorMsg}</p> : null}
         {!loading && needsTeacherAccess ? (
@@ -471,6 +501,7 @@ export default function TeacherPage() {
                       <div className="actions">
                         <Link className="btn btn-ghost" href={`/teacher/class/${item.id}`}>
                           Open class
+                          <ArrowRight size={16} aria-hidden="true" />
                         </Link>
                         {!isEditing ? (
                           <button
@@ -520,13 +551,16 @@ export default function TeacherPage() {
         ) : null}
       </section>
 
-      <section className="card section-gap" style={{ textAlign: "center", padding: "1.5rem" }}>
-        <p style={{ marginBottom: "0.5rem" }}>
-          <Heart size={16} style={{ display: "inline", verticalAlign: "middle", marginRight: "0.35rem" }} aria-hidden="true" />
-          <strong>Enjoying Habla?</strong> It&apos;s built and maintained by a college student. If it saves you time, any contribution helps.
-        </p>
+      <section className="teacher-support-band section-gap">
+        <div className="teacher-support-copy">
+          <Heart size={18} aria-hidden="true" />
+          <p>
+            <strong>Help Habla keep growing.</strong>
+            <span> Built and maintained by a college student.</span>
+          </p>
+        </div>
         <a
-          className="btn btn-ghost"
+          className="btn btn-ghost btn-sm"
           href="https://paypal.me/DavidGarcia355"
           target="_blank"
           rel="noreferrer"
