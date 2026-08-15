@@ -8,6 +8,7 @@ type EnvConfig = {
   tursoAuthToken: string;
   upstashRedisRestUrl: string;
   upstashRedisRestToken: string;
+  blobReadWriteToken: string;
   cronSecret: string;
   productionOrigin: string;
   isDev: boolean;
@@ -23,15 +24,7 @@ export function getEnv() {
   if (cachedEnv) return cachedEnv;
   const isDev = process.env.NODE_ENV !== "production";
 
-  const required = [
-    "AUTH_GOOGLE_ID",
-    "AUTH_GOOGLE_SECRET",
-    "AUTH_SECRET",
-    "UPSTASH_REDIS_REST_URL",
-    "UPSTASH_REDIS_REST_TOKEN",
-    "BLOB_READ_WRITE_TOKEN",
-    "CRON_SECRET",
-  ] as const;
+  const required = ["AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "AUTH_SECRET"] as const;
 
   const missing = required.filter((key) => !process.env[key] || !process.env[key]?.trim());
   if (missing.length > 0) {
@@ -67,9 +60,10 @@ export function getEnv() {
     authSecret: process.env.AUTH_SECRET!.trim(),
     tursoDatabaseUrl,
     tursoAuthToken,
-    upstashRedisRestUrl: process.env.UPSTASH_REDIS_REST_URL!.trim(),
-    upstashRedisRestToken: process.env.UPSTASH_REDIS_REST_TOKEN!.trim(),
-    cronSecret: process.env.CRON_SECRET!.trim(),
+    upstashRedisRestUrl: process.env.UPSTASH_REDIS_REST_URL?.trim() ?? "",
+    upstashRedisRestToken: process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ?? "",
+    blobReadWriteToken: process.env.BLOB_READ_WRITE_TOKEN?.trim() ?? "",
+    cronSecret: process.env.CRON_SECRET?.trim() ?? "",
     productionOrigin: normalizeOrigin((productionOriginRaw || "http://127.0.0.1:3000").trim()),
     isDev,
   };

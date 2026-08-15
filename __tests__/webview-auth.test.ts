@@ -74,7 +74,10 @@ describe("external browser redirect helper", () => {
 });
 
 describe("next auth sign-in guard", () => {
+  const originalBypass = process.env.LOCAL_DEV_BYPASS_AUTH;
+
   beforeEach(() => {
+    process.env.LOCAL_DEV_BYPASS_AUTH = originalBypass;
     mocks.nextAuthHandler.mockClear();
     mocks.nextAuthFactory.mockClear();
     mocks.enforceAuthRateLimit.mockClear();
@@ -114,5 +117,23 @@ describe("next auth sign-in guard", () => {
     expect(await response.json()).toEqual({ ok: true });
     expect(mocks.enforceAuthRateLimit).toHaveBeenCalledWith("203.0.113.10");
     expect(mocks.nextAuthHandler).toHaveBeenCalled();
+  });
+
+  it("redirects local bypass sign-in requests to the callback without OAuth", async () => {
+    process.env.LOCAL_DEV_BYPASS_AUTH = "true";
+    const { GET } = await import("@/app/api/auth/[...nextauth]/route");
+    const request = new Request("http://10.10.10.3:3000/api/auth/signin?callbackUrl=%2Fteacher", {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/134.0.0.0 Safari/537.36",
+      },
+    });
+
+    const response = await GET(request, { params: { nextauth: ["signin"] } });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("http://10.10.10.3:3000/teacher");
+    expect(mocks.enforceAuthRateLimit).not.toHaveBeenCalled();
+    expect(mocks.nextAuthHandler).not.toHaveBeenCalled();
   });
 });

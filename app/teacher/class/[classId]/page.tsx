@@ -67,6 +67,23 @@ type DraftState = {
   saving: boolean;
   rubricScoreInputs: Record<string, string>;
 };
+type AiAttempt = {
+  id: string;
+  status: "completed" | "failed";
+  transcript: string;
+  suggestedScore: number | null;
+  rubricScores: NonNullable<SubmissionItem["rubricScores"]>;
+  feedback: string;
+  strengths: string[];
+  improvements: string[];
+  evidence: string[];
+  confidence: "high" | "medium" | "low";
+  warnings: string[];
+  teacherAttention: string;
+  transcriptionProvider: string;
+  gradingProvider: string;
+  errorMessage: string;
+};
 type Tone = "warning" | "success" | "neutral";
 type AssignmentView = AssignmentSummary & {
   totalSubmissions: number;
@@ -230,6 +247,11 @@ export default function ClassDetailPage() {
   const [editingSubmissionName, setEditingSubmissionName] = useState("");
   const [nameSaving, setNameSaving] = useState(false);
   const [submissionErrors, setSubmissionErrors] = useState<Record<string, string>>({});
+  const [aiGrading, setAiGrading] = useState<Record<string, boolean>>({});
+  const [aiGradeErrors, setAiGradeErrors] = useState<Record<string, string>>({});
+  const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiAttempt | null>>({});
+  const [aiGradingEnabled, setAiGradingEnabled] = useState(false);
+  const [localAiTestMode, setLocalAiTestMode] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
@@ -472,6 +494,28 @@ export default function ClassDetailPage() {
   }, [classId, loadData]);
 
   useEffect(() => {
+    let active = true;
+    async function loadFeatures() {
+      try {
+        const response = await fetch("/api/features", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = (await response.json()) as { aiGradingEnabled?: boolean; localAiTestMode?: boolean };
+        if (active) setAiGradingEnabled(data.aiGradingEnabled === true);
+        if (active) setLocalAiTestMode(data.localAiTestMode === true);
+      } catch {
+        if (active) setAiGradingEnabled(false);
+        if (active && process.env.NODE_ENV !== "production") {
+          setAiGradeErrors((prev) => ({ ...prev, _feature: "Could not load local AI feature state." }));
+        }
+      }
+    }
+    void loadFeatures();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const created = searchParams.get("created");
     if (created === "class") setInfoMsg("Class created. Next step: create your first assignment.");
     else if (created === "assignment") setInfoMsg("Assignment created. Share the student link when ready.");
@@ -690,6 +734,50 @@ export default function ClassDetailPage() {
     } finally {
       setNameSaving(false);
     }
+  }
+
+  async function aiGradeSubmission(submissionId: string) {
+    setAiGrading((prev) => ({ ...prev, [submissionId]: true }));
+    setAiGradeErrors((prev) => ({ ...prev, [submissionId]: "" }));
+    try {
+      const response = await fetch(`/api/submissions/${submissionId}/ai-grade`, {
+        method: "POST",
+      });
+      const data = (await response.json()) as { attempt?: AiAttempt; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "AI grading failed.");
+      }
+      setAiSuggestions((prev) => ({ ...prev, [submissionId]: data.attempt ?? null }));
+      if (data.attempt?.status === "failed") {
+        setAiGradeErrors((prev) => ({ ...prev, [submissionId]: "Score not prefilled for rubric assignments — feedback added." }));
+      }
+    } catch (error) {
+      setAiGradeErrors((prev) => ({
+        ...prev,
+        [submissionId]: error instanceof Error ? error.message : "AI grading failed.",
+      }));
+    } finally {
+      setAiGrading((prev) => ({ ...prev, [submissionId]: false }));
+    }
+  }
+
+  function applyAiSuggestion(submissionId: string, attempt: AiAttempt) {
+    const rubricInputs: Record<string, string> = {};
+    if (activeAssignment?.rubric) {
+      for (const score of attempt.rubricScores) {
+        rubricInputs[score.criterionId] = String(score.awarded);
+      }
+    }
+    setDraft(submissionId, {
+      ...(activeAssignment?.rubric
+        ? { rubricScoreInputs: rubricInputs }
+        : { gradeInput: attempt.suggestedScore === null ? "" : String(attempt.suggestedScore) }),
+      feedback: attempt.feedback,
+    });
+    setAiGradeErrors((prev) => ({
+      ...prev,
+      [submissionId]: "Suggestion copied into the unsaved draft. Select Save grade to finalize.",
+    }));
   }
 
   function openAssignmentEditModal() {
@@ -1068,6 +1156,7 @@ export default function ClassDetailPage() {
       <PageTitle title={payload ? `${payload.item.name} Workspace` : "Class Workspace"} />
       <BrandBar label="Grading Workspace" />
       <p className="meta page-intent">Assignments are your main navigation. Select one, then grade every submission in one panel.</p>
+      {aiGradeErrors._feature ? <p className="card-inline-error">{aiGradeErrors._feature}</p> : null}
 
       <div className="workspace-header">
         <div className="dense-row">
@@ -1173,6 +1262,7 @@ export default function ClassDetailPage() {
                             return sum + (value === "" ? 0 : Number(value) || 0);
                           }, 0)
                         : null;
+                      const aiSuggestion = aiSuggestions[submission.id] ?? null;
                       return (
                         <div key={submission.id} className="card submission-card">
                           <div className="dense-row">
@@ -1237,7 +1327,44 @@ export default function ClassDetailPage() {
                           ) : null}
                           <label className="label feedback-label" htmlFor={`feedback-${submission.id}`}>Feedback (optional)</label>
                           <textarea id={`feedback-${submission.id}`} className="textarea feedback-area" value={draft.feedback} onChange={(event) => setDraft(submission.id, { feedback: event.target.value })} onInput={(event) => autoResizeTextarea(event.currentTarget)} onFocus={(event) => autoResizeTextarea(event.currentTarget)} placeholder="Optional student feedback..." rows={2} />
-                          <div className="actions submission-actions"><button type="button" className="btn btn-primary" onClick={() => void saveSubmission(submission.id)} disabled={draft.saving}>{draft.saving ? "Saving..." : "Save grade"}</button></div>
+                          {aiSuggestion ? (
+                            <div className="notice info">
+                              <p className="meta" style={{ marginBottom: "0.35rem" }}>
+                                <strong>{localAiTestMode ? "Local AI test mode" : "AI suggestion"}</strong>{" "}
+                                {aiSuggestion.gradingProvider === "mock" ? "Mock suggestion" : "Teacher review required"}
+                              </p>
+                              {aiSuggestion.suggestedScore !== null ? (
+                                <p className="meta">Suggested score: {aiSuggestion.suggestedScore} / {activeAssignment.maxPoints}</p>
+                              ) : null}
+                              {aiSuggestion.rubricScores.length > 0 ? (
+                                <p className="meta">
+                                  Rubric: {aiSuggestion.rubricScores.map((score) => `${score.criterionName} ${score.awarded}/${score.maxPoints}`).join("; ")}
+                                </p>
+                              ) : null}
+                              <p className="meta">Feedback: {aiSuggestion.feedback}</p>
+                              {aiSuggestion.warnings.length > 0 ? <p className="meta">Warnings: {aiSuggestion.warnings.join("; ")}</p> : null}
+                              <details>
+                                <summary className="meta">Transcript and evidence</summary>
+                                <p className="meta">{aiSuggestion.transcript}</p>
+                                {aiSuggestion.evidence.length > 0 ? <p className="meta">Evidence: {aiSuggestion.evidence.join("; ")}</p> : null}
+                              </details>
+                              <div className="actions" style={{ marginTop: "0.5rem" }}>
+                                <button type="button" className="btn btn-ghost" onClick={() => applyAiSuggestion(submission.id, aiSuggestion)}>
+                                  Use suggestion
+                                </button>
+                                <button type="button" className="btn btn-ghost" onClick={() => setAiSuggestions((prev) => ({ ...prev, [submission.id]: null }))}>
+                                  Dismiss
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                          <div className="actions submission-actions">
+                            {aiGradingEnabled ? (
+                              <button type="button" className="btn btn-ghost" onClick={() => void aiGradeSubmission(submission.id)} disabled={aiGrading[submission.id] || draft.saving}>{aiGrading[submission.id] ? "Generating..." : "Generate AI suggestion"}</button>
+                            ) : null}
+                            <button type="button" className="btn btn-primary" onClick={() => void saveSubmission(submission.id)} disabled={draft.saving}>{draft.saving ? "Saving..." : "Save grade"}</button>
+                          </div>
+                          {aiGradeErrors[submission.id] ? <p className="card-inline-error">{aiGradeErrors[submission.id]}</p> : null}
                           {submissionErrors[submission.id] ? <p className="card-inline-error">{submissionErrors[submission.id]}</p> : null}
                         </div>
                       );

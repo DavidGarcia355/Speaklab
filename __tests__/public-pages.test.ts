@@ -7,16 +7,19 @@ describe("pricing page", () => {
 
     const markup = renderToStaticMarkup(await PricingPage());
 
-    expect(markup).toContain("First 20 world language teachers get Habla free forever");
-    expect(markup).toContain("$4.99/month");
-    expect(markup).toContain("$39.95/year");
+    expect(markup).toContain("Access information for the 2026-2027 school year");
+    expect(markup).toContain("No self-serve checkout");
+    expect(markup).toContain("pricing is not finalized in the product");
     expect(markup).toContain("Create your teacher account");
     expect(markup).toContain("/teacher/register");
     expect(markup).toContain("Department coverage for multiple teachers");
     expect(markup).toContain("Contact us");
     expect(markup).toContain("/feedback");
+    expect(markup).toContain("No claim of district approval until review is complete");
     expect(markup).not.toContain("$9/month");
     expect(markup).not.toContain("$89/year");
+    expect(markup).not.toContain("June 2026");
+    expect(markup).not.toContain("free access forever");
     expect(markup).not.toContain("Coming soon for schools");
   });
 });
@@ -29,8 +32,10 @@ describe("homepage pricing links", () => {
 
     expect(markup).toContain("View pricing");
     expect(markup).toContain("/pricing");
-    expect(markup).toContain("$4.99/month or $39.95/year");
-    expect(markup).toContain("departments can contact us");
+    expect(markup).toContain("Preparing Habla for renewed classroom use and district review");
+    expect(markup).toContain("Public pricing and broad rollout terms are not finalized");
+    expect(markup).not.toContain("June 2026");
+    expect(markup).not.toContain("free access forever");
   });
 });
 
@@ -40,12 +45,12 @@ describe("faq pricing copy", () => {
 
     const markup = renderToStaticMarkup(await FaqPage());
 
-    expect(markup).toContain("$4.99/month or $39.95/year");
-    expect(markup).toContain("Everything teachers ask about Habla");
+    expect(markup).toContain("Access and district review");
+    expect(markup).toContain("Access terms for the 2026-2027 school year");
     expect(markup).toContain("Getting started");
-    expect(markup).toContain("How it works");
-    expect(markup).toContain("Pricing and beta");
-    expect(markup).toContain("View pricing");
-    expect(markup).toContain("/pricing");
+    expect(markup).toContain("Students and submissions");
+    expect(markup).toContain("production storage settings must be verified");
+    expect(markup).not.toContain("June 2026");
+    expect(markup).not.toContain("FERPA compliant");
   });
 });

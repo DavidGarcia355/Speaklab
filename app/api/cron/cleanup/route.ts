@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { hardDeleteSoftDeletedBefore } from "@/lib/db";
+import { deleteBlobObjects } from "@/lib/blob-deletion";
+import { hardDeleteSoftDeletedBefore, listStorageObjectsForHardDeleteBefore } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { HttpError, withApiHandler } from "@/lib/http";
 
@@ -15,6 +16,7 @@ function isAuthorized(request: Request) {
   const header = request.headers.get("authorization") || "";
   const xSecret = request.headers.get("x-cron-secret") || "";
   const expected = getEnv().cronSecret;
+  if (!expected) return false;
   return safeEquals(header, `Bearer ${expected}`) || safeEquals(xSecret, expected);
 }
 
@@ -25,7 +27,17 @@ export async function GET(request: Request) {
     }
 
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const storageObjects = await listStorageObjectsForHardDeleteBefore(cutoff);
     const result = await hardDeleteSoftDeletedBefore(cutoff);
-    return NextResponse.json({ ok: true, ...result });
+    const [audioObjects, attachmentObjects] = await Promise.all([
+      deleteBlobObjects(storageObjects.audioBlobUrls),
+      deleteBlobObjects(storageObjects.attachmentUrls),
+    ]);
+    return NextResponse.json({
+      ok: true,
+      ...result,
+      audioObjects,
+      attachmentObjects,
+    });
   });
 }

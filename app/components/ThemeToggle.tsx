@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Moon, Sun } from "lucide-react";
 
 const LEGACY_THEME_KEY = "theme";
 
@@ -10,12 +11,18 @@ function getUserThemeKey(email: string) {
 
 export default function ThemeToggle() {
   const [dark, setDark] = useState(false);
-  const [themeStorageKey, setThemeStorageKey] = useState<string | null>(null);
+  const [themeReady, setThemeReady] = useState(false);
+  const [themeStorageKey, setThemeStorageKey] = useState(LEGACY_THEME_KEY);
 
   useEffect(() => {
     let active = true;
 
     async function loadThemePreference() {
+      const legacyTheme = localStorage.getItem(LEGACY_THEME_KEY);
+      const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      setDark(legacyTheme ? legacyTheme === "dark" : systemDark);
+      setThemeReady(true);
+
       try {
         const response = await fetch("/api/auth/session", { cache: "no-store" });
         if (!response.ok) throw new Error("Unable to load session.");
@@ -25,8 +32,7 @@ export default function ThemeToggle() {
         if (!active) return;
 
         if (!email) {
-          setThemeStorageKey(null);
-          setDark(false);
+          setThemeStorageKey(LEGACY_THEME_KEY);
           return;
         }
 
@@ -41,8 +47,7 @@ export default function ThemeToggle() {
         setDark(savedTheme === "dark");
       } catch {
         if (!active) return;
-        setThemeStorageKey(null);
-        setDark(false);
+        setThemeStorageKey(LEGACY_THEME_KEY);
       }
     }
 
@@ -53,15 +58,15 @@ export default function ThemeToggle() {
   }, []);
 
   useEffect(() => {
+    if (!themeReady) return;
     document.documentElement.classList.toggle("dark", dark);
-  }, [dark]);
+  }, [dark, themeReady]);
 
   function toggle() {
     setDark((current) => {
       const next = !current;
-      if (themeStorageKey) {
-        localStorage.setItem(themeStorageKey, next ? "dark" : "light");
-      }
+      localStorage.setItem(themeStorageKey, next ? "dark" : "light");
+      localStorage.setItem(LEGACY_THEME_KEY, next ? "dark" : "light");
       return next;
     });
   }
@@ -73,41 +78,7 @@ export default function ThemeToggle() {
       onClick={toggle}
       aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
     >
-      {dark ? (
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="12" r="5" />
-          <line x1="12" y1="1" x2="12" y2="3" />
-          <line x1="12" y1="21" x2="12" y2="23" />
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-          <line x1="1" y1="12" x2="3" y2="12" />
-          <line x1="21" y1="12" x2="23" y2="12" />
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-        </svg>
-      ) : (
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-        </svg>
-      )}
+      {dark ? <Sun size={17} aria-hidden="true" /> : <Moon size={17} aria-hidden="true" />}
     </button>
   );
 }

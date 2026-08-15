@@ -7,6 +7,21 @@ import { HttpError, withApiHandler } from "@/lib/http";
 
 export const runtime = "nodejs";
 
+function getTeacherAllowlist() {
+  return new Set(
+    (process.env.TEACHER_ALLOWLIST ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function canSelfRegisterTeacher(email: string) {
+  if (process.env.NODE_ENV !== "production") return true;
+  if (process.env.ALLOW_TEACHER_SELF_REGISTRATION === "true") return true;
+  return getTeacherAllowlist().has(email.trim().toLowerCase());
+}
+
 export async function GET(request: Request) {
   return withApiHandler(request, async () => {
     const email = await requireAuthenticatedEmail();
@@ -22,6 +37,11 @@ export async function POST(request: Request) {
 
     if (body.role !== "teacher") {
       throw new HttpError(400, "Only teacher self-registration is supported right now.");
+    }
+
+    const currentRole = await getUserRoleByEmail(email);
+    if (currentRole !== "teacher" && !canSelfRegisterTeacher(email)) {
+      throw new HttpError(403, "Teacher account setup is currently limited. Contact Habla to request access.");
     }
 
     await setUserRoleTeacher(email);

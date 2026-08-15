@@ -1,0 +1,24 @@
+# Student Data Inventory
+
+This inventory uses source-code evidence only. It contains no real user data.
+
+| Category | Collected where | Purpose | Storage | Access | Third parties | Retention/deletion | Controls/unknowns |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Teacher email | OAuth sign-in, teacher APIs | Account identity, class ownership, admin/activity tracking | `users.email`, `classes.owner_email`, `activity_events.email` | Teacher, admin page, server logic | Google/Microsoft OAuth, Turso, optional Discord/Resend | No account deletion implemented | Auth/session checks; support-access policy needed. |
+| Teacher name | OAuth session profile | UI greeting/auth display | NextAuth session/JWT, not custom DB | Signed-in user/session | Google/Microsoft OAuth | Session lifetime via NextAuth | Not stored in app DB by current schema. |
+| Student name | Assignment submission form/roster import | Identify submissions and roster rows | `submissions.student_name`, `roster.student_name` | Assigning teacher, student dashboard for own submissions | Turso | Soft delete then hard delete for submissions; roster remains until class/roster deletion | Student can type any name; email is stronger identity. |
+| Student email | OAuth session, submission route, roster import | Authenticate submissions, rate limit, roster, dashboards | `submissions.student_email`, `roster.student_email`, `users.email` | Assigning teacher, student, admin aggregate views | OAuth provider, Turso, Upstash for submission limits | Submission rows hard-delete after soft-delete window; users/roster retention gaps | Optional domain and roster gates. |
+| Class names/membership | Teacher class/roster UI | Organize assignments/students | `classes`, `roster` | Owning teacher, admin page | Turso | Class soft-delete then hard-delete after 30 days; roster cascades with class hard delete | No district-level admin role. |
+| Assignments/instructions | Teacher assignment UI | Student prompt and grading context | `assignments` | Public assignment details omit owner email; teachers see owned assignments | Turso; attachment files in Vercel Blob | Assignment soft-delete then hard-delete after 30 days | Assignment links are bearer-style public links requiring student sign-in to submit. |
+| Uploaded attachments | Assignment create/edit | Student directions/supporting materials | Vercel Blob public URL plus assignment fields | Anyone with attachment URL | Vercel Blob | Cleanup deletes unreferenced hard-deleted assignment attachments | Public attachment storage remains a gap for sensitive attachments. |
+| Audio recordings | Student browser recorder | Speaking submission review | Vercel Blob private pathname or legacy data URL in DB | Authorized teacher audio route | Vercel Blob; Turso for legacy data URLs | Blob delete at hard-delete cleanup; legacy DB data deleted with row | Public Blob fallback disabled; production Blob mode must be verified. |
+| Grades/rubric scores | Teacher grading UI | Classroom grading | `submissions.grade`, `submissions.rubric_scores` | Teacher, student dashboard for own data | Turso | Deleted with submission hard-delete | No audit history yet. |
+| Written feedback | Teacher grading UI | Student feedback | `submissions.feedback` | Teacher, student dashboard for own data | Turso | Deleted with submission hard-delete | Max length validation. |
+| Submission timestamps | Submission creation | Ordering, exports, student history | `submissions.submitted_at` | Teacher, student, CSV export | Turso | Deleted with submission hard-delete | No separate retention policy. |
+| Auth identifiers/cookies/session | NextAuth | Authentication | NextAuth JWT/session cookies | User/browser, server | OAuth providers | Session lifecycle via NextAuth | Cookie settings should be verified in deployment. |
+| IP addresses | Rate limiting | Abuse prevention | Upstash rate-limit keys for auth/feedback by IP | Server/provider | Upstash | Provider retention unknown | No app DB storage. |
+| Activity logs | Sign-in/teacher/class/assignment events | Founder analytics | `activity_events` | Admin page | Turso, optional Discord for teacher upgrade | No automated deletion | Contains emails; retention decision required. |
+| Support/feedback messages | `/feedback` | Support and pilot contact | `feedback_messages` | Admin page, optional email/Discord | Turso, Resend, Discord | Admin can delete; no auto retention | May include user-entered personal data. |
+| Admin analytics | `/admin` | Founder operational view | Derived from DB tables | `ADMIN_EMAIL` only | Turso | Follows source table retention | Verify production admin email and access. |
+| AI-generated data | Prototype AI route | Suggested grading if enabled | Not persisted currently | Teacher route response only | OpenAI/Ollama if enabled | AI disabled by default | Must not be used for student data until reviewed. |
+

@@ -5,6 +5,7 @@ import {
   countStudentSubmissions,
   createSubmission,
   findAssignmentById,
+  isStudentOnRoster,
   upsertRosterEntry,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
@@ -21,6 +22,10 @@ function emailDomain(email: string) {
 
 function shouldEnforceStudentDomain() {
   return process.env.ENFORCE_STUDENT_DOMAIN === "true";
+}
+
+function shouldRequireRosterForSubmissions() {
+  return process.env.REQUIRE_ROSTER_FOR_SUBMISSIONS === "true";
 }
 
 export async function POST(
@@ -49,6 +54,13 @@ export async function POST(
         403,
         "This class only accepts submissions from the configured school email domain."
       );
+    }
+
+    if (!bypassEnabled && shouldRequireRosterForSubmissions()) {
+      const onRoster = await isStudentOnRoster(assignment.classId, studentEmail);
+      if (!onRoster) {
+        throw new HttpError(403, "This assignment only accepts submissions from students on the class roster.");
+      }
     }
 
     await enforceSubmissionRateLimit(studentEmail);
@@ -80,7 +92,11 @@ export async function POST(
         // Local dev fallback when Blob is not configured.
         audioBlobUrl = body.audioData;
       } else {
-        console.warn("Audio upload failed", error);
+        console.warn("Audio upload failed for submission upload", {
+          assignmentId,
+          errorName: error instanceof Error ? error.name : "unknown",
+          errorMessage: error instanceof Error ? error.message : "unknown",
+        });
         throw new HttpError(
           503,
           "We couldn't upload your recording right now. If you're on a school network, try opening this link on your phone or switching connections."

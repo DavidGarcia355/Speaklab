@@ -21,6 +21,17 @@ npm run dev
 
 Open `http://127.0.0.1:3000`.
 
+For repeatable local AI-grading testing on Windows, use:
+
+```powershell
+copy .env.local.example .env.local
+npm.cmd run ai:doctor
+npm.cmd run ai:seed
+npm.cmd run dev:local
+```
+
+See `docs/local-ai-testing.md`.
+
 ## Quick Full Setup (Local + Vercel)
 
 1. Copy env template:
@@ -90,7 +101,9 @@ Expected response:
 
 ### Required Environment Variables
 
-Set all values below in Vercel project settings (or `.env.local` for local testing):
+Set production values in Vercel project settings and local values in `.env.local`.
+See `docs/environment-variables.md` for the full grouped inventory, optional integrations,
+and behavior when a value is absent.
 
 ```bash
 AUTH_GOOGLE_ID=...
@@ -141,7 +154,35 @@ Notes:
 
 1. Create Vercel Blob store for submission audio.
 2. Add `BLOB_READ_WRITE_TOKEN` to Vercel env vars.
-3. Audio retrieval is authorized through protected API routes.
+3. Verify the store supports private Blob access before production classroom use.
+4. Audio retrieval is authorized through protected API routes.
+5. The app fails safely instead of falling back to public storage for student audio.
+
+### District Review And Privacy Docs
+
+Preliminary review materials live in `docs/`:
+
+- `docs/data-inventory.md`
+- `docs/subprocessors.md`
+- `docs/data-retention-and-deletion.md`
+- `docs/district-security-overview.md`
+- `docs/legal/privacy-policy-draft.md`
+- `docs/legal/school-dpa-template-draft.md`
+- `docs/legal/district-security-questionnaire-template.md`
+- `docs/compliance-gap-register.md`
+
+Legal drafts are not legal advice and must be reviewed by qualified counsel before use.
+
+### Experimental AI
+
+The unfinished AI-grading prototype is disabled by default with:
+
+```bash
+AI_GRADING_ENABLED=false
+```
+
+Do not enable AI grading for student data until privacy, provider, cost, retention, testing,
+and district-review requirements have been completed.
 
 ### Cron Cleanup
 

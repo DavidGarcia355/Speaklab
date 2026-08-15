@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export type RubricCriterionDraft = {
   id: string;
@@ -60,12 +60,8 @@ export default function RubricBuilder({
   onRemoveCriterion,
   onLoadTemplate,
 }: Props) {
-  const [templates, setTemplates] = useState<RubricTemplate[]>([]);
+  const [templates, setTemplates] = useState<RubricTemplate[]>(() => loadTemplates());
   const [savedFeedback, setSavedFeedback] = useState(false);
-
-  useEffect(() => {
-    setTemplates(loadTemplates());
-  }, []);
 
   function handleSaveTemplate() {
     if (!title.trim() || criteria.length === 0) return;

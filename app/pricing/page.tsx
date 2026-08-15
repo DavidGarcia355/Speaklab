@@ -4,32 +4,32 @@ import BrandBar from "@/app/components/BrandBar";
 
 export const metadata: Metadata = {
   title: "Pricing - Habla",
-  description: "Beta access, individual teacher pricing, and department coverage for Habla.",
+  description: "Current access information and district review notes for Habla.",
 };
 
 const PLAN_CARDS = [
   {
-    label: "Beta",
-    title: "Free for the rest of this school year while Habla is in beta",
-    price: "$0",
-    detail: "free through June 2026",
+    label: "Current access",
+    title: "Limited pilot access while Habla prepares for district review",
+    price: "No self-serve checkout",
+    detail: "2026-2027 access terms are under review",
     description:
-      "Create your account, use Habla with real students, and give honest feedback while the product is still taking shape. You'll be notified before anything changes in August.",
+      "Habla is being prepared for the 2026-2027 school year and for school-district vendor review. New teacher access may require approval while privacy, retention, and district documentation are finalized.",
     bullets: [
-      "Free for all active beta teachers through June 2026",
-      "Full classroom use during beta",
-      "Direct feedback helps shape what ships next",
-      "No interruption mid-semester",
+      "Core class, assignment, recording, grading, and CSV workflows remain the focus",
+      "District privacy and security review materials are being prepared",
+      "No public billing or self-serve subscription flow is currently available",
+      "Access decisions should be confirmed before classroom rollout",
     ],
     className: "pricing-card-beta",
   },
   {
     label: "Individual teacher",
-    title: "Simple pricing for one teacher",
-    price: "$4.99/month",
-    detail: "or $39.95/year",
+    title: "Individual teacher access",
+    price: "Decision required",
+    detail: "pricing is not finalized in the product",
     description:
-      "This is the low-friction path for individual teachers once the beta spots are filled. It stays simple, affordable, and teacher-friendly.",
+      "Habla does not currently include a public checkout flow. Individual teacher pricing and availability should be treated as a business decision to confirm before broad 2026-2027 use.",
     bullets: [
       "Unlimited classes",
       "Unlimited assignments",
@@ -41,13 +41,13 @@ const PLAN_CARDS = [
     label: "Department plan",
     title: "Department coverage for multiple teachers",
     price: "Contact us",
-    detail: "for departments that want to cover access for teachers",
+    detail: "for district or department review",
     description:
-      "Habla starts teacher-first, but departments can reach out if they want school-covered access for multiple teachers.",
+      "Districts and departments can request current security, privacy, retention, and subprocessor documentation before deciding whether Habla fits their requirements.",
     bullets: [
-      "A department-friendly path instead of teachers paying out of pocket",
-      "Support for multiple teachers using Habla together",
-      "Direct rollout conversation and priority support",
+      "Preliminary vendor-review documentation",
+      "Discussion of district-required DPA and security questionnaire needs",
+      "No claim of district approval until review is complete",
     ],
     className: "pricing-card-school",
   },
@@ -59,11 +59,11 @@ export default function PricingPage() {
       <BrandBar label="Pricing" />
 
       <section className="hero">
-        <p className="pill">Simple pricing</p>
-        <h1>Teacher-friendly pricing while Habla is still in beta</h1>
+        <p className="pill">Access status</p>
+        <h1>Access information for the 2026-2027 school year</h1>
         <p>
-          Habla is free for all active beta teachers. After beta, individual teachers can use Habla for
-          $4.99/month or $39.95/year, and departments can contact us about covering access for multiple teachers.
+          Habla is preparing for renewed classroom use and potential district vendor review. Public
+          pricing, district terms, and broader rollout timing are not finalized in the app.
         </p>
         <div className="actions hero-actions">
           <Link className="btn btn-primary" href="/teacher/register">
@@ -103,9 +103,9 @@ export default function PricingPage() {
         <p className="pill pill-subtle">What happens next</p>
         <h2 className="surface-title">Start now, then decide later</h2>
         <p className="meta">
-          Habla is staying intentionally simple. There is no checkout flow on this page yet. The goal right
-          now is to help teachers understand the beta offer, the upcoming $4.99/month individual-teacher
-          plan, and the department contact path.
+          Habla is staying intentionally simple. There is no checkout flow on this page. The goal right
+          now is to give teachers and school technology teams an accurate view of current access while
+          privacy, retention, and district-review materials are completed.
         </p>
         <div className="actions pricing-actions">
           <Link className="btn btn-primary" href="/teacher/register">

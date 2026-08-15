@@ -155,6 +155,36 @@ export type StudentAssignmentRow = {
   feedback: string;
 };
 
+export type AiGradingAttemptStatus = "completed" | "failed";
+
+export type AiGradingAttemptRow = {
+  id: string;
+  submissionId: string;
+  teacherEmail: string;
+  status: AiGradingAttemptStatus;
+  transcript: string;
+  detectedLanguage: string;
+  transcriptQuality: string;
+  durationSeconds: number;
+  suggestedScore: number | null;
+  rubricScores: RubricScore[];
+  feedback: string;
+  strengths: string[];
+  improvements: string[];
+  evidence: string[];
+  confidence: "high" | "medium" | "low";
+  warnings: string[];
+  teacherAttention: string;
+  transcriptionProvider: string;
+  gradingProvider: string;
+  transcriptionModel: string;
+  gradingModel: string;
+  errorCode: string;
+  errorMessage: string;
+  createdAt: number;
+  completedAt: number | null;
+};
+
 function getTeacherAllowlist(): Set<string> {
   return new Set(
     (process.env.TEACHER_ALLOWLIST ?? "")
@@ -190,7 +220,7 @@ function createDbClient(): Client {
 
   const dataDir = path.join(process.cwd(), "data");
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-  const localPath = path.join(dataDir, "local.db");
+  const localPath = process.env.HABLA_LOCAL_DB_PATH?.trim() || path.join(dataDir, "local.db");
   return createClient({ url: `file:${localPath}` });
 }
 
@@ -219,7 +249,7 @@ async function rawExecute(sql: string, args: InValue[] = []) {
 }
 
 async function ensureColumn(
-  tableName: "classes" | "assignments" | "submissions",
+  tableName: "classes" | "assignments" | "submissions" | "users",
   columnName: string,
   definition: string
 ) {
@@ -295,8 +325,38 @@ async function ensureInitialized() {
           added_by TEXT NOT NULL DEFAULT 'submission' CHECK (added_by IN ('submission', 'teacher')),
           FOREIGN KEY(class_id) REFERENCES classes(id) ON DELETE CASCADE
         )`,
+        `CREATE TABLE IF NOT EXISTS ai_grading_attempts (
+          id TEXT PRIMARY KEY,
+          submission_id TEXT NOT NULL,
+          teacher_email TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('completed', 'failed')),
+          transcript TEXT NOT NULL DEFAULT '',
+          detected_language TEXT NOT NULL DEFAULT '',
+          transcript_quality TEXT NOT NULL DEFAULT '',
+          duration_seconds INTEGER NOT NULL DEFAULT 0,
+          suggested_score INTEGER,
+          rubric_scores TEXT,
+          feedback TEXT NOT NULL DEFAULT '',
+          strengths TEXT,
+          improvements TEXT,
+          evidence TEXT,
+          confidence TEXT NOT NULL DEFAULT 'low',
+          warnings TEXT,
+          teacher_attention TEXT NOT NULL DEFAULT 'review',
+          transcription_provider TEXT NOT NULL DEFAULT '',
+          grading_provider TEXT NOT NULL DEFAULT '',
+          transcription_model TEXT NOT NULL DEFAULT '',
+          grading_model TEXT NOT NULL DEFAULT '',
+          error_code TEXT NOT NULL DEFAULT '',
+          error_message TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          completed_at INTEGER,
+          FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE
+        )`,
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_roster_class_student ON roster(class_id, LOWER(student_email))",
         "CREATE INDEX IF NOT EXISTS idx_roster_class_id ON roster(class_id)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_submission ON ai_grading_attempts(submission_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_teacher ON ai_grading_attempts(LOWER(teacher_email), created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_class_id ON assignments(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_deleted_at ON assignments(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON submissions(assignment_id)",
@@ -337,6 +397,7 @@ async function ensureInitialized() {
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
       await ensureColumn("submissions", "rubric_scores", "TEXT");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
+      await ensureColumn("users", "is_paid", "INTEGER NOT NULL DEFAULT 0");
     })();
   }
   return initPromise;
@@ -1116,6 +1177,18 @@ export async function countStudentSubmissions(assignmentId: string, studentEmail
   return toNumber(result.rows[0]?.cnt);
 }
 
+export async function isStudentOnRoster(classId: string, studentEmail: string): Promise<boolean> {
+  const result = await query(
+    `SELECT 1
+    FROM roster
+    WHERE class_id = ?
+      AND LOWER(student_email) = LOWER(?)
+    LIMIT 1`,
+    [classId, studentEmail]
+  );
+  return result.rows.length > 0;
+}
+
 export async function deleteSubmissionByStudent(submissionId: string, studentEmail: string): Promise<boolean> {
   const result = await query(
     `UPDATE submissions
@@ -1156,6 +1229,36 @@ export async function listGradebookRowsByClassId(classId: string, ownerEmail?: s
     feedback: toStringValue(row.feedback),
     submittedAt: toNumber(row.submittedAt),
   }));
+}
+
+export async function listStorageObjectsForHardDeleteBefore(cutoffTimestamp: number) {
+  const audioResult = await query(
+    `SELECT COALESCE(audio_blob_url, '') as audioBlobUrl
+    FROM submissions
+    WHERE deleted_at IS NOT NULL
+      AND deleted_at < ?
+      AND COALESCE(audio_blob_url, '') <> ''`,
+    [cutoffTimestamp]
+  );
+  const attachmentResult = await query(
+    `SELECT DISTINCT a.attachment_url as attachmentUrl
+    FROM assignments a
+    WHERE a.deleted_at IS NOT NULL
+      AND a.deleted_at < ?
+      AND COALESCE(a.attachment_url, '') <> ''
+      AND NOT EXISTS (
+        SELECT 1
+        FROM assignments active
+        WHERE active.attachment_url = a.attachment_url
+          AND active.id <> a.id
+          AND (active.deleted_at IS NULL OR active.deleted_at >= ?)
+      )`,
+    [cutoffTimestamp, cutoffTimestamp]
+  );
+  return {
+    audioBlobUrls: audioResult.rows.map((row) => toStringValue(row.audioBlobUrl)).filter(Boolean),
+    attachmentUrls: attachmentResult.rows.map((row) => toStringValue(row.attachmentUrl)).filter(Boolean),
+  };
 }
 
 export async function hardDeleteSoftDeletedBefore(cutoffTimestamp: number) {
@@ -1474,6 +1577,351 @@ export async function setUserRoleTeacher(email: string): Promise<void> {
     ON CONFLICT(email) DO UPDATE SET role = 'teacher'`,
     [normalized, Date.now()]
   );
+}
+
+export async function getUserIsPaid(email: string): Promise<boolean> {
+  const normalized = email.trim().toLowerCase();
+  const result = await query(
+    `SELECT is_paid FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+    [normalized]
+  );
+  return toNumber(result.rows[0]?.is_paid) === 1;
+}
+
+export type SubmissionForAiGradeRow = {
+  submissionId: string;
+  assignmentId: string;
+  assignmentTitle: string;
+  audioBlobUrl: string;
+  instructions: string;
+  rubric: Rubric | null;
+  maxPoints: number;
+  finalGrade: number | null;
+  finalFeedback: string;
+};
+
+export async function findSubmissionForAiGrade(
+  submissionId: string,
+  ownerEmail: string
+): Promise<SubmissionForAiGradeRow | null> {
+  const result = await query(
+    `SELECT
+      s.id as submissionId,
+      a.id as assignmentId,
+      a.title as assignmentTitle,
+      COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl,
+      a.instructions as instructions,
+      a.rubric as rubric,
+      a.max_points as maxPoints,
+      s.grade as finalGrade,
+      COALESCE(s.feedback, '') as finalFeedback
+    FROM submissions s
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE s.id = ?
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+      AND LOWER(c.owner_email) = LOWER(?)
+    LIMIT 1`,
+    [submissionId, ownerEmail]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    submissionId: toStringValue(row.submissionId),
+    assignmentId: toStringValue(row.assignmentId),
+    assignmentTitle: toStringValue(row.assignmentTitle),
+    audioBlobUrl: toStringValue(row.audioBlobUrl),
+    instructions: toStringValue(row.instructions),
+    rubric: parseJsonValue<Rubric>(row.rubric),
+    maxPoints: toNumber(row.maxPoints),
+    finalGrade: toNullableNumber(row.finalGrade),
+    finalFeedback: toStringValue(row.finalFeedback),
+  };
+}
+
+function rowToAiAttempt(row: Row): AiGradingAttemptRow {
+  return {
+    id: toStringValue(row.id),
+    submissionId: toStringValue(row.submissionId),
+    teacherEmail: toStringValue(row.teacherEmail),
+    status: toStringValue(row.status) === "failed" ? "failed" : "completed",
+    transcript: toStringValue(row.transcript),
+    detectedLanguage: toStringValue(row.detectedLanguage),
+    transcriptQuality: toStringValue(row.transcriptQuality),
+    durationSeconds: toNumber(row.durationSeconds),
+    suggestedScore: toNullableNumber(row.suggestedScore),
+    rubricScores: parseJsonValue<RubricScore[]>(row.rubricScores) ?? [],
+    feedback: toStringValue(row.feedback),
+    strengths: parseJsonValue<string[]>(row.strengths) ?? [],
+    improvements: parseJsonValue<string[]>(row.improvements) ?? [],
+    evidence: parseJsonValue<string[]>(row.evidence) ?? [],
+    confidence: ["high", "medium", "low"].includes(toStringValue(row.confidence))
+      ? (toStringValue(row.confidence) as "high" | "medium" | "low")
+      : "low",
+    warnings: parseJsonValue<string[]>(row.warnings) ?? [],
+    teacherAttention: toStringValue(row.teacherAttention),
+    transcriptionProvider: toStringValue(row.transcriptionProvider),
+    gradingProvider: toStringValue(row.gradingProvider),
+    transcriptionModel: toStringValue(row.transcriptionModel),
+    gradingModel: toStringValue(row.gradingModel),
+    errorCode: toStringValue(row.errorCode),
+    errorMessage: toStringValue(row.errorMessage),
+    createdAt: toNumber(row.createdAt),
+    completedAt: toNullableNumber(row.completedAt),
+  };
+}
+
+export async function createAiGradingAttempt(input: {
+  submissionId: string;
+  teacherEmail: string;
+  status: AiGradingAttemptStatus;
+  transcript: string;
+  detectedLanguage: string;
+  transcriptQuality: string;
+  durationSeconds: number;
+  suggestedScore: number | null;
+  rubricScores: RubricScore[];
+  feedback: string;
+  strengths: string[];
+  improvements: string[];
+  evidence: string[];
+  confidence: "high" | "medium" | "low";
+  warnings: string[];
+  teacherAttention: string;
+  transcriptionProvider: string;
+  gradingProvider: string;
+  transcriptionModel: string;
+  gradingModel: string;
+  errorCode?: string;
+  errorMessage?: string;
+}): Promise<AiGradingAttemptRow> {
+  const item = {
+    id: makeId("ai"),
+    createdAt: Date.now(),
+    completedAt: Date.now(),
+    errorCode: input.errorCode ?? "",
+    errorMessage: input.errorMessage ?? "",
+    ...input,
+  };
+  await query(
+    `INSERT INTO ai_grading_attempts (
+      id, submission_id, teacher_email, status, transcript, detected_language,
+      transcript_quality, duration_seconds, suggested_score, rubric_scores,
+      feedback, strengths, improvements, evidence, confidence, warnings,
+      teacher_attention, transcription_provider, grading_provider,
+      transcription_model, grading_model, error_code, error_message,
+      created_at, completed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      item.id,
+      item.submissionId,
+      item.teacherEmail.toLowerCase(),
+      item.status,
+      item.transcript,
+      item.detectedLanguage,
+      item.transcriptQuality,
+      item.durationSeconds,
+      item.suggestedScore,
+      stringifyJsonValue(item.rubricScores),
+      item.feedback,
+      stringifyJsonValue(item.strengths),
+      stringifyJsonValue(item.improvements),
+      stringifyJsonValue(item.evidence),
+      item.confidence,
+      stringifyJsonValue(item.warnings),
+      item.teacherAttention,
+      item.transcriptionProvider,
+      item.gradingProvider,
+      item.transcriptionModel,
+      item.gradingModel,
+      item.errorCode ?? "",
+      item.errorMessage ?? "",
+      item.createdAt,
+      item.completedAt,
+    ]
+  );
+  return {
+    ...item,
+    errorCode: item.errorCode ?? "",
+    errorMessage: item.errorMessage ?? "",
+  };
+}
+
+export async function listAiGradingAttemptsForSubmission(
+  submissionId: string,
+  ownerEmail: string,
+  limit = 5
+): Promise<AiGradingAttemptRow[]> {
+  const result = await query(
+    `SELECT
+      ag.id as id,
+      ag.submission_id as submissionId,
+      ag.teacher_email as teacherEmail,
+      ag.status as status,
+      ag.transcript as transcript,
+      ag.detected_language as detectedLanguage,
+      ag.transcript_quality as transcriptQuality,
+      ag.duration_seconds as durationSeconds,
+      ag.suggested_score as suggestedScore,
+      ag.rubric_scores as rubricScores,
+      ag.feedback as feedback,
+      ag.strengths as strengths,
+      ag.improvements as improvements,
+      ag.evidence as evidence,
+      ag.confidence as confidence,
+      ag.warnings as warnings,
+      ag.teacher_attention as teacherAttention,
+      ag.transcription_provider as transcriptionProvider,
+      ag.grading_provider as gradingProvider,
+      ag.transcription_model as transcriptionModel,
+      ag.grading_model as gradingModel,
+      ag.error_code as errorCode,
+      ag.error_message as errorMessage,
+      ag.created_at as createdAt,
+      ag.completed_at as completedAt
+    FROM ai_grading_attempts ag
+    JOIN submissions s ON s.id = ag.submission_id
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE ag.submission_id = ?
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    ORDER BY ag.created_at DESC
+    LIMIT ?`,
+    [submissionId, ownerEmail, Math.max(1, Math.min(limit, 20))]
+  );
+  return result.rows.map(rowToAiAttempt);
+}
+
+export async function countAiAttemptsForSubmission(submissionId: string, ownerEmail: string): Promise<number> {
+  const result = await query(
+    `SELECT COUNT(*) as cnt
+    FROM ai_grading_attempts ag
+    JOIN submissions s ON s.id = ag.submission_id
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE ag.submission_id = ?
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND ag.status = 'completed'`,
+    [submissionId, ownerEmail]
+  );
+  return toNumber(result.rows[0]?.cnt);
+}
+
+export async function countAiAttemptsForTeacherSince(teacherEmail: string, since: number): Promise<number> {
+  const result = await query(
+    `SELECT COUNT(*) as cnt
+    FROM ai_grading_attempts
+    WHERE LOWER(teacher_email) = LOWER(?)
+      AND created_at >= ?
+      AND status = 'completed'`,
+    [teacherEmail, since]
+  );
+  return toNumber(result.rows[0]?.cnt);
+}
+
+export async function latestAiAttemptCreatedAt(submissionId: string, ownerEmail: string): Promise<number | null> {
+  const result = await query(
+    `SELECT MAX(ag.created_at) as createdAt
+    FROM ai_grading_attempts ag
+    JOIN submissions s ON s.id = ag.submission_id
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE ag.submission_id = ?
+      AND LOWER(c.owner_email) = LOWER(?)`,
+    [submissionId, ownerEmail]
+  );
+  return result.rows[0]?.createdAt === null ? null : toNullableNumber(result.rows[0]?.createdAt);
+}
+
+export async function deleteLocalAiFixtureData(): Promise<{
+  attemptsDeleted: number;
+  submissionsDeleted: number;
+  assignmentsDeleted: number;
+  classesDeleted: number;
+  usersDeleted: number;
+}> {
+  const attempts = await query(
+    `DELETE FROM ai_grading_attempts
+    WHERE submission_id IN (
+      SELECT s.id
+      FROM submissions s
+      JOIN assignments a ON a.id = s.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      WHERE c.id LIKE 'local_ai_%'
+    )`
+  );
+  const submissions = await query(
+    `DELETE FROM submissions
+    WHERE id LIKE 'local_ai_%'
+       OR assignment_id IN (SELECT id FROM assignments WHERE id LIKE 'local_ai_%')`
+  );
+  const assignments = await query(`DELETE FROM assignments WHERE id LIKE 'local_ai_%'`);
+  const classes = await query(`DELETE FROM classes WHERE id LIKE 'local_ai_%'`);
+  const users = await query(`DELETE FROM users WHERE email IN ('dev-teacher@local.test', 'local-ai-student@example.test')`);
+  return {
+    attemptsDeleted: toNumber(attempts.rowsAffected),
+    submissionsDeleted: toNumber(submissions.rowsAffected),
+    assignmentsDeleted: toNumber(assignments.rowsAffected),
+    classesDeleted: toNumber(classes.rowsAffected),
+    usersDeleted: toNumber(users.rowsAffected),
+  };
+}
+
+export async function ensureLocalAiFixture(): Promise<{
+  teacherEmail: string;
+  classId: string;
+  assignmentId: string;
+  submissionId: string;
+}> {
+  const teacherEmail = "dev-teacher@local.test";
+  const studentEmail = "local-ai-student@example.test";
+  const classId = "local_ai_class";
+  const assignmentId = "local_ai_assignment";
+  const submissionId = "local_ai_submission";
+  const rubric: Rubric = {
+    title: "Local AI speaking rubric",
+    criteria: [
+      { id: "content", name: "Content", description: "Addresses the prompt with details.", maxPoints: 5 },
+      { id: "language", name: "Language", description: "Uses target-language vocabulary and structures.", maxPoints: 5 },
+    ],
+  };
+  const audioData = `data:audio/webm;base64,${Buffer.from("synthetic local audio fixture").toString("base64")}`;
+
+  await query(
+    `INSERT INTO users (email, role, created_at, is_paid)
+    VALUES (?, 'teacher', ?, 1)
+    ON CONFLICT(email) DO UPDATE SET role = 'teacher', is_paid = 1`,
+    [teacherEmail, Date.now()]
+  );
+  await query(
+    `INSERT INTO classes (id, name, owner_email, created_at, deleted_at)
+    VALUES (?, 'Local AI Test Class', ?, ?, NULL)
+    ON CONFLICT(id) DO UPDATE SET owner_email = excluded.owner_email, deleted_at = NULL`,
+    [classId, teacherEmail, Date.now()]
+  );
+  await query(
+    `INSERT INTO assignments (
+      id, class_id, title, description, instructions, max_points, max_submissions,
+      max_recording_seconds, rubric, attachment_name, attachment_url,
+      attachment_content_type, created_at, deleted_at
+    ) VALUES (?, ?, 'Local AI Speaking Test', '', 'Introduce yourself and describe your school day in Spanish.', 10, 0, 180, ?, '', '', '', ?, NULL)
+    ON CONFLICT(id) DO UPDATE SET rubric = excluded.rubric, instructions = excluded.instructions, deleted_at = NULL`,
+    [assignmentId, classId, stringifyJsonValue(rubric), Date.now()]
+  );
+  await query(
+    `INSERT INTO submissions (
+      id, assignment_id, student_name, student_email, audio_data, audio_blob_url,
+      submitted_at, feedback, grade, rubric_scores, deleted_at
+    ) VALUES (?, ?, 'Local AI Student', ?, ?, NULL, ?, '', NULL, NULL, NULL)
+    ON CONFLICT(id) DO UPDATE SET grade = NULL, feedback = '', rubric_scores = NULL, deleted_at = NULL`,
+    [submissionId, assignmentId, studentEmail, audioData, Date.now()]
+  );
+  return { teacherEmail, classId, assignmentId, submissionId };
 }
 
 export async function upsertRosterEntry(input: {

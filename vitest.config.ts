@@ -10,6 +10,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    fileParallelism: false,
     restoreMocks: true,
     clearMocks: true,
   },

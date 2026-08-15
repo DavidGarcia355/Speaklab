@@ -4,7 +4,7 @@ import BrandBar from "@/app/components/BrandBar";
 
 export const metadata: Metadata = {
   title: "FAQ - Habla",
-  description: "Common questions about Habla — how it works, what it costs, and how to get started.",
+  description: "Common questions about Habla, classroom workflows, access, and privacy review.",
 };
 
 const FAQ_SECTIONS = [
@@ -14,22 +14,22 @@ const FAQ_SECTIONS = [
       {
         question: "What is Habla?",
         answer:
-          "Habla is a simple tool that lets language teachers assign, collect, and grade student speaking recordings — all from one link, during a normal class period.",
+          "Habla is a simple tool that lets language teachers assign, collect, and grade student speaking recordings from one link during a normal class period.",
       },
       {
         question: "How do I create my first assignment?",
         answer:
-          "Sign in, go to your teacher dashboard, and create a class. Inside the class, click \"New assignment,\" write your prompt, set the point value, and save. Habla generates a student link instantly. Copy it and share it however you share links with your class — Google Classroom, email, or projected on the board.",
+          "Sign in, go to your teacher dashboard, and create a class. Inside the class, click \"New assignment,\" write your prompt, set the point value, and save. Habla generates a student link instantly. Copy it and share it however you share links with your class: Google Classroom, email, your LMS, or projected on the board.",
       },
       {
         question: "How do I share the assignment link with students?",
         answer:
-          "Every assignment has a \"Copy link\" button. Paste it into Google Classroom, email, your LMS, or just project it. Students click the link — no account setup required on their end before they get there.",
+          "Every assignment has a \"Copy link\" button. Paste it into Google Classroom, email, your LMS, or just project it. Students click the link and sign in before submitting.",
       },
       {
         question: "Do I need to install anything?",
         answer:
-          "No. Habla runs entirely in the browser. Teachers and students don't install anything.",
+          "No. Habla runs entirely in the browser. Teachers and students do not install anything.",
       },
     ],
   },
@@ -39,27 +39,27 @@ const FAQ_SECTIONS = [
       {
         question: "Do students need an account?",
         answer:
-          "Yes — students sign in with their school Google account before submitting. This is how Habla knows whose recording it is. Students who don't have a school Google account can't submit. If your school uses Microsoft instead of Google, contact us.",
+          "Yes. Students sign in before submitting so Habla can attach the recording to the account email. Google sign-in is required in the base setup, and Microsoft sign-in is available only when the deployment is configured for it.",
       },
       {
         question: "How do students submit a recording?",
         answer:
-          "Students open the assignment link, sign in with their school Google account, enter their name, hit \"Start recording,\" speak, stop, play it back, and hit \"Submit.\" The whole thing takes under two minutes.",
+          "Students open the assignment link, sign in, enter their name, hit \"Start recording,\" speak, stop, play it back, and hit \"Submit.\" The whole thing takes under two minutes.",
       },
       {
         question: "What devices and browsers work?",
         answer:
-          "Chrome and Edge on laptops and Chromebooks work best. Safari on iPhone and iPad works (iOS 14.3 or newer required). Firefox works on desktop. Students should not use the built-in browser inside Google Classroom or other apps — if the mic button is grayed out, have them open the link in Chrome or Safari directly.",
+          "Chrome and Edge on laptops and Chromebooks work best. Safari on iPhone and iPad works on modern iOS versions. Firefox works on desktop. Students should not use the built-in browser inside Google Classroom or other apps; if the mic button is grayed out, have them open the link in Chrome or Safari directly.",
       },
       {
-        question: "What if the microphone doesn't work?",
+        question: "What if the microphone does not work?",
         answer:
-          "First: make sure the student opened the link in Chrome or Safari, not inside another app. Second: the browser will ask for microphone permission — they must click Allow, not Block. Third: if permission was previously blocked, they need to go to browser site settings and reset it. On a Chromebook, check that the school hasn't blocked microphone access in device settings. If none of that works, have the student try on their phone with mobile data instead of the school Wi-Fi.",
+          "First, make sure the student opened the link in Chrome or Safari, not inside another app. Second, the browser will ask for microphone permission and the student must allow it. Third, if permission was previously blocked, they need to reset it in browser site settings. On a Chromebook, check that the school has not blocked microphone access in device settings.",
       },
       {
         question: "What information does Habla store about students?",
         answer:
-          "Habla stores the student's name (as they enter it), their school email address, and their audio recording. No other personal information is collected. Only their teacher can access their submissions.",
+          "Habla stores the student's name as entered, account email address, audio recording, submission timestamps, and any grade or feedback added by the teacher. Only the assigning teacher can access submissions through the app.",
       },
     ],
   },
@@ -69,12 +69,12 @@ const FAQ_SECTIONS = [
       {
         question: "How do I add students to my class roster?",
         answer:
-          "Students are added to your roster automatically the first time they submit an assignment. You can also add them manually from the Roster section inside your class — just enter a name and email. If your school uses a student information system, you can export a CSV and upload it directly to Habla.",
+          "Students are added to your roster automatically the first time they submit an assignment. You can also add them manually from the Roster section inside your class by entering a name and email.",
       },
       {
         question: "How does CSV roster import work?",
         answer:
-          "In your class, scroll to the Roster section and click \"Upload CSV.\" Your file should have a name column and an email column — either as \"name, email\" or \"first name, last name, email\" with a header row. Habla will tell you how many students were added and how many were already on the roster. PowerSchool, Infinite Campus, and Google Classroom exports work.",
+          "In your class, scroll to the Roster section and click \"Upload CSV.\" Your file should have a name column and an email column, either as \"name, email\" or \"first name, last name, email\" with a header row. Habla will tell you how many students were added and how many were already on the roster.",
       },
     ],
   },
@@ -84,17 +84,17 @@ const FAQ_SECTIONS = [
       {
         question: "How do I grade recordings?",
         answer:
-          "Open a class, then open an assignment. You'll see all submissions in one panel. Click a submission to play the audio, enter a score, add optional written feedback, and save. If you set up a rubric, you'll grade each criterion separately and Habla totals the score.",
+          "Open a class, then open an assignment. You will see submissions in one panel. Play the audio, enter a score, add optional written feedback, and save. If you set up a rubric, you grade each criterion separately and Habla totals the score.",
       },
       {
         question: "Can I export grades?",
         answer:
-          "Yes. Inside any class, there's a \"Download gradebook\" button. It exports a CSV with student names, emails, assignment titles, scores, feedback, and submission timestamps. Drop it into PowerSchool, Canvas, Schoology, or your school's gradebook.",
+          "Yes. Inside any class, there is an export button. It exports a CSV with student names, emails, assignment titles, scores, feedback, and submission timestamps for import into a school gradebook.",
       },
       {
         question: "Can I add rubrics to assignments?",
         answer:
-          "Yes. When creating an assignment, click \"Add rubric\" and define your criteria with point values. Students see the rubric before recording. You grade each criterion when reviewing submissions.",
+          "Yes. When creating an assignment, enable the rubric builder and define criteria with point values. Students see assignment instructions before recording, and teachers grade each criterion when reviewing submissions.",
       },
     ],
   },
@@ -104,17 +104,17 @@ const FAQ_SECTIONS = [
       {
         question: "What should I do if something goes wrong during class?",
         answer:
-          "Stay calm — here's the order to try: (1) Have the student reload the page and try again. (2) Have them open the link in a different browser (Chrome is the most reliable). (3) If they're on school Wi-Fi and getting errors, have them switch to their phone's mobile data. (4) If you're seeing an error across multiple students, contact us immediately at the feedback form — include your class name and what you're seeing. Everything is recoverable.",
+          "Have the student reload the page and try again. If that fails, have them open the link in a different browser. If they are on school Wi-Fi and getting upload errors, try another network and contact support with the class name and a short description of what happened.",
       },
       {
-        question: "A student submitted but I can't see their recording.",
+        question: "A student submitted but I cannot see their recording.",
         answer:
-          "Refresh the assignment page. If it still doesn't appear, check that the student signed in with the correct school account before submitting — submissions are attached to the email they used. If they submitted as a guest or with the wrong account, they'll need to submit again.",
+          "Refresh the assignment page. If it still does not appear, check that the student signed in with the correct school account before submitting. Submissions are attached to the email they used.",
       },
       {
-        question: "The student link isn't working.",
+        question: "The student link is not working.",
         answer:
-          "Make sure the link was copied in full and wasn't truncated when pasting into email or a chat. Test it yourself in an incognito window. If the page shows \"Assignment unavailable,\" the assignment may have been deleted — check your class dashboard.",
+          "Make sure the link was copied in full and was not truncated when pasted into email or chat. Test it yourself in an incognito window. If the page shows \"Assignment unavailable,\" the assignment may have been deleted.",
       },
     ],
   },
@@ -124,32 +124,32 @@ const FAQ_SECTIONS = [
       {
         question: "Is student data protected?",
         answer:
-          "Yes. Students sign in with their school Google account. Audio files are stored securely and are not public. Only the assigning teacher can access submissions — other teachers, students, and outside parties cannot.",
+          "Habla uses sign-in, teacher role checks, and class ownership checks to limit access. Student recordings should be stored in private or access-controlled storage; production storage settings must be verified before district rollout.",
       },
       {
         question: "Can other students hear each other's recordings?",
         answer:
-          "No. Every submission is private to the student and their teacher.",
+          "No. The app does not provide a student-to-student recording sharing feature. Teacher playback routes check the teacher's access to the class before returning audio.",
       },
     ],
   },
   {
-    heading: "Pricing",
+    heading: "Access and district review",
     items: [
       {
         question: "Is Habla free?",
         answer:
-          "Habla is currently in beta and free for all active beta teachers through the end of this school year (June 2026). Individual teacher pricing is $4.99/month or $39.95/year when beta ends in August. If you signed up during beta, we'll be in touch before anything changes.",
+          "Habla does not currently have a public checkout flow. Access terms for the 2026-2027 school year are a business decision to confirm before broad classroom or district use.",
       },
       {
-        question: "What does the plan include?",
+        question: "What does the current workflow include?",
         answer:
-          "Everything — unlimited classes, unlimited assignments, audio submissions, grading, rubrics, feedback, roster management, and CSV export. One plan, all features.",
+          "The current classroom workflow includes classes, assignments, student audio submissions, teacher grading, rubrics, feedback, roster management, and CSV export.",
       },
       {
-        question: "What if my department wants to cover the cost?",
+        question: "What if my department or district needs a review?",
         answer:
-          "Contact us and we'll set up department coverage so teachers don't pay out of pocket.",
+          "Contact us to request current privacy, retention, security, subprocessor, and DPA-review materials. Habla should not be described as district-approved until that district completes its own review.",
       },
     ],
   },
@@ -163,7 +163,8 @@ export default function FaqPage() {
         <p className="pill">FAQ</p>
         <h1>Questions about Habla</h1>
         <p>
-          Setup, student submissions, microphone troubleshooting, roster management, grading, and export — answered for teachers.
+          Setup, student submissions, microphone troubleshooting, roster management, grading, export,
+          and district review - answered for teachers.
         </p>
       </section>
 
@@ -184,7 +185,8 @@ export default function FaqPage() {
       <section className="card section-gap">
         <h2 className="surface-title">Still stuck?</h2>
         <p className="meta">
-          We read every message and respond fast — especially on school days. Describe what you&apos;re seeing and we&apos;ll get back to you quickly.
+          We read every message and respond fast, especially on school days. Describe what you are
+          seeing and we will get back to you quickly.
         </p>
         <div className="actions form-actions">
           <Link className="btn btn-primary" href="/feedback">

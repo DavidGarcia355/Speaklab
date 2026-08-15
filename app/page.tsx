@@ -1,5 +1,18 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
+import {
+  ArrowRight,
+  AudioLines,
+  BookOpenCheck,
+  ChartNoAxesCombined,
+  Download,
+  GraduationCap,
+  Languages,
+  Mic2,
+  Sparkles,
+  Volume2,
+} from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
@@ -13,21 +26,25 @@ export const metadata: Metadata = {
 
 const featureCards = [
   {
+    icon: BookOpenCheck,
     title: "Set up a class in under 60 seconds",
     description:
       "Create a class, write a prompt, and share one student link before class starts.",
   },
   {
+    icon: Mic2,
     title: "Students record instantly - no apps, no downloads",
     description:
       "Students open a link, sign in, record, and submit audio directly in the browser.",
   },
   {
+    icon: AudioLines,
     title: "Listen, grade, and give feedback - fast",
     description:
       "Review submissions, score responses, and keep grading organized in one place.",
   },
   {
+    icon: Download,
     title: "Export grades in one click",
     description:
       "Download clean CSV data that moves easily into school grading systems.",
@@ -50,7 +67,7 @@ const quickQuestions = [
   {
     question: "Is it really free?",
     answer:
-      "Habla is free for all beta teachers through the end of this school year (June 2026) while it's in beta. You'll be notified before anything changes in August. After beta, individual teachers can use Habla for $4.99/month or $39.95/year. Departments can contact us about broader coverage.",
+      "Habla does not currently have a public checkout flow. Access terms for the 2026-2027 school year are being reviewed, especially for schools that require vendor privacy or DPA review.",
   },
 ] as const;
 
@@ -60,18 +77,62 @@ export default function Home() {
       <BrandBar label="Habla - speaking made simple" />
       <ExternalBrowserNotice className="home-external-browser-notice" />
 
-      <section className="hero home-hero">
-        <div className="home-hero-top">
-          <p className="pill">For language teachers and students</p>
-          <h1>Speaking assignments, finally simple.</h1>
-          <p className="home-hero-lead">
-            Create a class, share one link, and collect speaking assignments - all in one place.
-          </p>
+      <section className="home-hero">
+        <div className="home-hero-layout">
+          <div className="home-hero-copy">
+            <p className="pill home-hero-eyebrow">
+              <Sparkles size={15} aria-hidden="true" />
+              Built for every language classroom
+            </p>
+            <h1>Speaking practice made simple.</h1>
+            <p className="home-hero-lead">
+              Create a class, share one link, and collect speaking assignments in a space that feels
+              welcoming to every voice.
+            </p>
+            <div className="actions home-hero-actions">
+              <Link className="btn btn-primary" href="/teacher/register">
+                Start teaching
+                <ArrowRight size={17} aria-hidden="true" />
+              </Link>
+              <Link className="btn btn-ghost" href="#choose-your-path">
+                Choose your path
+              </Link>
+            </div>
+            <div className="home-language-strip" aria-label="Built for multilingual learning">
+              <span>Hola</span>
+              <span>Bonjour</span>
+              <span>Hallo</span>
+              <span>Ciao</span>
+              <span>Oi</span>
+            </div>
+          </div>
+
+          <div className="home-mascot-stage" aria-label="Habla multilingual speaking mascot">
+            <span className="home-mascot-note home-mascot-note-top">Listen</span>
+            <Image
+              className="home-mascot"
+              src="/images/habla-mascot.png"
+              alt="A cheerful globe-shaped speech mascot wearing a headset"
+              width={560}
+              height={560}
+              priority
+            />
+            <span className="home-mascot-note home-mascot-note-bottom">Speak</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="choose-your-path" className="home-entry-section section-gap">
+        <div className="home-section-head home-section-head-centered">
+          <p className="pill pill-subtle">Choose your space</p>
+          <h2>Where are you headed today?</h2>
         </div>
 
         <div className="home-entry-paths">
           <div className="home-entry-card home-entry-teacher">
-            <div className="home-entry-icon">T</div>
+            <div className="home-entry-icon">
+              <GraduationCap size={25} aria-hidden="true" />
+            </div>
             <h2 className="home-entry-title">I&apos;m a teacher</h2>
             <p className="meta">Create classes, assign speaking prompts, and grade recordings.</p>
             <GoogleSignInLink
@@ -80,6 +141,7 @@ export default function Home() {
               wrapperClassName="auth-webview-guard-full"
             >
               Sign in as teacher
+              <ArrowRight size={17} aria-hidden="true" />
             </GoogleSignInLink>
             <Link className="home-entry-secondary" href="/teacher/register">
               New here? Set up your account
@@ -87,7 +149,9 @@ export default function Home() {
           </div>
 
           <div className="home-entry-card home-entry-student">
-            <div className="home-entry-icon home-entry-icon-student">S</div>
+            <div className="home-entry-icon home-entry-icon-student">
+              <Languages size={25} aria-hidden="true" />
+            </div>
             <h2 className="home-entry-title">I&apos;m a student</h2>
             <p className="meta">View your submitted recordings, grades, and teacher feedback.</p>
             <GoogleSignInLink
@@ -96,6 +160,7 @@ export default function Home() {
               wrapperClassName="auth-webview-guard-full"
             >
               Sign in as student
+              <ArrowRight size={17} aria-hidden="true" />
             </GoogleSignInLink>
             <p className="home-entry-hint">Your teacher will share an assignment link with you.</p>
           </div>
@@ -110,16 +175,17 @@ export default function Home() {
 
       <section className="card home-beta-banner section-gap">
         <div className="home-beta-copy">
-          <p className="pill pill-subtle">Habla beta</p>
-          <h2>Free for the rest of this school year while Habla is in beta</h2>
+          <p className="pill pill-subtle">2026-2027 readiness</p>
+          <h2>Preparing Habla for renewed classroom use and district review</h2>
           <p className="meta">
-            Create an account, try Habla with your students, and give honest feedback. Individual teacher
-            pricing is $4.99/month or $39.95/year when beta ends in August — and we&apos;ll be in touch before anything changes.
+            Habla is focused on the core speaking-assignment workflow while privacy, retention, and district-review
+            documentation are tightened. Public pricing and broad rollout terms are not finalized in the app.
           </p>
         </div>
         <div className="actions home-beta-actions">
           <Link className="btn btn-primary" href="/teacher/register">
             Create your account
+            <ArrowRight size={17} aria-hidden="true" />
           </Link>
           <Link className="btn btn-ghost" href="/pricing">
             View pricing
@@ -128,12 +194,20 @@ export default function Home() {
       </section>
 
       <section className="grid cols-2 section-gap home-feature-grid">
-        {featureCards.map((feature) => (
-          <article key={feature.title} className="card home-feature-card">
-            <h2>{feature.title}</h2>
-            <p className="meta">{feature.description}</p>
-          </article>
-        ))}
+        {featureCards.map((feature, index) => {
+          const FeatureIcon = feature.icon;
+          return (
+            <article key={feature.title} className={`card home-feature-card home-feature-card-${index + 1}`}>
+              <span className="home-feature-icon">
+                <FeatureIcon size={22} aria-hidden="true" />
+              </span>
+              <div>
+                <h2>{feature.title}</h2>
+                <p className="meta">{feature.description}</p>
+              </div>
+            </article>
+          );
+        })}
       </section>
 
       <section id="product-preview" className="section-gap home-section">
@@ -194,7 +268,9 @@ export default function Home() {
                     <span>Score: 92/100</span>
                   </div>
                   <div className="home-preview-audio" aria-hidden="true">
-                    <div className="home-preview-play" />
+                    <div className="home-preview-play">
+                      <Volume2 size={15} />
+                    </div>
                     <div className="home-preview-wave" />
                   </div>
                   <p className="meta">Feedback: Strong detail, good pacing, clear pronunciation.</p>
@@ -202,9 +278,9 @@ export default function Home() {
               </div>
 
               <div className="home-preview-footer">
-                <span className="home-preview-badge">CSV export ready</span>
-                <span className="home-preview-badge">No downloads required</span>
-                <span className="home-preview-badge">Organized by class</span>
+                <span className="home-preview-badge"><Download size={13} /> CSV export ready</span>
+                <span className="home-preview-badge"><Mic2 size={13} /> No downloads required</span>
+                <span className="home-preview-badge"><ChartNoAxesCombined size={13} /> Organized by class</span>
               </div>
             </div>
           </div>
@@ -217,8 +293,8 @@ export default function Home() {
           <p className="home-story-copy">
             {APP_NAME} was built to make speaking practice feel manageable again for language teachers.
             Instead of stitching together forms, recordings, and gradebook notes, teachers get one focused
-            workflow that does the job cleanly. It is in beta right now, easy to start, and designed for
-            real classroom use. The first 20 world language teachers get free access forever.
+            workflow that does the job cleanly. It is being prepared for the 2026-2027 school year and
+            designed for real classroom use.
           </p>
         </article>
       </section>
@@ -248,15 +324,16 @@ export default function Home() {
 
       <section className="card home-cta section-gap">
         <div>
-          <p className="home-cta-copy">Free for the rest of this school year while Habla is in beta.</p>
+          <p className="home-cta-copy">Preparing for the 2026-2027 school year.</p>
           <p className="meta">
-            Create your account, run your first speaking assignment, and see the simple $4.99/month or $39.95/year
-            individual-teacher pricing for what comes after beta in August.
+            Create your account, run your first speaking assignment, and review the current access notes for
+            teacher and district use.
           </p>
         </div>
         <div className="actions home-cta-actions">
           <GoogleSignInLink className="btn btn-primary" callbackUrl="/teacher">
             Sign in as teacher
+            <ArrowRight size={17} aria-hidden="true" />
           </GoogleSignInLink>
           <Link className="btn btn-ghost" href="/pricing">
             View pricing

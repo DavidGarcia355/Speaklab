@@ -131,6 +131,17 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+function getSupportedAudioMimeType() {
+  const options = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+  ];
+
+  return options.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
 export default function StudentAssignmentClient({
   assignmentId,
   localAuthBypassEnabled,
@@ -286,7 +297,8 @@ export default function StudentAssignmentClient({
     setRecorderState("requesting-permission");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const mimeType = getSupportedAudioMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       streamRef.current = stream;
       const chunks: Blob[] = [];
 
@@ -295,7 +307,7 @@ export default function StudentAssignmentClient({
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "audio/webm" });
+        const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "audio/webm" });
         if (recordingUrl) URL.revokeObjectURL(recordingUrl);
         setRecordingBlob(blob);
         setRecordingUrl(URL.createObjectURL(blob));

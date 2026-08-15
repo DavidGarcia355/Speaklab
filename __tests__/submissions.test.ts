@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   mockCountStudentSubmissions: vi.fn(),
   mockCreateSubmission: vi.fn(),
   mockFindAssignmentById: vi.fn(),
+  mockIsStudentOnRoster: vi.fn(),
   mockUpsertRosterEntry: vi.fn(),
   mockEnforceSubmissionRateLimit: vi.fn(),
   mockParseOrThrow400: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@/lib/db", () => ({
   countStudentSubmissions: mocks.mockCountStudentSubmissions,
   createSubmission: mocks.mockCreateSubmission,
   findAssignmentById: mocks.mockFindAssignmentById,
+  isStudentOnRoster: mocks.mockIsStudentOnRoster,
   upsertRosterEntry: mocks.mockUpsertRosterEntry,
 }));
 
@@ -81,6 +83,7 @@ describe("submission route domain enforcement", () => {
     LOCAL_DEV_BYPASS_AUTH: process.env.LOCAL_DEV_BYPASS_AUTH,
     ENFORCE_STUDENT_DOMAIN: process.env.ENFORCE_STUDENT_DOMAIN,
     STUDENT_DOMAIN: process.env.STUDENT_DOMAIN,
+    REQUIRE_ROSTER_FOR_SUBMISSIONS: process.env.REQUIRE_ROSTER_FOR_SUBMISSIONS,
   };
 
   beforeEach(() => {
@@ -89,6 +92,7 @@ describe("submission route domain enforcement", () => {
       NODE_ENV: "test",
       LOCAL_DEV_BYPASS_AUTH: "false",
       ENFORCE_STUDENT_DOMAIN: "false",
+      REQUIRE_ROSTER_FOR_SUBMISSIONS: "false",
     };
     delete process.env.STUDENT_DOMAIN;
 
@@ -97,6 +101,7 @@ describe("submission route domain enforcement", () => {
     mocks.mockCountStudentSubmissions.mockReset();
     mocks.mockCreateSubmission.mockReset();
     mocks.mockFindAssignmentById.mockReset();
+    mocks.mockIsStudentOnRoster.mockReset();
     mocks.mockUpsertRosterEntry.mockReset();
     mocks.mockEnforceSubmissionRateLimit.mockReset();
     mocks.mockParseOrThrow400.mockReset();
@@ -111,6 +116,7 @@ describe("submission route domain enforcement", () => {
       maxSubmissions: 0,
     });
     mocks.mockCountStudentSubmissions.mockResolvedValue(0);
+    mocks.mockIsStudentOnRoster.mockResolvedValue(true);
     mocks.mockEnforceSubmissionRateLimit.mockResolvedValue(undefined);
     mocks.mockParseOrThrow400.mockResolvedValue({
       studentName: "Student One",
@@ -140,6 +146,7 @@ describe("submission route domain enforcement", () => {
       LOCAL_DEV_BYPASS_AUTH: originalEnv.LOCAL_DEV_BYPASS_AUTH,
       ENFORCE_STUDENT_DOMAIN: originalEnv.ENFORCE_STUDENT_DOMAIN,
       STUDENT_DOMAIN: originalEnv.STUDENT_DOMAIN,
+      REQUIRE_ROSTER_FOR_SUBMISSIONS: originalEnv.REQUIRE_ROSTER_FOR_SUBMISSIONS,
     };
   });
 
@@ -210,6 +217,21 @@ describe("submission route domain enforcement", () => {
     expect(response.status).toBe(503);
     expect(data.error).toContain("upload your recording");
     expect(data.error).toContain("school network");
+    expect(mocks.mockCreateSubmission).not.toHaveBeenCalled();
+  });
+
+  it("blocks submissions from students outside the roster when roster enforcement is enabled", async () => {
+    process.env.REQUIRE_ROSTER_FOR_SUBMISSIONS = "true";
+    mocks.mockIsStudentOnRoster.mockResolvedValue(false);
+
+    const response = await POST(makeRequest(), {
+      params: Promise.resolve({ assignmentId: "asg_1" }),
+    });
+    const data = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(403);
+    expect(data.error).toContain("class roster");
+    expect(mocks.mockUploadSubmissionAudio).not.toHaveBeenCalled();
     expect(mocks.mockCreateSubmission).not.toHaveBeenCalled();
   });
 });

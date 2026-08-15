@@ -3,7 +3,7 @@ import path from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 const dataDir = path.join(process.cwd(), "data");
-const localDbPath = path.join(dataDir, "local.db");
+const localDbPath = path.join(dataDir, "tracking-test.db");
 
 async function loadDbModule() {
   vi.resetModules();
@@ -14,6 +14,7 @@ describe("tracking db helpers", () => {
   beforeAll(() => {
     delete process.env.TURSO_DATABASE_URL;
     delete process.env.TURSO_AUTH_TOKEN;
+    process.env.HABLA_LOCAL_DB_PATH = localDbPath;
     fs.rmSync(localDbPath, { force: true });
   });
 

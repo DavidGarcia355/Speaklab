@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 
 type ConfirmModalProps = {
@@ -24,12 +24,6 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   useEffect(() => {
     if (!open) return;
     document.body.style.overflow = "hidden";
@@ -38,7 +32,9 @@ export default function ConfirmModal({
     };
   }, [open]);
 
-  if (!open || !mounted) return null;
+  const portalTarget = typeof document === "undefined" ? null : document.body;
+
+  if (!open || !portalTarget) return null;
 
   return createPortal(
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={title} onClick={onCancel}>
@@ -59,6 +55,6 @@ export default function ConfirmModal({
         </div>
       </div>
     </div>,
-    document.body
+    portalTarget
   );
 }

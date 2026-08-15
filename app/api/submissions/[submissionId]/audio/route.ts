@@ -85,20 +85,8 @@ export async function GET(
 
     const blobTarget = resolveBlobFetchTarget(found.audioBlobUrl);
     if (blobTarget.mode === "public-url") {
-      const upstream = await fetch(blobTarget.reference, {
-        cache: "no-store",
-      });
-      if (!upstream.ok || !upstream.body) {
-        throw new HttpError(404, "Audio not found.");
-      }
-
-      return new Response(upstream.body, {
-        status: 200,
-        headers: {
-          "Content-Type": upstream.headers.get("content-type") || "application/octet-stream",
-          "Cache-Control": "private, no-store",
-        },
-      });
+      console.warn("Blocked playback for public student-audio Blob URL", { submissionId });
+      throw new HttpError(410, "Audio storage needs migration before playback.");
     }
 
     const upstream = await get(blobTarget.reference, {

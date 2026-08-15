@@ -30,6 +30,13 @@ export function enforceCors(request: Request) {
   if (env.isDev) {
     allowed.add("http://localhost:3000");
     allowed.add("http://127.0.0.1:3000");
+    allowed.add(new URL(request.url).origin);
+
+    const host = request.headers.get("host")?.trim();
+    if (host) {
+      allowed.add(`http://${host}`);
+      allowed.add(`https://${host}`);
+    }
   }
 
   if (!allowed.has(normalizedOrigin)) {

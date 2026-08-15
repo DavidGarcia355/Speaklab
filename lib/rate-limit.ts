@@ -44,6 +44,13 @@ async function enforce(
   message: string
 ) {
   const env = getEnv();
+  if (!env.upstashRedisRestUrl || !env.upstashRedisRestToken) {
+    if (env.isDev) {
+      console.warn("Rate limit backend unavailable in development; skipping limiter.");
+      return;
+    }
+    throw new HttpError(503, "Rate limiting is not configured.");
+  }
   const map = {
     submission: (submissionLimiter ??= limiter("rl:submission", getSubmissionLimitPerHour())),
     auth: (authLimiter ??= limiter("rl:auth", getAuthLimitPerHour())),
