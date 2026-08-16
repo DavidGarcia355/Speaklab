@@ -125,18 +125,25 @@ export default function StudentDashboardPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<StudentSubmission | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [localAuthBypassEnabled, setLocalAuthBypassEnabled] = useState(false);
 
   useEffect(() => {
     async function loadSession() {
       setAuthLoading(true);
       try {
-        const response = await fetch("/api/auth/session", { cache: "no-store" });
-        if (!response.ok) throw new Error();
-        const data = (await response.json()) as SessionResponse | null;
+        const [sessionRes, featuresRes] = await Promise.all([
+          fetch("/api/auth/session", { cache: "no-store" }),
+          fetch("/api/features", { cache: "no-store" }),
+        ]);
+        const data = sessionRes.ok ? ((await sessionRes.json()) as SessionResponse | null) : null;
         const userEmail = data?.user?.email?.trim().toLowerCase() ?? "";
         const userName = data?.user?.name?.trim() ?? "";
-        setEmail(userEmail);
-        setName(userName || (userEmail ? userEmail.split("@")[0] : ""));
+        const bypass = featuresRes.ok
+          ? ((await featuresRes.json()) as { localAuthBypassEnabled?: boolean }).localAuthBypassEnabled === true
+          : false;
+        setLocalAuthBypassEnabled(bypass);
+        setEmail(userEmail || (bypass ? "dev-student@gmail.com" : ""));
+        setName(userName || (userEmail ? userEmail.split("@")[0] : bypass ? "dev-student" : ""));
       } catch {
         setEmail("");
       } finally {
@@ -230,7 +237,9 @@ export default function StudentDashboardPage() {
       <section className="student-dash-header">
         <div>
           <h1 className="student-dash-headline">Hi, {name}</h1>
-          <p className="meta">Signed in as {email}</p>
+          <p className="meta">
+            {localAuthBypassEnabled ? "Local dev auth bypass — viewing as" : "Signed in as"} {email}
+          </p>
         </div>
         <div className="actions">
           <Link className="btn btn-ghost" href="/student/dashboard">My classes</Link>

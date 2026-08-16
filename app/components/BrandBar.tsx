@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Languages } from "lucide-react";
 import ThemeToggle from "@/app/components/ThemeToggle";
 import { APP_NAME } from "@/app/constants";
 
@@ -45,7 +44,7 @@ export default function BrandBar({ label }: BrandBarProps) {
       <header className="brand-bar">
         <Link href="/" className="brand-link" aria-label={`${APP_NAME} home`}>
           <span className="brand-mark" aria-hidden="true">
-            <Languages size={18} strokeWidth={2.4} />
+            <span className="brand-belt-mark">H</span>
           </span>
           <span className="brand-text">{APP_NAME}</span>
         </Link>

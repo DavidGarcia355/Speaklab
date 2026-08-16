@@ -6,7 +6,10 @@ const mocks = vi.hoisted(() => ({
   getUserRoleByEmail: vi.fn(),
   getTrackingSummary: vi.fn(),
   listRecentActivityEvents: vi.fn(),
+  listRecentTeacherActivityEvents: vi.fn(),
   listTeacherFunnelRows: vi.fn(),
+  listClasses: vi.fn(),
+  listFeedbackMessages: vi.fn(),
   trackActivity: vi.fn(),
   requireAuthenticatedEmail: vi.fn(),
   setUserRoleTeacher: vi.fn(),
@@ -26,7 +29,10 @@ vi.mock("@/lib/db", () => ({
   getUserRoleByEmail: mocks.getUserRoleByEmail,
   getTrackingSummary: mocks.getTrackingSummary,
   listRecentActivityEvents: mocks.listRecentActivityEvents,
+  listRecentTeacherActivityEvents: mocks.listRecentTeacherActivityEvents,
   listTeacherFunnelRows: mocks.listTeacherFunnelRows,
+  listClasses: mocks.listClasses,
+  listFeedbackMessages: mocks.listFeedbackMessages,
   setUserRoleTeacher: mocks.setUserRoleTeacher,
   findClassById: mocks.findClassById,
   createClass: mocks.createClass,
@@ -46,6 +52,11 @@ vi.mock("next-auth", () => ({
 vi.mock("@/lib/authz", () => ({
   requireAuthenticatedEmail: mocks.requireAuthenticatedEmail,
   requireTeacherEmail: mocks.requireAuthenticatedEmail,
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => {} }),
+  usePathname: () => "/admin",
 }));
 
 vi.mock("@/lib/attachment-storage", () => ({
@@ -115,7 +126,10 @@ describe("tracking hooks", () => {
     mocks.getServerSession.mockReset();
     mocks.getTrackingSummary.mockReset();
     mocks.listRecentActivityEvents.mockReset();
+    mocks.listRecentTeacherActivityEvents.mockReset();
     mocks.listTeacherFunnelRows.mockReset();
+    mocks.listClasses.mockReset();
+    mocks.listFeedbackMessages.mockReset();
     mocks.setUserRoleTeacher.mockReset();
     mocks.findClassById.mockReset();
     mocks.createClass.mockReset();
@@ -150,9 +164,14 @@ describe("tracking hooks", () => {
         joinedAt: Date.UTC(2026, 2, 18, 10, 0, 0),
         classCount: 1,
         assignmentCount: 1,
+        submissionCount: 0,
         latestActivityAt: Date.UTC(2026, 2, 19, 12, 0, 0),
+        isPaid: false,
       },
     ]);
+    mocks.listRecentTeacherActivityEvents.mockResolvedValue([]);
+    mocks.listClasses.mockResolvedValue([]);
+    mocks.listFeedbackMessages.mockResolvedValue([]);
     mocks.trackActivity.mockResolvedValue(undefined);
     mocks.requireAuthenticatedEmail.mockResolvedValue("teacher@example.com");
     mocks.getServerSession.mockResolvedValue({
@@ -430,6 +449,31 @@ describe("admin access helper", () => {
 });
 
 describe("admin page", () => {
+  beforeEach(() => {
+    mocks.getTrackingSummary.mockResolvedValue({
+      totalUsers: 3,
+      teacherAccounts: 2,
+      activatedTeachers: 1,
+      teachingReadyTeachers: 1,
+    });
+    mocks.listRecentActivityEvents.mockResolvedValue([]);
+    mocks.listRecentTeacherActivityEvents.mockResolvedValue([]);
+    mocks.listTeacherFunnelRows.mockResolvedValue([
+      {
+        email: "teacher@example.com",
+        role: "teacher",
+        joinedAt: Date.UTC(2026, 2, 18, 10, 0, 0),
+        classCount: 1,
+        assignmentCount: 1,
+        submissionCount: 0,
+        latestActivityAt: Date.UTC(2026, 2, 19, 12, 0, 0),
+        isPaid: false,
+      },
+    ]);
+    mocks.listClasses.mockResolvedValue([]);
+    mocks.listFeedbackMessages.mockResolvedValue([]);
+  });
+
   it("renders founder metrics for the configured admin email", async () => {
     process.env.ADMIN_EMAIL = "founder@example.com";
     mocks.getServerSession.mockResolvedValue({

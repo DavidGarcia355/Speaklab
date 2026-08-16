@@ -44,15 +44,23 @@ export default function AudioPlayer({
     const onLoaded = () => setDuration(audio.duration || 0);
     const onTime = () => setCurrentTime(audio.currentTime || 0);
     const onEnd = () => setIsPlaying(false);
+    const onError = () => {
+      const mediaError = audio.error;
+      console.error("Audio element failed to load", { src, code: mediaError?.code, message: mediaError?.message });
+      setErrorMsg(`Couldn't load this recording (media error ${mediaError?.code ?? "unknown"}).`);
+      setIsPlaying(false);
+    };
 
     audio.addEventListener("loadedmetadata", onLoaded);
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("ended", onEnd);
+    audio.addEventListener("error", onError);
     return () => {
       audio.pause();
       audio.removeEventListener("loadedmetadata", onLoaded);
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("ended", onEnd);
+      audio.removeEventListener("error", onError);
     };
   }, [src]);
 
@@ -76,8 +84,10 @@ export default function AudioPlayer({
     try {
       await audio.play();
       setIsPlaying(true);
-    } catch {
-      setErrorMsg("Playback failed. Try again.");
+    } catch (error) {
+      const reason = error instanceof DOMException ? `${error.name}: ${error.message}` : String(error);
+      console.error("Audio playback failed", reason, { src, networkState: audio.networkState, errorCode: audio.error?.code });
+      setErrorMsg(`Playback failed (${reason}). Try again.`);
       setIsPlaying(false);
     }
   }

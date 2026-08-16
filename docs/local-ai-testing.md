@@ -109,17 +109,85 @@ It refuses to run without `LOCAL_DEV_BYPASS_AUTH=true`.
 
 ## Real Providers Later
 
+Chosen path: OpenAI for both transcription and grading (no self-hosted infra to run).
 For real local provider testing, keep production data out of the environment and switch providers explicitly:
 
 ```env
 AI_TRANSCRIPTION_PROVIDER=openai
-AI_GRADING_PROVIDER=ollama
+AI_GRADING_PROVIDER=openai
+AI_TRANSCRIPTION_MODEL=whisper-1
+AI_GRADING_MODEL=gpt-4o-mini
 OPENAI_API_KEY=configured-locally-only
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.2
 ```
 
 Do not use production student data or production credentials for local testing.
+
+### Granting a teacher access
+
+AI grading is gated behind `getUserIsPaid`, which reads the `users.is_paid` column — there is
+no self-serve billing yet, so this must be granted manually. Sign in as the account matching
+`ADMIN_EMAIL`, open `/admin`, find the teacher in the **Teacher roster** table, and click the
+pill in the **AI grading** column to toggle **Free ⇄ Paid**. This calls
+`PATCH /api/admin/teachers/[email]/paid`, which is itself gated by `requireAdminEmail`.
+
+### Getting an API key
+
+1. Create/sign in to an OpenAI account: https://platform.openai.com/signup
+2. Add a payment method: https://platform.openai.com/settings/organization/billing/overview
+3. Create a key: https://platform.openai.com/api-keys
+4. Paste it into `OPENAI_API_KEY` in `.env.local` (never commit it).
+
+New accounts get $5 in free credit, which covers roughly 800+ AI-grade generations before any
+charge lands.
+
+### Cost per AI-grade generation
+
+Each click of "Generate AI suggestion" does one transcription call and one grading call
+(nothing is cached, so regenerating re-runs both). Assuming a ~2-minute student recording:
+
+| Step | Model | Rate | Cost for 2 min / ~600 in / ~400 out tokens |
+| --- | --- | --- | --- |
+| Transcription | `whisper-1` | $0.006/min | ~$0.012 |
+| Grading | `gpt-4o-mini` | $0.15/1M in, $0.60/1M out | ~$0.0003 |
+| **Total** | | | **~$0.012/generation (~1 cent)** |
+
+`AI_MAX_GENERATIONS_PER_SUBMISSION` caps regeneration at 10, so worst case per submission is
+~$0.12. At scale: 1,000 generations/month ≈ $12; 10,000/month ≈ $120. No fixed/infra cost —
+pure pay-as-you-go, billed by the second, no volume commitment.
+
+To cut transcription cost roughly in half, switch `AI_TRANSCRIPTION_MODEL` to
+`gpt-4o-mini-transcribe` ($0.003/min) — same API shape, drop-in env change.
+
+### Cost-runaway guardrails
+
+Layered protections, in the order a request hits them:
+
+1. **Paid-plan gate** — `AI_GRADING_ENABLED` route requires `getUserIsPaid`; only paying teachers can trigger real spend at all.
+2. **Cooldown** — `AI_GENERATION_COOLDOWN_SECONDS` (default 3s) blocks rapid re-clicks.
+3. **Per-submission cap** — `AI_MAX_GENERATIONS_PER_SUBMISSION` (default 10) bounds regeneration on one recording.
+4. **Per-teacher daily cap** — `AI_DAILY_TEACHER_LIMIT` (default 100/day).
+5. **App-wide daily cap** — `AI_DAILY_GLOBAL_LIMIT` (default 500/day) bounds total spend across every teacher combined,
+   independent of how many paid accounts exist. Size it to your budget: generations × ~$0.012 ≈ daily $ exposure
+   (500/day ≈ $6/day ≈ $180/month worst case at normal per-call cost).
+6. **Audio-duration circuit breaker** — the transcription call now requests `verbose_json` from OpenAI and reads back
+   the real audio duration. If it exceeds `AI_MAX_AUDIO_SECONDS`, the attempt is recorded as failed
+   (`errorCode: "audio_too_long"`) and returns `413` instead of proceeding to grading. A submission that's already
+   failed this way is rejected immediately on the next attempt (`hasAudioTooLongFailure`), so a single oversized or
+   low-bitrate file can only be transcribed once, not up to 10 times.
+
+None of these are a substitute for an OpenAI-side hard spend limit — they reduce app-level risk, but only the
+provider's own billing cap is a guaranteed ceiling that survives an app bug. Set that too:
+1. https://platform.openai.com/settings/organization/limits
+2. Edit spend limit → enter a monthly cap → enable "Enforce a hard limit" → Save.
+
+### Alternative: self-hosted Ollama for grading
+
+`AI_GRADING_PROVIDER=ollama` keeps transcript text off OpenAI (only audio still goes out for
+transcription). It requires a persistent host running Ollama — Vercel serverless functions
+cannot host it. A small VPS (e.g. Hetzner CPX31, ~$18-27/mo, or a DigitalOcean equivalent)
+running `llama3.2` works. This is a flat monthly cost regardless of usage/volume, plus ongoing
+maintenance, and does not reduce cost versus OpenAI grading (gpt-4o-mini grading is already
+near-free) — its only benefit is not sending transcript text to a third party.
 
 ## Common Errors
 

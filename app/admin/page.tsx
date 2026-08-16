@@ -3,6 +3,7 @@ import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
 import { requireAdminEmail } from "@/lib/admin";
 import DeleteFeedbackButton from "./DeleteFeedbackButton";
+import TeacherPaidToggle from "./TeacherPaidToggle";
 import {
   getTrackingSummary,
   listClasses,
@@ -396,6 +397,7 @@ export default async function AdminPage() {
                   <th>Assignments</th>
                   <th>Submissions</th>
                   <th>Last active</th>
+                  <th>AI grading</th>
                 </tr>
               </thead>
               <tbody>
@@ -415,6 +417,9 @@ export default async function AdminPage() {
                         {teacher.latestActivityAt
                           ? formatTimeAgo(teacher.latestActivityAt)
                           : "Never"}
+                      </td>
+                      <td>
+                        <TeacherPaidToggle email={teacher.email} isPaid={teacher.isPaid} />
                       </td>
                     </tr>
                   );

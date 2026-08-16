@@ -117,6 +117,7 @@ export type TeacherFunnelRow = {
   assignmentCount: number;
   submissionCount: number;
   latestActivityAt: number | null;
+  isPaid: boolean;
 };
 
 export type TrackingSummaryRow = {
@@ -1394,7 +1395,8 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
       COALESCE(class_counts.classCount, 0) as classCount,
       COALESCE(assignment_counts.assignmentCount, 0) as assignmentCount,
       COALESCE(submission_counts.submissionCount, 0) as submissionCount,
-      activity.latestActivityAt as latestActivityAt
+      activity.latestActivityAt as latestActivityAt,
+      u.is_paid as isPaid
     FROM users u
     LEFT JOIN (
       SELECT LOWER(owner_email) as email, COUNT(*) as classCount
@@ -1436,6 +1438,7 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
     assignmentCount: toNumber(row.assignmentCount),
     submissionCount: toNumber(row.submissionCount),
     latestActivityAt: row.latestActivityAt === null ? null : toNumber(row.latestActivityAt),
+    isPaid: toNumber(row.isPaid) === 1,
   }));
 }
 
@@ -1450,7 +1453,8 @@ export async function findTeacherFunnelRowByEmail(
       COALESCE(class_counts.classCount, 0) as classCount,
       COALESCE(assignment_counts.assignmentCount, 0) as assignmentCount,
       COALESCE(submission_counts.submissionCount, 0) as submissionCount,
-      activity.latestActivityAt as latestActivityAt
+      activity.latestActivityAt as latestActivityAt,
+      u.is_paid as isPaid
     FROM users u
     LEFT JOIN (
       SELECT LOWER(owner_email) as email, COUNT(*) as classCount
@@ -1496,6 +1500,7 @@ export async function findTeacherFunnelRowByEmail(
     assignmentCount: toNumber(row.assignmentCount),
     submissionCount: toNumber(row.submissionCount),
     latestActivityAt: row.latestActivityAt === null ? null : toNumber(row.latestActivityAt),
+    isPaid: toNumber(row.isPaid) === 1,
   };
 }
 
@@ -1588,11 +1593,21 @@ export async function getUserIsPaid(email: string): Promise<boolean> {
   return toNumber(result.rows[0]?.is_paid) === 1;
 }
 
+export async function setUserPaid(email: string, isPaid: boolean): Promise<boolean> {
+  const normalized = email.trim().toLowerCase();
+  const result = await query(
+    `UPDATE users SET is_paid = ? WHERE LOWER(email) = LOWER(?)`,
+    [isPaid ? 1 : 0, normalized]
+  );
+  return result.rowsAffected > 0;
+}
+
 export type SubmissionForAiGradeRow = {
   submissionId: string;
   assignmentId: string;
   assignmentTitle: string;
   audioBlobUrl: string;
+  description: string;
   instructions: string;
   rubric: Rubric | null;
   maxPoints: number;
@@ -1610,6 +1625,7 @@ export async function findSubmissionForAiGrade(
       a.id as assignmentId,
       a.title as assignmentTitle,
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl,
+      COALESCE(a.description, '') as description,
       a.instructions as instructions,
       a.rubric as rubric,
       a.max_points as maxPoints,
@@ -1633,6 +1649,7 @@ export async function findSubmissionForAiGrade(
     assignmentId: toStringValue(row.assignmentId),
     assignmentTitle: toStringValue(row.assignmentTitle),
     audioBlobUrl: toStringValue(row.audioBlobUrl),
+    description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
     rubric: parseJsonValue<Rubric>(row.rubric),
     maxPoints: toNumber(row.maxPoints),
@@ -1822,6 +1839,29 @@ export async function countAiAttemptsForTeacherSince(teacherEmail: string, since
     [teacherEmail, since]
   );
   return toNumber(result.rows[0]?.cnt);
+}
+
+export async function countAiAttemptsSince(since: number): Promise<number> {
+  const result = await query(
+    `SELECT COUNT(*) as cnt
+    FROM ai_grading_attempts
+    WHERE created_at >= ?
+      AND status = 'completed'`,
+    [since]
+  );
+  return toNumber(result.rows[0]?.cnt);
+}
+
+export async function hasAudioTooLongFailure(submissionId: string): Promise<boolean> {
+  const result = await query(
+    `SELECT 1
+    FROM ai_grading_attempts
+    WHERE submission_id = ?
+      AND error_code = 'audio_too_long'
+    LIMIT 1`,
+    [submissionId]
+  );
+  return result.rows.length > 0;
 }
 
 export async function latestAiAttemptCreatedAt(submissionId: string, ownerEmail: string): Promise<number | null> {

@@ -14,6 +14,7 @@ export type AiConfig = {
   maxGenerationsPerSubmission: number;
   cooldownSeconds: number;
   dailyTeacherLimit: number;
+  dailyGlobalLimit: number;
   failureMode: string;
 };
 
@@ -51,14 +52,18 @@ export function getAiConfig(): AiConfig {
       (transcriptionProvider === "mock" ? "mock-transcriber" : "whisper-1"),
     gradingModel:
       process.env.AI_GRADING_MODEL?.trim() ||
-      process.env.OLLAMA_MODEL?.trim() ||
-      (gradingProvider === "mock" ? "mock-grader" : "llama3.2"),
+      (gradingProvider === "mock"
+        ? "mock-grader"
+        : gradingProvider === "openai"
+          ? "gpt-4o-mini"
+          : process.env.OLLAMA_MODEL?.trim() || "llama3.2"),
     ollamaBaseUrl:
       process.env.OLLAMA_BASE_URL?.trim() || process.env.OLLAMA_URL?.trim() || "http://localhost:11434",
     maxAudioSeconds: numberFromEnv("AI_MAX_AUDIO_SECONDS", 300),
     maxGenerationsPerSubmission: numberFromEnv("AI_MAX_GENERATIONS_PER_SUBMISSION", 10),
     cooldownSeconds: numberFromEnv("AI_GENERATION_COOLDOWN_SECONDS", 3),
-    dailyTeacherLimit: numberFromEnv("AI_DAILY_TEACHER_LIMIT", 100),
+    dailyTeacherLimit: numberFromEnv("AI_DAILY_TEACHER_LIMIT", 20),
+    dailyGlobalLimit: numberFromEnv("AI_DAILY_GLOBAL_LIMIT", 500),
     failureMode: isDev ? process.env.AI_LOCAL_FAILURE_MODE?.trim().toLowerCase() || "" : "",
   };
 }

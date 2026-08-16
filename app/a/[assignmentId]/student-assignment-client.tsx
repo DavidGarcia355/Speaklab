@@ -386,9 +386,21 @@ export default function StudentAssignmentClient({
     setRecorderState("submitting");
     setErrorMsg("");
     setStatusMsg("");
+
+    let audioData: string;
     try {
-      const audioData = await blobToDataUrl(recordingBlob);
-      const response = await fetch(`/api/assignments/${assignment.id}/submissions`, {
+      audioData = await blobToDataUrl(recordingBlob);
+    } catch (error) {
+      const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      console.error("blobToDataUrl failed", reason, { blobType: recordingBlob.type, blobSize: recordingBlob.size });
+      setErrorMsg(`Couldn't read the recording (${reason}). Try recording again.`);
+      setRecorderState("ready");
+      return;
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`/api/assignments/${assignment.id}/submissions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -396,20 +408,32 @@ export default function StudentAssignmentClient({
           audioData,
         }),
       });
-      if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
-        throw new Error(data.error || "Something went wrong — try refreshing the page.");
-      }
-      setSubmittedCurrentRecording(true);
-      setSubmissionCount((prev) => prev + 1);
-      setStatusMsg("Submitted! Your teacher will review your recording.");
-      setRecorderState("ready");
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Something went wrong — try refreshing the page.";
-      setErrorMsg(message);
+      const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      console.error("Submit fetch failed", reason);
+      setErrorMsg(`Couldn't reach the server (${reason}). Check your connection and try again.`);
       setRecorderState("ready");
+      return;
     }
+
+    if (!response.ok) {
+      let serverMessage = `HTTP ${response.status}`;
+      try {
+        const data = (await response.json()) as { error?: string };
+        if (data.error) serverMessage = data.error;
+      } catch {
+        // response body wasn't JSON — keep the HTTP status as the message
+      }
+      console.error("Submit rejected by server", { status: response.status, serverMessage });
+      setErrorMsg(serverMessage);
+      setRecorderState("ready");
+      return;
+    }
+
+    setSubmittedCurrentRecording(true);
+    setSubmissionCount((prev) => prev + 1);
+    setStatusMsg("Submitted! Your teacher will review your recording.");
+    setRecorderState("ready");
   }
 
   const maxRecSec = assignment?.maxRecordingSeconds || DEFAULT_MAX_RECORDING_SECONDS;
@@ -508,6 +532,8 @@ export default function StudentAssignmentClient({
                   </a>
                 </div>
               </div>
+            ) : localAuthBypassEnabled ? (
+              <p className="notice info">Local dev auth bypass is on — sign-in is skipped. Record and submit below.</p>
             ) : (
               <div className="auth-signin-prompt">
                 <p className="meta">Sign in with your school account to submit your recording.</p>

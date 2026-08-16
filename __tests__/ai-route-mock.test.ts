@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   })),
   countAiAttemptsForSubmission: vi.fn(async () => 0),
   countAiAttemptsForTeacherSince: vi.fn(async () => 0),
+  countAiAttemptsSince: vi.fn(async () => 0),
+  hasAudioTooLongFailure: vi.fn(async () => false),
   latestAiAttemptCreatedAt: vi.fn<() => Promise<number | null>>(async () => null),
   listAiGradingAttemptsForSubmission: vi.fn(async () => []),
   createAiGradingAttempt: vi.fn(async (input) => ({
@@ -34,6 +36,8 @@ vi.mock("@/lib/db", () => ({
   findSubmissionForAiGrade: mocks.findSubmissionForAiGrade,
   countAiAttemptsForSubmission: mocks.countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince: mocks.countAiAttemptsForTeacherSince,
+  countAiAttemptsSince: mocks.countAiAttemptsSince,
+  hasAudioTooLongFailure: mocks.hasAudioTooLongFailure,
   latestAiAttemptCreatedAt: mocks.latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission: mocks.listAiGradingAttemptsForSubmission,
   createAiGradingAttempt: mocks.createAiGradingAttempt,

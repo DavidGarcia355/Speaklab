@@ -3,9 +3,11 @@ import { requireTeacherEmail } from "@/lib/authz";
 import {
   countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince,
+  countAiAttemptsSince,
   createAiGradingAttempt,
   findSubmissionForAiGrade,
   getUserIsPaid,
+  hasAudioTooLongFailure,
   latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission,
 } from "@/lib/db";
@@ -49,6 +51,7 @@ async function assertAttemptLimits(input: {
   maxGenerationsPerSubmission: number;
   cooldownSeconds: number;
   dailyTeacherLimit: number;
+  dailyGlobalLimit: number;
 }) {
   const perSubmission = await countAiAttemptsForSubmission(input.submissionId, input.teacherEmail);
   if (perSubmission >= input.maxGenerationsPerSubmission) {
@@ -64,6 +67,11 @@ async function assertAttemptLimits(input: {
   const daily = await countAiAttemptsForTeacherSince(input.teacherEmail, since);
   if (daily >= input.dailyTeacherLimit) {
     throw new HttpError(429, "Daily AI generation limit reached.");
+  }
+
+  const globalDaily = await countAiAttemptsSince(since);
+  if (globalDaily >= input.dailyGlobalLimit) {
+    throw new HttpError(429, "Daily AI generation limit reached for the whole app. Try again tomorrow.");
   }
 }
 
@@ -111,7 +119,12 @@ export async function POST(
       maxGenerationsPerSubmission: config.maxGenerationsPerSubmission,
       cooldownSeconds: config.cooldownSeconds,
       dailyTeacherLimit: config.dailyTeacherLimit,
+      dailyGlobalLimit: config.dailyGlobalLimit,
     });
+
+    if (await hasAudioTooLongFailure(submissionId)) {
+      throw new HttpError(413, "This recording is longer than the AI grading limit and can't be graded.");
+    }
 
     try {
       const audio =
@@ -123,8 +136,41 @@ export async function POST(
         buffer: audio.buffer,
         contentType: audio.contentType,
       });
+
+      if (transcript.durationSeconds > config.maxAudioSeconds) {
+        await createAiGradingAttempt({
+          submissionId,
+          teacherEmail,
+          status: "failed",
+          transcript: transcript.transcript,
+          detectedLanguage: transcript.detectedLanguage,
+          transcriptQuality: transcript.quality,
+          durationSeconds: transcript.durationSeconds,
+          suggestedScore: null,
+          rubricScores: [],
+          feedback: "",
+          strengths: [],
+          improvements: [],
+          evidence: [],
+          confidence: "low",
+          warnings: [],
+          teacherAttention: "unable_to_grade",
+          transcriptionProvider: config.transcriptionProvider,
+          gradingProvider: config.gradingProvider,
+          transcriptionModel: config.transcriptionModel,
+          gradingModel: config.gradingModel,
+          errorCode: "audio_too_long",
+          errorMessage: `Audio is ${transcript.durationSeconds}s, which exceeds the ${config.maxAudioSeconds}s AI grading limit.`,
+        });
+        return NextResponse.json(
+          { error: "This recording is longer than the AI grading limit and can't be graded." },
+          { status: 413 }
+        );
+      }
+
       const suggestion = await gradeTranscript({
         config,
+        description: data.description,
         instructions: data.instructions,
         rubric: data.rubric,
         maxPoints: data.maxPoints,

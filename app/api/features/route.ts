@@ -13,6 +13,8 @@ export async function GET(request: Request) {
         process.env.NODE_ENV !== "production" &&
         process.env.AI_TRANSCRIPTION_PROVIDER === "mock" &&
         process.env.AI_GRADING_PROVIDER === "mock",
+      localAuthBypassEnabled:
+        process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true",
     })
   );
 }
