@@ -356,10 +356,10 @@ export default function TeacherPage() {
           <span className="teacher-hero-sticker">Ready to speak</span>
           <Image
             className="teacher-hero-mascot"
-            src="/images/habla-hero-mascot.png"
+            src="/mascot/habla-man.webp"
             alt=""
             width={229}
-            height={275}
+            height={227}
             priority
           />
         </div>

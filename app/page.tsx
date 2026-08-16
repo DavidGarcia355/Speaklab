@@ -111,10 +111,10 @@ export default function Home() {
             <span className="home-mascot-note home-mascot-note-top">Listen</span>
             <Image
               className="home-mascot"
-              src="/images/habla-hero-mascot.png"
-              alt="Habla's cheerful orange-haired superhero mascot"
-              width={458}
-              height={550}
+              src="/mascot/habla-man.webp"
+              alt="Habla Man, Habla's globe-headed superhero mascot"
+              width={1100}
+              height={1092}
               priority
             />
             <span className="home-mascot-note home-mascot-note-bottom">Speak</span>
