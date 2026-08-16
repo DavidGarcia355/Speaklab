@@ -157,3 +157,17 @@ describe("audio playback authorization and legacy handling", () => {
     expect(mocks.blobGet).not.toHaveBeenCalled();
   });
 });
+
+describe("AI audio data-url compatibility", () => {
+  it("decodes legacy data URLs with quoted multi-codec metadata", async () => {
+    const { fetchAuthorizedAudioBuffer } = await import("@/lib/ai/audio");
+
+    const result = await fetchAuthorizedAudioBuffer(
+      `data:audio/webm;codecs="opus,pcm";base64,${Buffer.from("audio").toString("base64")}`
+    );
+
+    expect(result.contentType).toBe("audio/webm");
+    expect(result.storageMode).toBe("legacy-data-url");
+    expect(result.buffer.toString()).toBe("audio");
+  });
+});

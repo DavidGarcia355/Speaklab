@@ -1,6 +1,7 @@
 import "server-only";
 import { get } from "@vercel/blob";
 import { HttpError } from "@/lib/http";
+import { parseAudioDataUrl } from "@/lib/validation";
 
 export const AI_MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
@@ -8,11 +9,15 @@ export async function fetchAuthorizedAudioBuffer(
   audioBlobUrl: string
 ): Promise<{ buffer: Buffer; contentType: string; storageMode: "legacy-data-url" | "private-blob" }> {
   if (audioBlobUrl.startsWith("data:audio/")) {
-    const match = audioBlobUrl.match(/^data:([a-z0-9/+.-]+)(?:;[a-z0-9=_.-]+)*;base64,([a-z0-9+/=]+)$/i);
-    if (!match) throw new HttpError(500, "Could not decode legacy audio data.");
+    let parsed: ReturnType<typeof parseAudioDataUrl>;
+    try {
+      parsed = parseAudioDataUrl(audioBlobUrl);
+    } catch {
+      throw new HttpError(500, "Could not decode legacy audio data.");
+    }
     return {
-      buffer: Buffer.from(match[2], "base64"),
-      contentType: match[1],
+      buffer: parsed.buffer,
+      contentType: parsed.mimeType,
       storageMode: "legacy-data-url",
     };
   }

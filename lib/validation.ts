@@ -263,23 +263,40 @@ const allowedAttachmentTypes = new Set<ParsedAttachment["mimeType"]>([
   "image/jpeg",
 ]);
 
-export function parseAudioDataUrl(dataUrl: string): ParsedAudio {
+function parseBase64DataUrl(dataUrl: string) {
   const trimmed = dataUrl.trim();
-  const match = trimmed.match(/^data:(audio\/[a-z0-9.+-]+)(?:;[^;,]+)*;base64,([a-z0-9+/=]+)$/i);
-  if (!match) {
+  const marker = ";base64,";
+  const markerIndex = trimmed.toLowerCase().lastIndexOf(marker);
+  if (!trimmed.toLowerCase().startsWith("data:") || markerIndex < 0) return null;
+
+  const mimeType = trimmed.slice("data:".length, markerIndex).split(";")[0]?.trim().toLowerCase();
+  const encoded = trimmed.slice(markerIndex + marker.length).replace(/\s/g, "");
+  if (!mimeType || encoded.length === 0 || encoded.length % 4 !== 0 || !/^[a-z0-9+/]*={0,2}$/i.test(encoded)) {
+    return null;
+  }
+
+  return {
+    mimeType,
+    buffer: Buffer.from(encoded, "base64"),
+  };
+}
+
+export function parseAudioDataUrl(dataUrl: string): ParsedAudio {
+  const parsed = parseBase64DataUrl(dataUrl);
+  if (!parsed) {
     throw new HttpError(400, "Validation failed.", {
       audioData: ["Audio must be a valid base64 data URL."],
     });
   }
 
-  const mimeType = match[1].toLowerCase() as ParsedAudio["mimeType"];
+  const mimeType = parsed.mimeType as ParsedAudio["mimeType"];
   if (!allowedAudioTypes.has(mimeType)) {
     throw new HttpError(400, "Validation failed.", {
       audioData: ["Unsupported audio type. Allowed: webm, ogg, mp4, wav."],
     });
   }
 
-  const buffer = Buffer.from(match[2], "base64");
+  const buffer = parsed.buffer;
   if (buffer.byteLength > LIMITS.maxAudioBytes) {
     throw new HttpError(400, "Validation failed.", {
       audioData: ["Audio file is too large. Maximum size is 25MB."],
@@ -290,22 +307,21 @@ export function parseAudioDataUrl(dataUrl: string): ParsedAudio {
 }
 
 export function parseAttachmentDataUrl(dataUrl: string): ParsedAttachment {
-  const trimmed = dataUrl.trim();
-  const match = trimmed.match(/^data:([a-z0-9/+.-]+);base64,([a-z0-9+/=]+)$/i);
-  if (!match) {
+  const parsed = parseBase64DataUrl(dataUrl);
+  if (!parsed) {
     throw new HttpError(400, "Validation failed.", {
       attachment: ["Attachment must be a valid base64 data URL."],
     });
   }
 
-  const mimeType = match[1].toLowerCase() as ParsedAttachment["mimeType"];
+  const mimeType = parsed.mimeType as ParsedAttachment["mimeType"];
   if (!allowedAttachmentTypes.has(mimeType)) {
     throw new HttpError(400, "Validation failed.", {
       attachment: ["Attachment must be a PDF, PNG, or JPG file."],
     });
   }
 
-  const buffer = Buffer.from(match[2], "base64");
+  const buffer = parsed.buffer;
   if (buffer.byteLength > LIMITS.maxAttachmentBytes) {
     throw new HttpError(400, "Validation failed.", {
       attachment: ["Attachment is too large. Maximum size is 10MB."],
