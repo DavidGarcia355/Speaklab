@@ -119,6 +119,20 @@ describe("audio playback authorization and legacy handling", () => {
     expect(mocks.findSubmissionAccessById).toHaveBeenCalledWith("sub_1", "teacher@example.com");
   });
 
+  it("serves legacy data-url audio with quoted multi-codec metadata", async () => {
+    mocks.findSubmissionAccessById.mockResolvedValue({
+      id: "sub_1",
+      studentEmail: "student@example.com",
+      audioBlobUrl: `data:audio/webm;codecs="opus,pcm";base64,${Buffer.from("audio").toString("base64")}`,
+    });
+
+    const response = await callAudioRoute();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("audio/webm");
+    expect(await response.text()).toBe("audio");
+  });
+
   it("denies unrelated teachers when the submission lookup fails", async () => {
     mocks.findSubmissionAccessById.mockResolvedValue(null);
 

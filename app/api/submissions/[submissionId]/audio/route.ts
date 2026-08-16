@@ -2,18 +2,20 @@ import { get } from "@vercel/blob";
 import { requireTeacherEmail } from "@/lib/authz";
 import { findSubmissionAccessById } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
+import { parseAudioDataUrl } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
 function decodeLegacyDataUrl(dataUrl: string) {
-  const match = dataUrl.match(/^data:([^;]+);base64,([a-z0-9+/=]+)$/i);
-  if (!match) {
+  try {
+    const parsed = parseAudioDataUrl(dataUrl);
+    return {
+      contentType: parsed.mimeType,
+      body: parsed.buffer,
+    };
+  } catch {
     throw new HttpError(500, "Something went wrong - try refreshing the page.");
   }
-  return {
-    contentType: match[1],
-    body: Buffer.from(match[2], "base64"),
-  };
 }
 
 function resolveBlobFetchTarget(value: string): {
@@ -74,7 +76,7 @@ export async function GET(
 
     if (found.audioBlobUrl.startsWith("data:audio/")) {
       const legacy = decodeLegacyDataUrl(found.audioBlobUrl);
-      return new Response(legacy.body, {
+      return new Response(new Uint8Array(legacy.body), {
         status: 200,
         headers: {
           "Content-Type": legacy.contentType,
