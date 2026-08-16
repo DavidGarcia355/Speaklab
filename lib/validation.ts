@@ -265,7 +265,7 @@ const allowedAttachmentTypes = new Set<ParsedAttachment["mimeType"]>([
 
 export function parseAudioDataUrl(dataUrl: string): ParsedAudio {
   const trimmed = dataUrl.trim();
-  const match = trimmed.match(/^data:(audio\/[a-z0-9.+-]+)(?:;[a-z0-9=_.-]+)*;base64,([a-z0-9+/=]+)$/i);
+  const match = trimmed.match(/^data:(audio\/[a-z0-9.+-]+)(?:;[^;,]+)*;base64,([a-z0-9+/=]+)$/i);
   if (!match) {
     throw new HttpError(400, "Validation failed.", {
       audioData: ["Audio must be a valid base64 data URL."],

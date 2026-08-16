@@ -419,8 +419,10 @@ export default function StudentAssignmentClient({
     if (!response.ok) {
       let serverMessage = `HTTP ${response.status}`;
       try {
-        const data = (await response.json()) as { error?: string };
-        if (data.error) serverMessage = data.error;
+        const data = (await response.json()) as { error?: string; fieldErrors?: Record<string, string[]> };
+        const detail = data.fieldErrors ? Object.values(data.fieldErrors).flat()[0] : undefined;
+        if (detail) serverMessage = detail;
+        else if (data.error) serverMessage = data.error;
       } catch {
         // response body wasn't JSON — keep the HTTP status as the message
       }
