@@ -28,6 +28,13 @@ function shouldRequireRosterForSubmissions() {
   return process.env.REQUIRE_ROSTER_FOR_SUBMISSIONS === "true";
 }
 
+function isPublicBlobStoreError(error: unknown) {
+  return (
+    error instanceof Error &&
+    error.message.toLowerCase().includes("cannot use private access on a public store")
+  );
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ assignmentId: string }> }
@@ -88,8 +95,9 @@ export async function POST(
         buffer: parsedAudio.buffer,
       });
     } catch (error) {
-      if (getEnv().isDev) {
-        // Local dev fallback when Blob is not configured.
+      if (getEnv().isDev || isPublicBlobStoreError(error)) {
+        // Fallback keeps submissions functional while production Blob is public-only.
+        // Playback and AI access still go through authenticated server routes.
         audioBlobUrl = body.audioData;
       } else {
         console.warn("Audio upload failed for submission upload", {

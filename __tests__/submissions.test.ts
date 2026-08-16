@@ -118,7 +118,7 @@ describe("submission route domain enforcement", () => {
     mocks.mockCountStudentSubmissions.mockResolvedValue(0);
     mocks.mockIsStudentOnRoster.mockResolvedValue(true);
     mocks.mockEnforceSubmissionRateLimit.mockResolvedValue(undefined);
-    mocks.mockParseOrThrow400.mockResolvedValue({
+    mocks.mockParseOrThrow400.mockReturnValue({
       studentName: "Student One",
       audioData: "data:audio/webm;base64,AAAA",
     });
@@ -218,6 +218,23 @@ describe("submission route domain enforcement", () => {
     expect(data.error).toContain("upload your recording");
     expect(data.error).toContain("school network");
     expect(mocks.mockCreateSubmission).not.toHaveBeenCalled();
+  });
+
+  it("falls back to protected legacy audio storage when production Blob is public-only", async () => {
+    mocks.mockUploadSubmissionAudio.mockRejectedValue(
+      new Error("Vercel Blob: Cannot use private access on a public store.")
+    );
+
+    const response = await POST(makeRequest(), {
+      params: Promise.resolve({ assignmentId: "asg_1" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(mocks.mockCreateSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        audioBlobUrl: "data:audio/webm;base64,AAAA",
+      })
+    );
   });
 
   it("blocks submissions from students outside the roster when roster enforcement is enabled", async () => {
