@@ -142,6 +142,44 @@ describe("tracking db helpers", () => {
     ]);
   });
 
+  it("prevents a student from deleting a graded submission", async () => {
+    const db = await loadDbModule();
+    const teacherEmail = "grade-guard-teacher@example.com";
+    const studentEmail = "grade-guard-student@example.com";
+    const createdClass = await db.createClass("Grade Guard", teacherEmail);
+    const assignment = await db.createAssignment({
+      classId: createdClass.id,
+      ownerEmail: teacherEmail,
+      title: "Protected grade",
+      description: "",
+      instructions: "Speak.",
+      maxPoints: 10,
+      maxSubmissions: 0,
+      maxRecordingSeconds: 180,
+      rubric: null,
+      attachmentName: "",
+      attachmentUrl: "",
+      attachmentContentType: "",
+    });
+    const submission = await db.createSubmission({
+      assignmentId: assignment.id,
+      studentName: "Student",
+      studentEmail,
+      audioBlobUrl: "https://blob.example/graded.webm",
+    });
+    await db.updateSubmission(submission.id, teacherEmail, {
+      studentName: "Student",
+      grade: 9,
+      feedback: "Complete.",
+      rubricScores: null,
+    });
+
+    await expect(db.deleteSubmissionByStudent(submission.id, studentEmail)).resolves.toBe(false);
+    await expect(db.findSubmissionById(submission.id, teacherEmail)).resolves.toEqual(
+      expect.objectContaining({ grade: 9 })
+    );
+  });
+
   it("rejects duplicate class names for the same teacher", async () => {
     const db = await loadDbModule();
     const teacherEmail = "duplicate-class@example.com";

@@ -9,21 +9,21 @@ export const aiGradingSuggestionSchema = z.object({
   rubricScores: z
     .array(
       z.object({
-        criterionId: z.string().min(1),
-        criterionName: z.string().min(1),
+        criterionId: z.string().min(1).max(200),
+        criterionName: z.string().min(1).max(200),
         maxPoints: z.number().int().min(1),
         awarded: z.number().int().min(0),
-      })
+      }).strict()
     )
-    .default([]),
+    .max(50),
   feedback: z.string().min(1).max(1000),
-  strengths: z.array(z.string().min(1)).default([]),
-  improvements: z.array(z.string().min(1)).default([]),
-  evidence: z.array(z.string().min(1)).default([]),
+  strengths: z.array(z.string().min(1).max(500)).max(10),
+  improvements: z.array(z.string().min(1).max(500)).max(10),
+  evidence: z.array(z.string().min(1).max(500)).max(10),
   confidence: aiConfidenceSchema,
-  warnings: z.array(z.string().min(1)).default([]),
+  warnings: z.array(z.string().min(1).max(500)).max(10),
   teacherAttention: aiTeacherAttentionSchema,
-});
+}).strict();
 
 export type AiGradingSuggestion = z.infer<typeof aiGradingSuggestionSchema>;
 
@@ -33,28 +33,42 @@ export function normalizeAiSuggestion(input: unknown, rubric: Rubric | null, max
   let rubricScores: RubricScore[] = [];
   let suggestedScore = parsed.suggestedScore;
 
+  if (parsed.teacherAttention === "unable_to_grade") {
+    return {
+      ...parsed,
+      suggestedScore: null,
+      rubricScores: [],
+      warnings,
+    };
+  }
+
   if (rubric) {
+    const expectedIds = rubric.criteria.map((criterion) => String(criterion.id));
+    const returnedIds = parsed.rubricScores.map((score) => score.criterionId);
+    const uniqueReturnedIds = new Set(returnedIds);
+    const exactRubricMatch =
+      returnedIds.length === expectedIds.length &&
+      uniqueReturnedIds.size === returnedIds.length &&
+      expectedIds.every((criterionId) => uniqueReturnedIds.has(criterionId));
+
+    if (!exactRubricMatch) {
+      throw new Error("AI output did not match the assignment rubric. Please try again or grade manually.");
+    }
+
     rubricScores = rubric.criteria.map((criterion) => {
-      const raw = parsed.rubricScores.find((score) => score.criterionId === criterion.id);
-      const awarded = Math.max(0, Math.min(criterion.maxPoints, Math.round(Number(raw?.awarded ?? 0))));
+      const criterionId = String(criterion.id);
+      const raw = parsed.rubricScores.find((score) => score.criterionId === criterionId)!;
+      const awarded = Math.max(0, Math.min(criterion.maxPoints, Math.round(raw.awarded)));
       return {
-        criterionId: criterion.id,
-        criterionName: criterion.name,
+        criterionId,
+        criterionName: String(criterion.name),
         maxPoints: criterion.maxPoints,
         awarded,
       };
     });
     suggestedScore = rubricScores.reduce((sum, score) => sum + score.awarded, 0);
-    if (parsed.rubricScores.length !== rubric.criteria.length) {
-      warnings.push("Provider rubric scores were normalized to match the assignment rubric.");
-    }
   } else if (suggestedScore !== null) {
     suggestedScore = Math.max(0, Math.min(maxPoints, Math.round(suggestedScore)));
-  }
-
-  if (parsed.teacherAttention === "unable_to_grade") {
-    suggestedScore = null;
-    rubricScores = [];
   }
 
   return {

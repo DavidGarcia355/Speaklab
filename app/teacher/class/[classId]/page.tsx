@@ -124,6 +124,8 @@ type AssignmentClipboard = {
   description: string;
   instructions: string;
   maxPoints: number;
+  maxSubmissions: number;
+  maxRecordingSeconds: number;
   rubric: AssignmentSummary["rubric"];
   attachmentName: string;
   attachmentUrl: string;
@@ -207,7 +209,11 @@ function readAssignmentClipboard() {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AssignmentClipboard;
     if (!parsed?.title || !parsed?.instructions) return null;
-    return parsed;
+    return {
+      ...parsed,
+      maxSubmissions: Number.isInteger(parsed.maxSubmissions) ? parsed.maxSubmissions : 0,
+      maxRecordingSeconds: Number.isInteger(parsed.maxRecordingSeconds) ? parsed.maxRecordingSeconds : 180,
+    };
   } catch {
     return null;
   }
@@ -251,6 +257,7 @@ export default function ClassDetailPage() {
   const [aiGradeErrors, setAiGradeErrors] = useState<Record<string, string>>({});
   const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiAttempt | null>>({});
   const [aiGradingEnabled, setAiGradingEnabled] = useState(false);
+  const [aiBulkGradingEnabled, setAiBulkGradingEnabled] = useState(false);
   const [localAiTestMode, setLocalAiTestMode] = useState(false);
 
   type BulkAiPreflight = {
@@ -517,8 +524,13 @@ export default function ClassDetailPage() {
       try {
         const response = await fetch("/api/features", { cache: "no-store" });
         if (!response.ok) return;
-        const data = (await response.json()) as { aiGradingEnabled?: boolean; localAiTestMode?: boolean };
+        const data = (await response.json()) as {
+          aiGradingEnabled?: boolean;
+          aiBulkGradingEnabled?: boolean;
+          localAiTestMode?: boolean;
+        };
         if (active) setAiGradingEnabled(data.aiGradingEnabled === true);
+        if (active) setAiBulkGradingEnabled(data.aiBulkGradingEnabled === true);
         if (active) setLocalAiTestMode(data.localAiTestMode === true);
       } catch {
         if (active) setAiGradingEnabled(false);
@@ -953,6 +965,8 @@ export default function ClassDetailPage() {
       title: activeAssignment.title,
       instructions: activeAssignment.instructions,
       maxPoints: activeAssignment.maxPoints,
+      maxSubmissions: activeAssignment.maxSubmissions,
+      maxRecordingSeconds: activeAssignment.maxRecordingSeconds,
       rubric: activeAssignment.rubric,
       attachmentName: activeAssignment.attachmentName,
       attachmentUrl: activeAssignment.attachmentUrl,
@@ -976,6 +990,8 @@ export default function ClassDetailPage() {
               title,
               instructions,
               maxPoints: assignmentRubricEnabled ? rubricTotal : parsedMaxPoints,
+              maxSubmissions: assignmentMaxSubmissionsDraft.trim() === "" ? 0 : Number(assignmentMaxSubmissionsDraft),
+              maxRecordingSeconds: Number(assignmentMaxRecordingSecondsDraft) || 180,
               rubric: rubricPayload,
               attachmentName: assignmentAttachmentDraft?.fileName ?? (assignmentAttachmentRemoved ? "" : row.attachmentName),
               attachmentUrl: assignmentAttachmentRemoved ? "" : row.attachmentUrl,
@@ -1004,8 +1020,11 @@ export default function ClassDetailPage() {
         item?: {
           id: string;
           title: string;
+          description: string;
           instructions: string;
           maxPoints: number;
+          maxSubmissions: number;
+          maxRecordingSeconds: number;
           rubric: AssignmentSummary["rubric"];
           attachmentName: string;
           attachmentUrl: string;
@@ -1022,8 +1041,11 @@ export default function ClassDetailPage() {
               ? {
                 ...row,
                 title: data.item!.title,
+                description: data.item!.description,
                 instructions: data.item!.instructions,
                 maxPoints: data.item!.maxPoints,
+                maxSubmissions: data.item!.maxSubmissions,
+                maxRecordingSeconds: data.item!.maxRecordingSeconds,
                 rubric: data.item!.rubric,
                 attachmentName: data.item!.attachmentName,
                 attachmentUrl: data.item!.attachmentUrl,
@@ -1060,6 +1082,8 @@ export default function ClassDetailPage() {
         description: assignment.description,
         instructions: assignment.instructions,
         maxPoints: assignment.maxPoints,
+        maxSubmissions: assignment.maxSubmissions,
+        maxRecordingSeconds: assignment.maxRecordingSeconds,
         rubric: assignment.rubric,
         attachmentName: assignment.attachmentName,
         attachmentUrl: assignment.attachmentUrl,
@@ -1094,6 +1118,8 @@ export default function ClassDetailPage() {
           description: clipboard.description,
           instructions: clipboard.instructions,
           maxPoints: clipboard.maxPoints,
+          maxSubmissions: clipboard.maxSubmissions,
+          maxRecordingSeconds: clipboard.maxRecordingSeconds,
           rubric: clipboard.rubric,
           ...(clipboard.attachmentUrl
             ? {
@@ -1320,7 +1346,7 @@ export default function ClassDetailPage() {
                   <label className="label toolbar-label" htmlFor="student-filter">Find student in this assignment</label>
                   <input id="student-filter" className="input toolbar-input" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Search by student name" />
                   <button type="button" className={`btn ${showUngradedOnly ? "btn-primary" : "btn-ghost"}`} onClick={() => setShowUngradedOnly((prev) => !prev)}>{showUngradedOnly ? "Ungraded only: on" : "Ungraded only"}</button>
-                  {aiGradingEnabled && activeAssignment.ungradedCount > 0 ? (
+                  {aiBulkGradingEnabled && activeAssignment.ungradedCount > 0 ? (
                     <button
                       type="button"
                       className="btn btn-ghost"

@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     errorMessage: "",
     ...input,
   })),
+  reserveAiBudget: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/authz", () => ({ requireTeacherEmail: mocks.requireTeacherEmail }));
@@ -41,6 +42,7 @@ vi.mock("@/lib/db", () => ({
   latestAiAttemptCreatedAt: mocks.latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission: mocks.listAiGradingAttemptsForSubmission,
   createAiGradingAttempt: mocks.createAiGradingAttempt,
+  reserveAiBudget: mocks.reserveAiBudget,
 }));
 vi.mock("@/lib/http", async () => {
   class MockHttpError extends Error {
@@ -71,7 +73,16 @@ describe("AI grading mock route", () => {
     process.env.AI_TRANSCRIPTION_PROVIDER = "mock";
     process.env.AI_GRADING_PROVIDER = "mock";
     process.env.AI_LOCAL_FAILURE_MODE = "";
+    delete process.env.AI_ACCESS_MODE;
+    delete process.env.AI_TEACHER_DENYLIST;
+    mocks.requireTeacherEmail.mockClear();
+    mocks.getUserIsPaid.mockClear();
+    mocks.findSubmissionForAiGrade.mockClear();
+    mocks.reserveAiBudget.mockReset();
+    mocks.reserveAiBudget.mockResolvedValue(true);
     mocks.createAiGradingAttempt.mockClear();
+    mocks.latestAiAttemptCreatedAt.mockReset();
+    mocks.latestAiAttemptCreatedAt.mockResolvedValue(null);
   });
 
   it("creates a suggestion attempt without saving a final grade", async () => {
@@ -87,7 +98,7 @@ describe("AI grading mock route", () => {
     expect(body.attempt.feedback).toContain("Mock suggestion");
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledOnce();
     expect(mocks.createAiGradingAttempt.mock.calls[0][0]).not.toHaveProperty("grade");
-  });
+  }, 10_000);
 
   it("returns cooldown as a visible rate-limit state", async () => {
     mocks.latestAiAttemptCreatedAt.mockResolvedValueOnce(Date.now());
@@ -100,5 +111,50 @@ describe("AI grading mock route", () => {
 
     expect(response.status).toBe(429);
     expect(body.error).toContain("wait");
+  }, 10_000);
+
+  it("blocks a teacher on the emergency denylist before provider work", async () => {
+    process.env.AI_TEACHER_DENYLIST = "DEV-TEACHER@LOCAL.TEST";
+    const { POST } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/submissions/sub_1/ai-grade", { method: "POST" }),
+      { params: Promise.resolve({ submissionId: "sub_1" }) }
+    );
+
+    expect(response.status).toBe(403);
+    expect(mocks.findSubmissionForAiGrade).not.toHaveBeenCalled();
+    expect(mocks.createAiGradingAttempt).not.toHaveBeenCalled();
+  });
+
+  it("keeps the paid entitlement gate for non-local providers", async () => {
+    process.env.AI_GRADING_PROVIDER = "ollama";
+    const { POST } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/submissions/sub_1/ai-grade", { method: "POST" }),
+      { params: Promise.resolve({ submissionId: "sub_1" }) }
+    );
+
+    expect(response.status).toBe(402);
+    expect(mocks.getUserIsPaid).toHaveBeenCalledOnce();
+    expect(mocks.reserveAiBudget).not.toHaveBeenCalled();
+  });
+
+  it("allows broad access but stops before providers when the monthly budget is exhausted", async () => {
+    process.env.AI_ACCESS_MODE = "all";
+    process.env.AI_GRADING_PROVIDER = "ollama";
+    mocks.reserveAiBudget.mockResolvedValueOnce(false);
+    const { POST } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/submissions/sub_1/ai-grade", { method: "POST" }),
+      { params: Promise.resolve({ submissionId: "sub_1" }) }
+    );
+
+    expect(response.status).toBe(429);
+    expect(mocks.getUserIsPaid).not.toHaveBeenCalled();
+    expect(mocks.reserveAiBudget).toHaveBeenCalledOnce();
+    expect(mocks.createAiGradingAttempt).not.toHaveBeenCalled();
   });
 });

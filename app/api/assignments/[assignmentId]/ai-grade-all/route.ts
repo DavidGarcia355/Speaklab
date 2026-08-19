@@ -7,7 +7,8 @@ import {
   listUngradedSubmissionsForAiGrade,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
-import { assertAiProviderConfig, getAiConfig, isLocalMockAi } from "@/lib/ai/config";
+import { reserveGenerationBudget } from "@/lib/ai/budget";
+import { assertAiProviderConfig, getAiConfig, isAiTeacherDenied, isLocalMockAi } from "@/lib/ai/config";
 import { gradeOneSubmission } from "@/lib/ai/grade-one";
 
 export const runtime = "nodejs";
@@ -35,6 +36,7 @@ export async function GET(
   return withApiHandler(request, async () => {
     const config = getAiConfig();
     if (!config.enabled) throw new HttpError(404, "AI grading is not available.");
+    if (!config.bulkEnabled) throw new HttpError(404, "Bulk AI grading is not available.");
     const teacherEmail = await requireTeacherEmail();
     const { assignmentId } = await context.params;
 
@@ -57,14 +59,18 @@ export async function POST(
   return withApiHandler(request, async () => {
     const config = getAiConfig();
     if (!config.enabled) throw new HttpError(404, "AI grading is not available.");
+    if (!config.bulkEnabled) throw new HttpError(404, "Bulk AI grading is not available.");
     try {
       assertAiProviderConfig(config);
-    } catch (error) {
-      throw new HttpError(500, error instanceof Error ? error.message : "AI provider configuration is invalid.");
+    } catch {
+      throw new HttpError(503, "AI grading is not fully configured.");
     }
 
     const teacherEmail = await requireTeacherEmail();
-    if (!isLocalMockAi(config)) {
+    if (isAiTeacherDenied(teacherEmail, config)) {
+      throw new HttpError(403, "AI grading is not available for this account.");
+    }
+    if (!isLocalMockAi(config) && config.accessMode === "paid") {
       const isPaid = await getUserIsPaid(teacherEmail);
       if (!isPaid) throw new HttpError(402, "AI grading requires a paid plan.");
     }
@@ -84,6 +90,16 @@ export async function POST(
         `This would need ${pending.length} AI generations but only ${quota.remaining} remain today. ` +
           `Grade some by hand, or run this again tomorrow when the daily limit resets.`
       );
+    }
+
+    if (!isLocalMockAi(config)) {
+      const reserved = await reserveGenerationBudget({
+        config,
+        generationCount: pending.length,
+      });
+      if (!reserved) {
+        throw new HttpError(429, "The monthly AI usage limit has been reached. Try again next month.");
+      }
     }
 
     const results: Array<{

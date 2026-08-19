@@ -1,20 +1,30 @@
 import { NextResponse } from "next/server";
 import { withApiHandler } from "@/lib/http";
+import { assertAiProviderConfig, getAiConfig, isLocalMockAi } from "@/lib/ai/config";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  return withApiHandler(request, async () =>
-    NextResponse.json({
-      aiGradingEnabled: process.env.AI_GRADING_ENABLED === "true",
-      aiTranscriptionProvider: process.env.AI_TRANSCRIPTION_PROVIDER || "openai",
-      aiGradingProvider: process.env.AI_GRADING_PROVIDER || "ollama",
-      localAiTestMode:
-        process.env.NODE_ENV !== "production" &&
-        process.env.AI_TRANSCRIPTION_PROVIDER === "mock" &&
-        process.env.AI_GRADING_PROVIDER === "mock",
+  return withApiHandler(request, async () => {
+    const config = getAiConfig();
+    let aiReady = config.enabled;
+    if (aiReady) {
+      try {
+        assertAiProviderConfig(config);
+      } catch {
+        aiReady = false;
+      }
+    }
+
+    return NextResponse.json({
+      aiGradingEnabled: aiReady,
+      aiBulkGradingEnabled: aiReady && config.bulkEnabled,
+      aiTranscriptionProvider: config.transcriptionProvider,
+      aiGradingProvider: config.gradingProvider,
+      aiAccessMode: config.accessMode,
+      localAiTestMode: isLocalMockAi(config),
       localAuthBypassEnabled:
         process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true",
-    })
-  );
+    });
+  });
 }

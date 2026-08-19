@@ -1,0 +1,103 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getAiConfig } from "@/lib/ai/config";
+
+const mocks = vi.hoisted(() => ({
+  client: vi.fn(),
+  parse: vi.fn(),
+  transcribe: vi.fn(),
+  toFile: vi.fn(async (_buffer: Buffer, name: string, options: { type: string }) => ({ name, ...options })),
+}));
+
+vi.mock("openai", () => ({
+  default: class MockOpenAI {
+    constructor(options: unknown) {
+      mocks.client(options);
+    }
+    chat = { completions: { parse: mocks.parse } };
+    audio = { transcriptions: { create: mocks.transcribe } };
+  },
+  toFile: mocks.toFile,
+}));
+
+vi.mock("openai/helpers/zod", () => ({
+  zodResponseFormat: vi.fn(() => ({ type: "json_schema", json_schema: { name: "ai_grading_suggestion" } })),
+}));
+
+describe("OpenAI provider contract", () => {
+  beforeEach(() => {
+    process.env.AI_GRADING_ENABLED = "true";
+    process.env.AI_TRANSCRIPTION_PROVIDER = "openai";
+    process.env.AI_GRADING_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "test-key";
+    mocks.parse.mockReset();
+    mocks.transcribe.mockReset();
+    mocks.toFile.mockClear();
+    mocks.client.mockClear();
+  });
+
+  it("uses strict parsed output, bounded tokens, and separates trusted instructions", async () => {
+    mocks.parse.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            parsed: {
+              suggestedScore: 8,
+              rubricScores: [],
+              feedback: "Draft feedback.",
+              strengths: ["Relevant details."],
+              improvements: ["Add one example."],
+              evidence: ["Hola"],
+              confidence: "medium",
+              warnings: [],
+              teacherAttention: "review",
+            },
+            refusal: null,
+          },
+        },
+      ],
+    });
+    const { gradeTranscript } = await import("@/lib/ai/providers");
+
+    const result = await gradeTranscript({
+      config: getAiConfig(),
+      description: "Introduce yourself.",
+      instructions: "Speak in Spanish.",
+      rubric: null,
+      maxPoints: 10,
+      transcript: "Hola, me llamo Alex.",
+    });
+
+    expect(result.suggestedScore).toBe(8);
+    expect(mocks.client).toHaveBeenCalledWith(
+      expect.objectContaining({ timeout: 120_000, maxRetries: 2 })
+    );
+    expect(mocks.parse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        store: false,
+        max_tokens: 1200,
+        response_format: expect.objectContaining({ type: "json_schema" }),
+        messages: [
+          expect.objectContaining({ role: "system" }),
+          expect.objectContaining({ role: "user" }),
+        ],
+      })
+    );
+  });
+
+  it("preserves OGG media typing for transcription", async () => {
+    mocks.transcribe.mockResolvedValue({ text: "Hola", duration: 4, language: "es" });
+    const { transcribeAudio } = await import("@/lib/ai/providers");
+
+    await transcribeAudio({
+      config: getAiConfig(),
+      buffer: Buffer.from("synthetic"),
+      contentType: "audio/ogg;codecs=opus",
+    });
+
+    expect(mocks.toFile).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      "audio.ogg",
+      { type: "audio/ogg;codecs=opus" }
+    );
+  });
+});

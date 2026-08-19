@@ -44,4 +44,32 @@ describe("local AI mock providers", () => {
       normalized.rubricScores.reduce((sum, score) => sum + score.awarded, 0)
     );
   });
+
+  it("rejects a provider response that omits a rubric criterion instead of manufacturing a zero", () => {
+    const rubric: Rubric = {
+      title: "Speaking",
+      criteria: [
+        { id: "content", name: "Content", description: "", maxPoints: 5 },
+        { id: "language", name: "Language", description: "", maxPoints: 5 },
+      ],
+    };
+
+    expect(() =>
+      normalizeAiSuggestion(
+        {
+          suggestedScore: 5,
+          rubricScores: [{ criterionId: "content", criterionName: "Content", maxPoints: 5, awarded: 5 }],
+          feedback: "Draft feedback.",
+          strengths: [],
+          improvements: [],
+          evidence: [],
+          confidence: "low",
+          warnings: [],
+          teacherAttention: "review",
+        },
+        rubric,
+        10
+      )
+    ).toThrow(/did not match the assignment rubric/i);
+  });
 });

@@ -450,6 +450,15 @@ describe("admin access helper", () => {
 
 describe("admin page", () => {
   beforeEach(() => {
+    vi.resetModules();
+    vi.doMock("@/lib/db", () => ({
+      getTrackingSummary: mocks.getTrackingSummary,
+      listRecentActivityEvents: mocks.listRecentActivityEvents,
+      listRecentTeacherActivityEvents: mocks.listRecentTeacherActivityEvents,
+      listTeacherFunnelRows: mocks.listTeacherFunnelRows,
+      listClasses: mocks.listClasses,
+      listFeedbackMessages: mocks.listFeedbackMessages,
+    }));
     mocks.getTrackingSummary.mockResolvedValue({
       totalUsers: 3,
       teacherAccounts: 2,
