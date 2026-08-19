@@ -1,0 +1,149 @@
+import { NextResponse } from "next/server";
+import { requireTeacherEmail } from "@/lib/authz";
+import {
+  countAiAttemptsForTeacherSince,
+  countAiAttemptsSince,
+  getUserIsPaid,
+  listUngradedSubmissionsForAiGrade,
+} from "@/lib/db";
+import { HttpError, withApiHandler } from "@/lib/http";
+import { assertAiProviderConfig, getAiConfig, isLocalMockAi } from "@/lib/ai/config";
+import { gradeOneSubmission } from "@/lib/ai/grade-one";
+
+export const runtime = "nodejs";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+async function remainingQuota(teacherEmail: string, dailyTeacherLimit: number, dailyGlobalLimit: number) {
+  const since = Date.now() - DAY_MS;
+  const [teacherUsed, globalUsed] = await Promise.all([
+    countAiAttemptsForTeacherSince(teacherEmail, since),
+    countAiAttemptsSince(since),
+  ]);
+  return {
+    teacherRemaining: Math.max(0, dailyTeacherLimit - teacherUsed),
+    globalRemaining: Math.max(0, dailyGlobalLimit - globalUsed),
+    remaining: Math.max(0, Math.min(dailyTeacherLimit - teacherUsed, dailyGlobalLimit - globalUsed)),
+  };
+}
+
+/** How many ungraded submissions there are and whether a run would fit. */
+export async function GET(
+  request: Request,
+  context: { params: Promise<{ assignmentId: string }> | { assignmentId: string } }
+) {
+  return withApiHandler(request, async () => {
+    const config = getAiConfig();
+    if (!config.enabled) throw new HttpError(404, "AI grading is not available.");
+    const teacherEmail = await requireTeacherEmail();
+    const { assignmentId } = await context.params;
+
+    const pending = await listUngradedSubmissionsForAiGrade(assignmentId, teacherEmail);
+    const quota = await remainingQuota(teacherEmail, config.dailyTeacherLimit, config.dailyGlobalLimit);
+
+    return NextResponse.json({
+      ungradedCount: pending.length,
+      remaining: quota.remaining,
+      fits: pending.length > 0 && pending.length <= quota.remaining,
+      estimatedSeconds: pending.length * config.cooldownSeconds,
+    });
+  });
+}
+
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ assignmentId: string }> | { assignmentId: string } }
+) {
+  return withApiHandler(request, async () => {
+    const config = getAiConfig();
+    if (!config.enabled) throw new HttpError(404, "AI grading is not available.");
+    try {
+      assertAiProviderConfig(config);
+    } catch (error) {
+      throw new HttpError(500, error instanceof Error ? error.message : "AI provider configuration is invalid.");
+    }
+
+    const teacherEmail = await requireTeacherEmail();
+    if (!isLocalMockAi(config)) {
+      const isPaid = await getUserIsPaid(teacherEmail);
+      if (!isPaid) throw new HttpError(402, "AI grading requires a paid plan.");
+    }
+
+    const { assignmentId } = await context.params;
+    const pending = await listUngradedSubmissionsForAiGrade(assignmentId, teacherEmail);
+    if (pending.length === 0) {
+      throw new HttpError(400, "There are no ungraded submissions with audio in this assignment.");
+    }
+
+    // Refuse a batch we cannot finish rather than stopping halfway through a
+    // class and leaving the teacher to work out who did and did not get graded.
+    const quota = await remainingQuota(teacherEmail, config.dailyTeacherLimit, config.dailyGlobalLimit);
+    if (pending.length > quota.remaining) {
+      throw new HttpError(
+        429,
+        `This would need ${pending.length} AI generations but only ${quota.remaining} remain today. ` +
+          `Grade some by hand, or run this again tomorrow when the daily limit resets.`
+      );
+    }
+
+    const results: Array<{
+      submissionId: string;
+      studentName: string;
+      status: string;
+      teacherAttention?: string;
+      confidence?: string;
+      reason?: string;
+      message?: string;
+    }> = [];
+
+    let completed = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const [index, data] of pending.entries()) {
+      // Respect the same spacing the single-submission route enforces.
+      if (index > 0 && config.cooldownSeconds > 0) {
+        await new Promise((resolve) => setTimeout(resolve, config.cooldownSeconds * 1000));
+      }
+
+      const outcome = await gradeOneSubmission({ config, teacherEmail, data });
+      if (outcome.status === "completed") {
+        completed += 1;
+        results.push({
+          submissionId: data.submissionId,
+          studentName: data.studentName,
+          status: "completed",
+          teacherAttention: outcome.teacherAttention,
+          confidence: outcome.confidence,
+        });
+      } else if (outcome.status === "skipped") {
+        skipped += 1;
+        results.push({
+          submissionId: data.submissionId,
+          studentName: data.studentName,
+          status: "skipped",
+          reason: outcome.reason,
+        });
+      } else {
+        failed += 1;
+        results.push({
+          submissionId: data.submissionId,
+          studentName: data.studentName,
+          status: "failed",
+          message: outcome.message,
+        });
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      total: pending.length,
+      completed,
+      skipped,
+      failed,
+      // Nothing here is a grade. Every suggestion still needs a teacher.
+      needsVerification: completed,
+      results,
+    });
+  });
+}

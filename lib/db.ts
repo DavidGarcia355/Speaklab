@@ -186,9 +186,22 @@ export type AiGradingAttemptRow = {
   completedAt: number | null;
 };
 
+/**
+ * Emails granted full teacher access automatically on sign-in.
+ *
+ * Merges TEACHER_ALLOWLIST with the admin emails (ADMIN_EMAILS / ADMIN_EMAIL) so
+ * an admin never has to be listed twice to be able to use teacher features.
+ * Env is read directly rather than importing lib/admin.ts, because auth.ts already
+ * imports this module and that would create a circular import.
+ */
 function getTeacherAllowlist(): Set<string> {
+  const raw = [
+    process.env.TEACHER_ALLOWLIST ?? "",
+    process.env.ADMIN_EMAILS ?? "",
+    process.env.ADMIN_EMAIL ?? "",
+  ].join(",");
   return new Set(
-    (process.env.TEACHER_ALLOWLIST ?? "")
+    raw
       .split(",")
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean)
@@ -1546,12 +1559,28 @@ export async function getTrackingSummary(): Promise<TrackingSummaryRow> {
 export async function upsertGoogleUserAndGetRole(email: string): Promise<UserRole> {
   const normalized = email.trim().toLowerCase();
   const defaultRole = defaultRoleForEmail(normalized);
-  await query(
-    `INSERT INTO users (email, role, created_at)
-    VALUES (?, ?, ?)
-    ON CONFLICT(email) DO NOTHING`,
-    [normalized, defaultRole, Date.now()]
-  );
+
+  if (getTeacherAllowlist().has(normalized)) {
+    // Allowlisted (teacher/admin) accounts are re-promoted on EVERY sign-in, not just
+    // on first insert. Without this, an account that already signed in once as a
+    // student stays a student forever and every teacher API returns 403 — a silent
+    // failure that is very hard to diagnose. is_paid is set so AI grading (which
+    // returns 402 for unpaid users) works for these accounts too.
+    // This only ever grants access; it never demotes an existing teacher.
+    await query(
+      `INSERT INTO users (email, role, created_at, is_paid)
+      VALUES (?, 'teacher', ?, 1)
+      ON CONFLICT(email) DO UPDATE SET role = 'teacher', is_paid = 1`,
+      [normalized, Date.now()]
+    );
+  } else {
+    await query(
+      `INSERT INTO users (email, role, created_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(email) DO NOTHING`,
+      [normalized, defaultRole, Date.now()]
+    );
+  }
   const result = await query(
     `SELECT role
     FROM users
@@ -1614,6 +1643,56 @@ export type SubmissionForAiGradeRow = {
   finalGrade: number | null;
   finalFeedback: string;
 };
+
+/**
+ * Submissions in one assignment that a bulk AI run should touch: still
+ * ungraded, still present, and actually holding audio. Ordered oldest first so
+ * a partial run works through the backlog in the order students submitted.
+ */
+export async function listUngradedSubmissionsForAiGrade(
+  assignmentId: string,
+  ownerEmail: string
+): Promise<Array<SubmissionForAiGradeRow & { studentName: string }>> {
+  const result = await query(
+    `SELECT
+      s.id as submissionId,
+      s.student_name as studentName,
+      a.id as assignmentId,
+      a.title as assignmentTitle,
+      COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl,
+      COALESCE(a.description, '') as description,
+      a.instructions as instructions,
+      a.rubric as rubric,
+      a.max_points as maxPoints,
+      s.grade as finalGrade,
+      COALESCE(s.feedback, '') as finalFeedback
+    FROM submissions s
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE a.id = ?
+      AND s.grade IS NULL
+      AND COALESCE(s.audio_blob_url, s.audio_data, '') <> ''
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+      AND LOWER(c.owner_email) = LOWER(?)
+    ORDER BY s.submitted_at ASC`,
+    [assignmentId, ownerEmail]
+  );
+  return result.rows.map((row) => ({
+    submissionId: toStringValue(row.submissionId),
+    studentName: toStringValue(row.studentName),
+    assignmentId: toStringValue(row.assignmentId),
+    assignmentTitle: toStringValue(row.assignmentTitle),
+    audioBlobUrl: toStringValue(row.audioBlobUrl),
+    description: toStringValue(row.description),
+    instructions: toStringValue(row.instructions),
+    rubric: parseJsonValue<Rubric>(row.rubric),
+    maxPoints: toNumber(row.maxPoints),
+    finalGrade: toNullableNumber(row.finalGrade),
+    finalFeedback: toStringValue(row.finalFeedback),
+  }));
+}
 
 export async function findSubmissionForAiGrade(
   submissionId: string,

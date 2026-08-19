@@ -68,8 +68,15 @@ export async function proxy(request: NextRequest) {
   }
 
   if (adminRequiredPath(pathname)) {
-    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase() || "";
-    if (!adminEmail || email !== adminEmail) {
+    // Mirrors getAdminEmails() in lib/admin.ts. Duplicated rather than imported
+    // because middleware runs on the edge runtime and lib/admin.ts is server-only.
+    const adminEmails = new Set(
+      `${process.env.ADMIN_EMAILS ?? ""},${process.env.ADMIN_EMAIL ?? ""}`
+        .split(",")
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean)
+    );
+    if (adminEmails.size === 0 || !adminEmails.has(email)) {
       return new NextResponse("You don't have access to this page.", { status: 403 });
     }
     return NextResponse.next();

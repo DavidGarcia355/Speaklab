@@ -253,6 +253,24 @@ export default function ClassDetailPage() {
   const [aiGradingEnabled, setAiGradingEnabled] = useState(false);
   const [localAiTestMode, setLocalAiTestMode] = useState(false);
 
+  type BulkAiPreflight = {
+    ungradedCount: number;
+    remaining: number;
+    fits: boolean;
+    estimatedSeconds: number;
+  };
+  type BulkAiResult = {
+    total: number;
+    completed: number;
+    skipped: number;
+    failed: number;
+  };
+  const [bulkAiPreflight, setBulkAiPreflight] = useState<BulkAiPreflight | null>(null);
+  const [bulkAiChecking, setBulkAiChecking] = useState(false);
+  const [bulkAiRunning, setBulkAiRunning] = useState(false);
+  const [bulkAiResult, setBulkAiResult] = useState<BulkAiResult | null>(null);
+  const [bulkAiError, setBulkAiError] = useState("");
+
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
   const [roster, setRoster] = useState<RosterEntry[]>([]);
@@ -761,6 +779,65 @@ export default function ClassDetailPage() {
     }
   }
 
+  // Ask the server what a bulk run would involve before showing the confirm
+  // dialog, so the teacher sees real counts rather than an optimistic guess.
+  async function openBulkAiConfirm(assignmentId: string) {
+    setBulkAiChecking(true);
+    setBulkAiError("");
+    setBulkAiResult(null);
+    try {
+      const response = await fetch(`/api/assignments/${assignmentId}/ai-grade-all`, { cache: "no-store" });
+      const data = (await response.json()) as BulkAiPreflight & { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Could not check AI grading.");
+      setBulkAiPreflight(data);
+    } catch (error) {
+      setBulkAiError(error instanceof Error ? error.message : "Could not check AI grading.");
+    } finally {
+      setBulkAiChecking(false);
+    }
+  }
+
+  async function runBulkAiGrade(assignmentId: string) {
+    setBulkAiPreflight(null);
+    setBulkAiRunning(true);
+    setBulkAiError("");
+    try {
+      const response = await fetch(`/api/assignments/${assignmentId}/ai-grade-all`, { method: "POST" });
+      const data = (await response.json()) as BulkAiResult & {
+        results?: Array<{ submissionId: string }>;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(data.error ?? "Bulk AI grading failed.");
+      setBulkAiResult({
+        total: data.total,
+        completed: data.completed,
+        skipped: data.skipped,
+        failed: data.failed,
+      });
+
+      // Pull each new suggestion in so the review panels and badges populate
+      // without a page refresh.
+      await Promise.all(
+        (data.results ?? []).map(async (item) => {
+          try {
+            const latest = await fetch(`/api/submissions/${item.submissionId}/ai-grade`, { cache: "no-store" });
+            if (!latest.ok) return;
+            const payload = (await latest.json()) as { latest?: AiAttempt | null };
+            if (payload.latest) {
+              setAiSuggestions((prev) => ({ ...prev, [item.submissionId]: payload.latest ?? null }));
+            }
+          } catch {
+            // A suggestion that fails to load here is still saved server-side.
+          }
+        })
+      );
+    } catch (error) {
+      setBulkAiError(error instanceof Error ? error.message : "Bulk AI grading failed.");
+    } finally {
+      setBulkAiRunning(false);
+    }
+  }
+
   function applyAiSuggestion(submissionId: string, attempt: AiAttempt) {
     const rubricInputs: Record<string, string> = {};
     if (activeAssignment?.rubric) {
@@ -1243,8 +1320,40 @@ export default function ClassDetailPage() {
                   <label className="label toolbar-label" htmlFor="student-filter">Find student in this assignment</label>
                   <input id="student-filter" className="input toolbar-input" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Search by student name" />
                   <button type="button" className={`btn ${showUngradedOnly ? "btn-primary" : "btn-ghost"}`} onClick={() => setShowUngradedOnly((prev) => !prev)}>{showUngradedOnly ? "Ungraded only: on" : "Ungraded only"}</button>
+                  {aiGradingEnabled && activeAssignment.ungradedCount > 0 ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => void openBulkAiConfirm(activeAssignment.id)}
+                      disabled={bulkAiChecking || bulkAiRunning}
+                    >
+                      {bulkAiRunning
+                        ? "AI grading..."
+                        : bulkAiChecking
+                          ? "Checking..."
+                          : `AI grade all ungraded (${activeAssignment.ungradedCount})`}
+                    </button>
+                  ) : null}
                   <span className="status-badge status-warning">{pluralize(activeAssignment.ungradedCount, "ungraded")}</span>
                 </div>
+
+                {bulkAiError ? <p className="card-inline-error">{bulkAiError}</p> : null}
+                {bulkAiRunning ? (
+                  <div className="notice info">
+                    Generating AI suggestions. Leave this page open — nothing is saved as a grade.
+                  </div>
+                ) : null}
+                {bulkAiResult ? (
+                  <div className="notice info">
+                    <strong>
+                      {bulkAiResult.completed} of {bulkAiResult.total} suggestion
+                      {bulkAiResult.completed === 1 ? "" : "s"} ready for your review.
+                    </strong>{" "}
+                    {bulkAiResult.skipped > 0 ? `${bulkAiResult.skipped} skipped. ` : ""}
+                    {bulkAiResult.failed > 0 ? `${bulkAiResult.failed} failed. ` : ""}
+                    No grades were saved — open each student below, check the suggestion, then save.
+                  </div>
+                ) : null}
 
                 {activeAllSubmissions.length === 0 ? <p className="empty">No submissions yet for this assignment.</p> : activeFilteredSubmissions.length === 0 ? <p className="empty">No submissions match current filters.</p> : (
                   <div className="grid submission-grid assignment-submissions">
@@ -1332,6 +1441,17 @@ export default function ClassDetailPage() {
                               <p className="meta" style={{ marginBottom: "0.35rem" }}>
                                 <strong>{localAiTestMode ? "Local AI test mode" : "AI suggestion"}</strong>{" "}
                                 {aiSuggestion.gradingProvider === "mock" ? "Mock suggestion" : "Teacher review required"}
+                              </p>
+                              <p className="meta" style={{ marginBottom: "0.35rem" }}>
+                                <span className="status-badge status-warning">Needs human verification</span>{" "}
+                                {aiSuggestion.confidence ? (
+                                  <span className="pill pill-subtle">AI confidence: {aiSuggestion.confidence}</span>
+                                ) : null}{" "}
+                                {aiSuggestion.teacherAttention === "caution" ? (
+                                  <span className="pill pill-subtle">Flagged: check this one closely</span>
+                                ) : aiSuggestion.teacherAttention === "unable_to_grade" ? (
+                                  <span className="pill pill-subtle">AI could not grade this</span>
+                                ) : null}
                               </p>
                               {aiSuggestion.suggestedScore !== null ? (
                                 <p className="meta">Suggested score: {aiSuggestion.suggestedScore} / {activeAssignment.maxPoints}</p>
@@ -1544,6 +1664,29 @@ export default function ClassDetailPage() {
           if (!deleteTarget) return;
           if (deleteTarget.type === "assignment") deleteAssignment(deleteTarget.assignment);
           else deleteSubmission(deleteTarget.submission);
+        }}
+      />
+
+      <ConfirmModal
+        open={bulkAiPreflight !== null}
+        title={
+          bulkAiPreflight && !bulkAiPreflight.fits
+            ? "Not enough AI grading left today"
+            : `AI grade ${bulkAiPreflight?.ungradedCount ?? 0} submission${bulkAiPreflight?.ungradedCount === 1 ? "" : "s"}?`
+        }
+        description={
+          bulkAiPreflight && !bulkAiPreflight.fits
+            ? `This needs ${bulkAiPreflight.ungradedCount} AI generations but only ${bulkAiPreflight.remaining} remain today. Grade some by hand, or try again tomorrow when the limit resets.`
+            : `Every ungraded submission gets an AI suggestion marked "needs verification". Nothing is saved as a grade and no student sees anything until you review and save each one. This takes about ${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60))} minute${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60)) === 1 ? "" : "s"}.`
+        }
+        confirmLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "OK" : "Generate suggestions"}
+        cancelLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "Close" : "Cancel"}
+        onCancel={() => setBulkAiPreflight(null)}
+        onConfirm={() => {
+          const canRun = bulkAiPreflight?.fits === true;
+          const assignmentId = activeAssignment?.id;
+          setBulkAiPreflight(null);
+          if (canRun && assignmentId) void runBulkAiGrade(assignmentId);
         }}
       />
 
