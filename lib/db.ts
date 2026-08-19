@@ -367,10 +367,17 @@ async function ensureInitialized() {
           completed_at INTEGER,
           FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE
         )`,
+        `CREATE TABLE IF NOT EXISTS ai_budget_reservations (
+          id TEXT PRIMARY KEY,
+          generation_count INTEGER NOT NULL CHECK (generation_count > 0),
+          reserved_microusd INTEGER NOT NULL CHECK (reserved_microusd > 0),
+          created_at INTEGER NOT NULL
+        )`,
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_roster_class_student ON roster(class_id, LOWER(student_email))",
         "CREATE INDEX IF NOT EXISTS idx_roster_class_id ON roster(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_submission ON ai_grading_attempts(submission_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_teacher ON ai_grading_attempts(LOWER(teacher_email), created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_budget_reservations_created ON ai_budget_reservations(created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_class_id ON assignments(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_deleted_at ON assignments(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON submissions(assignment_id)",
@@ -1209,6 +1216,7 @@ export async function deleteSubmissionByStudent(submissionId: string, studentEma
     SET deleted_at = ?
     WHERE id = ?
       AND LOWER(student_email) = LOWER(?)
+      AND grade IS NULL
       AND deleted_at IS NULL`,
     [Date.now(), submissionId, studentEmail]
   );
@@ -1902,7 +1910,7 @@ export async function countAiAttemptsForSubmission(submissionId: string, ownerEm
     JOIN classes c ON c.id = a.class_id
     WHERE ag.submission_id = ?
       AND LOWER(c.owner_email) = LOWER(?)
-      AND ag.status = 'completed'`,
+      `,
     [submissionId, ownerEmail]
   );
   return toNumber(result.rows[0]?.cnt);
@@ -1913,8 +1921,7 @@ export async function countAiAttemptsForTeacherSince(teacherEmail: string, since
     `SELECT COUNT(*) as cnt
     FROM ai_grading_attempts
     WHERE LOWER(teacher_email) = LOWER(?)
-      AND created_at >= ?
-      AND status = 'completed'`,
+      AND created_at >= ?`,
     [teacherEmail, since]
   );
   return toNumber(result.rows[0]?.cnt);
@@ -1924,11 +1931,49 @@ export async function countAiAttemptsSince(since: number): Promise<number> {
   const result = await query(
     `SELECT COUNT(*) as cnt
     FROM ai_grading_attempts
-    WHERE created_at >= ?
-      AND status = 'completed'`,
+    WHERE created_at >= ?`,
     [since]
   );
   return toNumber(result.rows[0]?.cnt);
+}
+
+export async function reserveAiBudget(input: {
+  generationCount: number;
+  periodStart: number;
+  monthlyBudgetUsd: number;
+  reservedCostUsdPerGeneration: number;
+}): Promise<boolean> {
+  const generationCount = Math.max(1, Math.floor(input.generationCount));
+  const budgetMicrousd = Math.floor(input.monthlyBudgetUsd * 1_000_000);
+  const perGenerationMicrousd = Math.ceil(input.reservedCostUsdPerGeneration * 1_000_000);
+  const reservedMicrousd = perGenerationMicrousd * generationCount;
+
+  if (budgetMicrousd <= 0 || perGenerationMicrousd <= 0 || reservedMicrousd > budgetMicrousd) {
+    return false;
+  }
+
+  const result = await query(
+    `INSERT INTO ai_budget_reservations (
+      id, generation_count, reserved_microusd, created_at
+    )
+    SELECT ?, ?, ?, ?
+    WHERE COALESCE((
+      SELECT SUM(reserved_microusd)
+      FROM ai_budget_reservations
+      WHERE created_at >= ?
+    ), 0) + ? <= ?`,
+    [
+      makeId("aib"),
+      generationCount,
+      reservedMicrousd,
+      Date.now(),
+      input.periodStart,
+      reservedMicrousd,
+      budgetMicrousd,
+    ]
+  );
+
+  return toNumber(result.rowsAffected) === 1;
 }
 
 export async function hasAudioTooLongFailure(submissionId: string): Promise<boolean> {

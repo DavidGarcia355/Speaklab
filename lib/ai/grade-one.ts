@@ -6,6 +6,7 @@ import {
 } from "@/lib/db";
 import { fetchAuthorizedAudioBuffer } from "@/lib/ai/audio";
 import type { AiConfig } from "@/lib/ai/config";
+import { toPublicAiError } from "@/lib/ai/errors";
 import { gradeTranscript, transcribeAudio } from "@/lib/ai/providers";
 
 export type GradeOneOutcome =
@@ -113,7 +114,7 @@ export async function gradeOneSubmission(input: {
       confidence: suggestion.confidence,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "AI grading failed.";
+    const publicError = toPublicAiError(error);
     await createAiGradingAttempt({
       submissionId,
       teacherEmail,
@@ -132,9 +133,9 @@ export async function gradeOneSubmission(input: {
       warnings: [],
       teacherAttention: "unable_to_grade",
       ...providerMeta,
-      errorCode: "provider_error",
-      errorMessage: message,
+      errorCode: publicError.code,
+      errorMessage: publicError.message,
     });
-    return { status: "failed", message };
+    return { status: "failed", message: publicError.message };
   }
 }

@@ -15,7 +15,10 @@ const csp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Next 16.3 currently conflicts with Vercel's build adapter when standalone
+  // output is enabled. Docker still needs standalone; Vercel supplies its own
+  // traced output and should not receive this setting.
+  output: process.env.VERCEL ? undefined : "standalone",
   poweredByHeader: false,
   async headers() {
     return [

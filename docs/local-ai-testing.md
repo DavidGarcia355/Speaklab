@@ -117,18 +117,22 @@ AI_TRANSCRIPTION_PROVIDER=openai
 AI_GRADING_PROVIDER=openai
 AI_TRANSCRIPTION_MODEL=whisper-1
 AI_GRADING_MODEL=gpt-4o-mini
+AI_ACCESS_MODE=paid
+AI_TEACHER_DENYLIST=
+AI_STUDENT_DATA_APPROVED=false
+AI_MONTHLY_BUDGET_USD=200
+AI_RESERVED_COST_USD_PER_GENERATION=0.04
 OPENAI_API_KEY=configured-locally-only
 ```
 
 Do not use production student data or production credentials for local testing.
 
-### Granting a teacher access
+### Choosing teacher access
 
-AI grading is gated behind `getUserIsPaid`, which reads the `users.is_paid` column — there is
-no self-serve billing yet, so this must be granted manually. Sign in as the account matching
-`ADMIN_EMAIL`, open `/admin`, find the teacher in the **Teacher roster** table, and click the
-pill in the **AI grading** column to toggle **Free ⇄ Paid**. This calls
-`PATCH /api/admin/teachers/[email]/paid`, which is itself gated by `requireAdminEmail`.
+`AI_ACCESS_MODE=paid` keeps the existing manual `users.is_paid` entitlement. An admin can grant
+that entitlement from the teacher roster. `AI_ACCESS_MODE=all` makes AI free to every authenticated
+teacher, subject to global quotas and the monthly budget reservation. Use `AI_TEACHER_DENYLIST`
+as a comma-separated emergency suspension list in either mode.
 
 ### Getting an API key
 
@@ -137,8 +141,8 @@ pill in the **AI grading** column to toggle **Free ⇄ Paid**. This calls
 3. Create a key: https://platform.openai.com/api-keys
 4. Paste it into `OPENAI_API_KEY` in `.env.local` (never commit it).
 
-New accounts get $5 in free credit, which covers roughly 800+ AI-grade generations before any
-charge lands.
+ChatGPT subscriptions and API-platform billing are separate. Verify API billing and project limits
+in the OpenAI platform before making any live request.
 
 ### Cost per AI-grade generation
 
@@ -155,27 +159,28 @@ Each click of "Generate AI suggestion" does one transcription call and one gradi
 ~$0.12. At scale: 1,000 generations/month ≈ $12; 10,000/month ≈ $120. No fixed/infra cost —
 pure pay-as-you-go, billed by the second, no volume commitment.
 
-To cut transcription cost roughly in half, switch `AI_TRANSCRIPTION_MODEL` to
-`gpt-4o-mini-transcribe` ($0.003/min) — same API shape, drop-in env change.
+Do not change transcription models as an environment-only launch step. Newer transcription models
+have different response-format contracts and need adapter tests with synthetic audio first.
 
 ### Cost-runaway guardrails
 
 Layered protections, in the order a request hits them:
 
-1. **Paid-plan gate** — `AI_GRADING_ENABLED` route requires `getUserIsPaid`; only paying teachers can trigger real spend at all.
+1. **Access gate** — `AI_ACCESS_MODE=paid` uses manual entitlements; `all` enables every authenticated teacher. `AI_TEACHER_DENYLIST` remains an emergency block.
 2. **Cooldown** — `AI_GENERATION_COOLDOWN_SECONDS` (default 3s) blocks rapid re-clicks.
 3. **Per-submission cap** — `AI_MAX_GENERATIONS_PER_SUBMISSION` (default 10) bounds regeneration on one recording.
-4. **Per-teacher daily cap** — `AI_DAILY_TEACHER_LIMIT` (default 100/day).
+4. **Per-teacher daily cap** — `AI_DAILY_TEACHER_LIMIT` (default 20/day).
 5. **App-wide daily cap** — `AI_DAILY_GLOBAL_LIMIT` (default 500/day) bounds total spend across every teacher combined,
    independent of how many paid accounts exist. Size it to your budget: generations × ~$0.012 ≈ daily $ exposure
    (500/day ≈ $6/day ≈ $180/month worst case at normal per-call cost).
-6. **Audio-duration circuit breaker** — the transcription call now requests `verbose_json` from OpenAI and reads back
+6. **Atomic monthly reservation** — every real-provider request reserves `AI_RESERVED_COST_USD_PER_GENERATION` before calling OpenAI. Reservations, including failures, cannot exceed `AI_MONTHLY_BUDGET_USD` for the UTC calendar month.
+7. **Audio-duration circuit breaker** — the transcription call now requests `verbose_json` from OpenAI and reads back
    the real audio duration. If it exceeds `AI_MAX_AUDIO_SECONDS`, the attempt is recorded as failed
    (`errorCode: "audio_too_long"`) and returns `413` instead of proceeding to grading. A submission that's already
    failed this way is rejected immediately on the next attempt (`hasAudioTooLongFailure`), so a single oversized or
    low-bitrate file can only be transcribed once, not up to 10 times.
 
-None of these are a substitute for an OpenAI-side hard spend limit — they reduce app-level risk, but only the
+None of these are a substitute for an OpenAI-side hard spend limit — the reservation is deliberately conservative, but only the
 provider's own billing cap is a guaranteed ceiling that survives an app bug. Set that too:
 1. https://platform.openai.com/settings/organization/limits
 2. Edit spend limit → enter a monthly cap → enable "Enforce a hard limit" → Save.

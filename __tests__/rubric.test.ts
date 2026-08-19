@@ -162,6 +162,24 @@ describe("rubric validation", () => {
         },
       })
     ).toThrow();
+
+    const duplicateIds = assignmentCreateSchema.safeParse({
+      title: "Oral practice",
+      description: "",
+      instructions: "Respond in Spanish.",
+      maxPoints: 10,
+      rubric: {
+        title: "Duplicate ids",
+        criteria: [
+          { id: "same", name: "Content", description: "", maxPoints: 5 },
+          { id: "same", name: "Language", description: "", maxPoints: 5 },
+        ],
+      },
+    });
+    expect(duplicateIds.success).toBe(false);
+    if (!duplicateIds.success) {
+      expect(duplicateIds.error.issues.some((issue) => /unique/i.test(issue.message))).toBe(true);
+    }
   });
 });
 
@@ -186,9 +204,11 @@ describe("rubric routes", () => {
       className: "Spanish 1",
       ownerEmail: "teacher@example.com",
       title: "Assignment",
-      description: "",
+      description: "Keep this student-facing overview.",
       instructions: "Speak",
       maxPoints: 20,
+      maxSubmissions: 2,
+      maxRecordingSeconds: 90,
       rubric: {
         title: "Speaking rubric",
         criteria: [
@@ -323,9 +343,11 @@ describe("rubric routes", () => {
       className: "Spanish 1",
       ownerEmail: "teacher@example.com",
       title: input.title,
-      description: "",
+      description: input.description,
       instructions: input.instructions,
       maxPoints: input.maxPoints,
+      maxSubmissions: input.maxSubmissions,
+      maxRecordingSeconds: input.maxRecordingSeconds,
       rubric: input.rubric,
       attachmentName: input.attachmentName,
       attachmentUrl: input.attachmentUrl,
@@ -358,6 +380,7 @@ describe("rubric routes", () => {
       "asg_1",
       "teacher@example.com",
       expect.objectContaining({
+        description: "Keep this student-facing overview.",
         maxPoints: 12,
         rubric: expect.objectContaining({ title: "Updated rubric" }),
       })

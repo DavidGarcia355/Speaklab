@@ -14,7 +14,7 @@ This document describes implemented behavior in the repository. It is not legal 
 | Feedback/contact messages | Retained until admin deletion. | No soft-delete. | Admin delete removes the DB row. |
 | Activity logs | Retained indefinitely in `activity_events`. | No soft-delete. | No automated deletion currently implemented. |
 | User accounts | Retained indefinitely in `users`. | Account deletion is not currently supported. | Decision required. |
-| AI prototype data | No persistent AI result table currently exists. | Not applicable. | AI grading is disabled by default. |
+| AI grading attempts | Full transcript, suggestion, evidence, provider/model metadata, and safe error classification are retained in `ai_grading_attempts` while the related submission exists. | Follows the related submission's soft-delete period. | Cascades when the submission is hard-deleted after 30 days; no shorter AI-specific TTL currently exists. |
 
 ## Cleanup Behavior
 

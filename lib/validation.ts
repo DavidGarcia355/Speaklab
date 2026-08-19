@@ -68,6 +68,19 @@ export const rubricSchema = z
       .max(LIMITS.rubricCriteriaMax, `Rubric can include at most ${LIMITS.rubricCriteriaMax} criteria.`),
   })
   .superRefine((value, context) => {
+    const seenIds = new Set<string>();
+    value.criteria.forEach((criterion, index) => {
+      const criterionId = String(criterion.id);
+      if (seenIds.has(criterionId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Rubric criterion ids must be unique.",
+          path: ["criteria", index, "id"],
+        });
+      }
+      seenIds.add(criterionId);
+    });
+
     const total = value.criteria.reduce((sum, criterion) => sum + criterion.maxPoints, 0);
     if (total < LIMITS.assignmentPointsMin || total > LIMITS.assignmentPointsMax) {
       context.addIssue({
@@ -141,7 +154,7 @@ export const assignmentCreateSchema = z.object({
 
 export const assignmentUpdateSchema = z.object({
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
-  description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true).default(""),
+  description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
   maxPoints: z
     .number()

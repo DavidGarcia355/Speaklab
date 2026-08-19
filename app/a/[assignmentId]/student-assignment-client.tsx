@@ -551,6 +551,11 @@ export default function StudentAssignmentClient({
 
             <div className="record-top">
               <p className="meta recorder-note">Enter your name, record your response, play it back, then submit.</p>
+              <p className="notice info">
+                Your teacher may use an optional AI draft to help review this recording. When enabled, the audio,
+                transcript, assignment, and rubric may be processed by the school&apos;s approved AI provider. Your
+                teacher reviews the result and makes the final grading decision.
+              </p>
               {maxSubs > 0 ? (
                 <p className={`notice ${atSubmissionLimit ? "danger" : "info"}`}>
                   {atSubmissionLimit

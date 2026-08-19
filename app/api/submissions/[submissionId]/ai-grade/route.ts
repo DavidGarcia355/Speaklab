@@ -13,7 +13,9 @@ import {
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 import { fetchAuthorizedAudioBuffer } from "@/lib/ai/audio";
-import { assertAiProviderConfig, getAiConfig, isLocalMockAi } from "@/lib/ai/config";
+import { reserveGenerationBudget } from "@/lib/ai/budget";
+import { assertAiProviderConfig, getAiConfig, isAiTeacherDenied, isLocalMockAi } from "@/lib/ai/config";
+import { toPublicAiError } from "@/lib/ai/errors";
 import { gradeTranscript, transcribeAudio } from "@/lib/ai/providers";
 
 export const runtime = "nodejs";
@@ -98,12 +100,15 @@ export async function POST(
     if (!config.enabled) throw new HttpError(404, "AI grading is not available.");
     try {
       assertAiProviderConfig(config);
-    } catch (error) {
-      throw new HttpError(500, error instanceof Error ? error.message : "AI provider configuration is invalid.");
+    } catch {
+      throw new HttpError(503, "AI grading is not fully configured.");
     }
 
     const teacherEmail = await requireTeacherEmail();
-    if (!isLocalMockAi(config)) {
+    if (isAiTeacherDenied(teacherEmail, config)) {
+      throw new HttpError(403, "AI grading is not available for this account.");
+    }
+    if (!isLocalMockAi(config) && config.accessMode === "paid") {
       const isPaid = await getUserIsPaid(teacherEmail);
       if (!isPaid) throw new HttpError(402, "AI grading requires a paid plan.");
     }
@@ -124,6 +129,13 @@ export async function POST(
 
     if (await hasAudioTooLongFailure(submissionId)) {
       throw new HttpError(413, "This recording is longer than the AI grading limit and can't be graded.");
+    }
+
+    if (!isLocalMockAi(config)) {
+      const reserved = await reserveGenerationBudget({ config });
+      if (!reserved) {
+        throw new HttpError(429, "The monthly AI usage limit has been reached. Try again next month.");
+      }
     }
 
     try {
@@ -200,7 +212,7 @@ export async function POST(
       });
       return NextResponse.json({ attempt: publicAttempt(attempt) });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "AI grading failed.";
+      const publicError = toPublicAiError(error);
       const failed = await createAiGradingAttempt({
         submissionId,
         teacherEmail,
@@ -222,10 +234,10 @@ export async function POST(
         gradingProvider: config.gradingProvider,
         transcriptionModel: config.transcriptionModel,
         gradingModel: config.gradingModel,
-        errorCode: "provider_error",
-        errorMessage: message,
+        errorCode: publicError.code,
+        errorMessage: publicError.message,
       });
-      return NextResponse.json({ attempt: publicAttempt(failed), error: message }, { status: 502 });
+      return NextResponse.json({ attempt: publicAttempt(failed), error: publicError.message }, { status: 502 });
     }
   });
 }

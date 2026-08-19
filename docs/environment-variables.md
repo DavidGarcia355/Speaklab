@@ -50,7 +50,8 @@ Student audio uploads must use private/access-controlled Blob storage. Public fa
 
 | Name | Purpose | Required | Scope | Absent behavior |
 | --- | --- | --- | --- | --- |
-| `ADMIN_EMAIL` | Sole email allowed to view `/admin`. | Optional | Server | Admin page/API deny access. |
+| `ADMIN_EMAILS` | Comma-separated emails allowed to view `/admin`; also grants teacher access on sign-in. | Optional | Server | Falls back to the legacy `ADMIN_EMAIL`. |
+| `ADMIN_EMAIL` | Legacy single-admin setting, merged with `ADMIN_EMAILS`. | Optional | Server | Admin page/API deny access when both admin settings are empty. |
 | `RESEND_API_KEY` | Teacher confirmation and feedback notification email. | Optional | Server | Email sends are skipped. |
 | `DISCORD_WEBHOOK_URL` | Founder activity/feedback webhook. | Optional | Server | Discord notifications are skipped. |
 
@@ -75,7 +76,25 @@ Student audio uploads must use private/access-controlled Blob storage. Public fa
 | Name | Purpose | Required | Scope | Absent behavior |
 | --- | --- | --- | --- | --- |
 | `AI_GRADING_ENABLED` | Enables prototype AI grading route/UI when `true`. | Optional | Server | Defaults disabled; API returns unavailable before audio/model calls. |
-| `OPENAI_API_KEY` | Prototype transcription provider key. | Optional/experimental | Server | Not needed while AI disabled. |
+| `AI_BULK_GRADING_ENABLED` | Enables synchronous grade-all separately from single grading. | Optional | Server | Defaults disabled; keep off until bulk work runs as a durable resumable job. |
+| `AI_TRANSCRIPTION_PROVIDER` | Selects `openai` or local `mock`. | Required for a reviewed launch | Server | Defaults to `openai`. |
+| `AI_GRADING_PROVIDER` | Selects `openai`, `ollama`, or local `mock`. | Required for a reviewed launch | Server | Defaults to `openai` in production and local `ollama` otherwise; set it explicitly for deployments. |
+| `AI_TRANSCRIPTION_MODEL` | Transcription model ID. | Optional | Server | Defaults to `whisper-1` for OpenAI. Model changes require adapter validation. |
+| `AI_GRADING_MODEL` | Grading model ID. | Optional | Server | Defaults to `gpt-4o-mini` for OpenAI. |
+| `AI_ACCESS_MODE` | `paid` uses manual entitlements; `all` allows every authenticated teacher. | Optional | Server | Defaults to `paid`; production fails closed if `all` is combined with open teacher self-registration. |
+| `AI_TEACHER_DENYLIST` | Comma-separated emergency account suspension list in either access mode. | Optional | Server | No accounts are denied. |
+| `AI_STUDENT_DATA_APPROVED` | Explicit production gate after student-data, disclosure, retention, district, and OpenAI data-control review. | Required for production AI | Server | Production provider calls fail closed and `/api/features` hides AI. |
+| `AI_MONTHLY_BUDGET_USD` | App-side UTC-calendar-month reservation ceiling. | Required for production AI | Server | Defaults to `200`; zero fails configuration. |
+| `AI_RESERVED_COST_USD_PER_GENERATION` | Conservative amount atomically reserved before each provider-backed generation. | Required for production AI | Server | Defaults to `0.04`; zero fails configuration. |
+| `AI_MAX_AUDIO_SECONDS` | Maximum provider-graded recording duration. | Optional | Server | Defaults to 300 seconds. |
+| `AI_MAX_GENERATIONS_PER_SUBMISSION` | Regeneration cap per submission. | Optional | Server | Defaults to 10. |
+| `AI_GENERATION_COOLDOWN_SECONDS` | Delay between regenerations. | Optional | Server | Defaults to 3 seconds. |
+| `AI_DAILY_TEACHER_LIMIT` | Rolling-24-hour per-teacher attempt cap. | Optional | Server | Defaults to 20. |
+| `AI_DAILY_GLOBAL_LIMIT` | Rolling-24-hour app-wide attempt cap. | Optional | Server | Defaults to 500. |
+| `AI_PROVIDER_TIMEOUT_MS` | Provider request timeout. | Optional | Server | Defaults to 120000 ms. |
+| `AI_PROVIDER_MAX_RETRIES` | OpenAI SDK transient retry count. | Optional | Server | Defaults to 2. |
+| `AI_GRADING_MAX_OUTPUT_TOKENS` | Maximum grading-model output. | Optional | Server | Defaults to 1200. |
+| `OPENAI_API_KEY` | OpenAI transcription/grading project key. | Required when either provider is `openai` | Server | Not needed while AI is disabled; requests fail closed when required and absent. |
 | `OLLAMA_URL` | Prototype grading model endpoint. | Optional/experimental | Server | Defaults to local URL in prototype code only when AI is enabled. |
 | `OLLAMA_MODEL` | Prototype grading model name. | Optional/experimental | Server | Defaults to `llama3.2` in prototype code only when AI is enabled. |
 

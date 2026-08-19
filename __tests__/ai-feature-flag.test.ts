@@ -6,9 +6,12 @@ const mocks = vi.hoisted(() => ({
   getUserIsPaid: vi.fn(),
   countAiAttemptsForSubmission: vi.fn(),
   countAiAttemptsForTeacherSince: vi.fn(),
+  countAiAttemptsSince: vi.fn(),
   createAiGradingAttempt: vi.fn(),
+  reserveAiBudget: vi.fn(),
   latestAiAttemptCreatedAt: vi.fn(),
   listAiGradingAttemptsForSubmission: vi.fn(),
+  listUngradedSubmissionsForAiGrade: vi.fn(),
   blobGet: vi.fn(),
 }));
 
@@ -21,9 +24,12 @@ vi.mock("@/lib/db", () => ({
   getUserIsPaid: mocks.getUserIsPaid,
   countAiAttemptsForSubmission: mocks.countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince: mocks.countAiAttemptsForTeacherSince,
+  countAiAttemptsSince: mocks.countAiAttemptsSince,
   createAiGradingAttempt: mocks.createAiGradingAttempt,
+  reserveAiBudget: mocks.reserveAiBudget,
   latestAiAttemptCreatedAt: mocks.latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission: mocks.listAiGradingAttemptsForSubmission,
+  listUngradedSubmissionsForAiGrade: mocks.listUngradedSubmissionsForAiGrade,
 }));
 
 vi.mock("@vercel/blob", () => ({
@@ -61,9 +67,11 @@ vi.mock("@/lib/http", async () => {
 
 describe("AI grading feature flag", () => {
   const original = process.env.AI_GRADING_ENABLED;
+  const originalBulk = process.env.AI_BULK_GRADING_ENABLED;
 
   beforeEach(() => {
     delete process.env.AI_GRADING_ENABLED;
+    delete process.env.AI_BULK_GRADING_ENABLED;
     mocks.requireTeacherEmail.mockReset();
     mocks.findSubmissionForAiGrade.mockReset();
     mocks.getUserIsPaid.mockReset();
@@ -72,6 +80,8 @@ describe("AI grading feature flag", () => {
 
   afterEach(() => {
     process.env.AI_GRADING_ENABLED = original;
+    if (typeof originalBulk === "undefined") delete process.env.AI_BULK_GRADING_ENABLED;
+    else process.env.AI_BULK_GRADING_ENABLED = originalBulk;
   });
 
   it("rejects AI grading while disabled before touching auth, audio, or providers", async () => {
@@ -89,5 +99,21 @@ describe("AI grading feature flag", () => {
     expect(mocks.requireTeacherEmail).not.toHaveBeenCalled();
     expect(mocks.findSubmissionForAiGrade).not.toHaveBeenCalled();
     expect(mocks.blobGet).not.toHaveBeenCalled();
+  });
+
+  it("keeps synchronous bulk grading disabled unless separately enabled", async () => {
+    process.env.AI_GRADING_ENABLED = "true";
+    const { GET } = await import("@/app/api/assignments/[assignmentId]/ai-grade-all/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/assignments/asg_1/ai-grade-all"),
+      { params: Promise.resolve({ assignmentId: "asg_1" }) }
+    );
+    const data = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(404);
+    expect(data.error).toContain("Bulk AI grading");
+    expect(mocks.requireTeacherEmail).not.toHaveBeenCalled();
+    expect(mocks.listUngradedSubmissionsForAiGrade).not.toHaveBeenCalled();
   });
 });
