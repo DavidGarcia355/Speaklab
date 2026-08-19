@@ -49,3 +49,6 @@ localtunnel*.log
 next-env.d.ts
 
 .vercel
+
+# scratch audio
+scratch-*.wav
