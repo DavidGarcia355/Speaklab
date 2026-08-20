@@ -44,6 +44,7 @@ describe("OpenAI provider contract", () => {
     process.env.AI_GRADING_PROVIDER = "openai";
     process.env.OPENAI_API_KEY = "test-key";
     delete process.env.AI_GATEWAY_API_KEY;
+    delete process.env.AI_GATEWAY_ENABLED;
     delete process.env.VERCEL;
     delete process.env.VERCEL_OIDC_TOKEN;
     mocks.parse.mockReset();
@@ -186,5 +187,27 @@ describe("OpenAI provider contract", () => {
     expect(mocks.parse).toHaveBeenLastCalledWith(
       expect.objectContaining({ model: "openai/gpt-4o-mini" })
     );
+  });
+
+  it("uses direct OpenAI when the Gateway is explicitly disabled on Vercel", async () => {
+    process.env.AI_GATEWAY_ENABLED = "false";
+    process.env.VERCEL = "1";
+    process.env.VERCEL_OIDC_TOKEN = "blocked-gateway-token";
+    mocks.transcribe.mockResolvedValue({ text: "Hola", duration: 4, language: "es" });
+    const { transcribeAudio } = await import("@/lib/ai/providers");
+
+    await transcribeAudio({
+      config: getAiConfig(),
+      buffer: Buffer.from("synthetic"),
+      contentType: "audio/webm",
+    });
+
+    expect(mocks.client).toHaveBeenLastCalledWith(
+      expect.objectContaining({ apiKey: "test-key" })
+    );
+    expect(mocks.client).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ baseURL: "https://ai-gateway.vercel.sh/v1" })
+    );
+    expect(mocks.gatewayClient).not.toHaveBeenCalled();
   });
 });

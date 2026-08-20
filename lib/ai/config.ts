@@ -41,6 +41,8 @@ function providerFromEnv<T extends string>(key: string, fallback: T, allowed: re
 }
 
 export function getAiGatewayAuthToken() {
+  if (process.env.AI_GATEWAY_ENABLED?.trim().toLowerCase() === "false") return "";
+
   const apiKey = process.env.AI_GATEWAY_API_KEY?.trim();
   if (apiKey) return apiKey;
 

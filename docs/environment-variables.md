@@ -94,7 +94,8 @@ Student audio uploads must use private/access-controlled Blob storage. Public fa
 | `AI_PROVIDER_TIMEOUT_MS` | Provider request timeout. | Optional | Server | Defaults to 120000 ms. |
 | `AI_PROVIDER_MAX_RETRIES` | OpenAI SDK transient retry count. | Optional | Server | Defaults to 2. |
 | `AI_GRADING_MAX_OUTPUT_TOKENS` | Maximum grading-model output. | Optional | Server | Defaults to 1200. |
-| `OPENAI_API_KEY` | Direct OpenAI transcription/grading project key. | Required locally when either provider is `openai` and AI Gateway is unavailable | Server | Vercel production prefers AI Gateway OIDC; direct-provider requests fail closed when no hosted credentials exist. |
+| `OPENAI_API_KEY` | Direct OpenAI transcription/grading project key. | Required when either provider is `openai` and AI Gateway is unavailable or disabled | Server | Set `AI_GATEWAY_ENABLED=false` to use this key directly on Vercel. |
+| `AI_GATEWAY_ENABLED` | Chooses Vercel AI Gateway when Gateway credentials are available. | Optional | Server | Defaults enabled; set `false` to bypass Gateway and use `OPENAI_API_KEY` directly. |
 | `AI_GATEWAY_API_KEY` | Vercel AI Gateway credential for non-Vercel runtimes. | Optional | Server | Deployed Vercel functions use the rotating `VERCEL_OIDC_TOKEN` automatically. |
 | `OLLAMA_URL` | Prototype grading model endpoint. | Optional/experimental | Server | Defaults to local URL in prototype code only when AI is enabled. |
 | `OLLAMA_MODEL` | Prototype grading model name. | Optional/experimental | Server | Defaults to `llama3.2` in prototype code only when AI is enabled. |

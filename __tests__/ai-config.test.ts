@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assertAiProviderConfig,
   getAiConfig,
+  getAiGatewayAuthToken,
   isAiAccessConfigurationSafe,
   isAiTeacherDenied,
 } from "@/lib/ai/config";
@@ -17,6 +18,7 @@ const KEYS = [
   "ALLOW_TEACHER_SELF_REGISTRATION",
   "OPENAI_API_KEY",
   "AI_GATEWAY_API_KEY",
+  "AI_GATEWAY_ENABLED",
   "VERCEL_OIDC_TOKEN",
 ] as const;
 
@@ -84,6 +86,25 @@ describe("AI launch configuration", () => {
       gradingProvider: "openai" as const,
     };
 
+    expect(() => assertAiProviderConfig(config)).not.toThrow();
+  });
+
+  it("allows direct OpenAI credentials to bypass a blocked Vercel Gateway", () => {
+    process.env.AI_GATEWAY_ENABLED = "false";
+    process.env.OPENAI_API_KEY = "test-direct-key";
+    process.env.VERCEL = "1";
+    process.env.VERCEL_OIDC_TOKEN = "test-oidc-token";
+    const config = {
+      ...getAiConfig(),
+      enabled: true,
+      isDev: false,
+      studentDataApproved: true,
+      accessMode: "paid" as const,
+      transcriptionProvider: "openai" as const,
+      gradingProvider: "openai" as const,
+    };
+
+    expect(getAiGatewayAuthToken()).toBe("");
     expect(() => assertAiProviderConfig(config)).not.toThrow();
   });
 
