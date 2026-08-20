@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { CircleCheck, Clock3, Mic2, Sparkles, Trash2 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
 import ConfirmModal from "@/app/components/ConfirmModal";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
@@ -230,39 +231,62 @@ export default function StudentDashboardPage() {
   const grouped = groupByClass(assignmentHistory, submissions);
 
   return (
-    <main className="page-wrap">
+    <main className="page-wrap student-game-wrap">
       <PageTitle title="My submissions" />
       <BrandBar label="Student" />
 
-      <section className="student-dash-header">
-        <div>
-          <h1 className="student-dash-headline">Hi, {name}</h1>
+      <section className="student-dash-header student-game-hero student-submissions-hero">
+        <div className="student-game-copy">
+          <p className="pill student-game-pill">
+            <Mic2 size={14} aria-hidden="true" />
+            Submission history
+          </p>
+          <h1 className="student-dash-headline">Hi, {name}. Your recordings are organized.</h1>
           <p className="meta">
-            {localAuthBypassEnabled ? "Local dev auth bypass — viewing as" : "Signed in as"} {email}
+            {localAuthBypassEnabled ? "Local dev auth bypass - viewing as" : "Signed in as"} {email}
           </p>
         </div>
-        <div className="actions">
-          <Link className="btn btn-ghost" href="/student/dashboard">My classes</Link>
-          <Link className="btn btn-ghost" href="/">Back home</Link>
-          <Link className="btn btn-ghost" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
+        <div className="student-mini-mascot" aria-hidden="true">
+          <Image
+            src="/mascot/habla-man.webp"
+            alt=""
+            width={210}
+            height={208}
+            priority
+          />
+          <span>{gradedCount} graded</span>
+        </div>
+        <div className="student-submission-nav">
+          <Link className="btn btn-primary" href="/student/dashboard">Open classes</Link>
+          <Link className="student-text-link" href="/">Back home</Link>
+          <Link className="student-text-link" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
         </div>
       </section>
 
-      <section className="grid cols-3 section-gap">
-        <article className="card kpi-card">
-          <p className="meta stat-label">Submitted</p>
-          <p className="stat-value">{submissions.length}</p>
+      <section className="student-reward-console section-gap">
+        <article className="student-console-card">
+          <p className="student-console-label">
+            <Sparkles size={14} aria-hidden="true" />
+            Submitted
+          </p>
+          <p className="student-console-value">{submissions.length}</p>
           <p className="meta kpi-note">Total recordings</p>
         </article>
-        <article className="card kpi-card kpi-success">
-          <p className="meta stat-label">Graded</p>
-          <p className="stat-value">{gradedCount}</p>
-          <p className="meta kpi-note">Scores available</p>
+        <article className="student-console-card student-console-gem">
+          <p className="student-console-label">
+            <CircleCheck size={14} aria-hidden="true" />
+            Graded
+          </p>
+          <p className="student-console-value">{gradedCount}</p>
+          <p className="meta kpi-note">Teacher-reviewed scores</p>
         </article>
-        <article className="card kpi-card kpi-warning">
-          <p className="meta stat-label">Pending</p>
-          <p className="stat-value">{pendingCount}</p>
-          <p className="meta kpi-note">Awaiting review</p>
+        <article className="student-console-card student-console-fire">
+          <p className="student-console-label">
+            <Clock3 size={14} aria-hidden="true" />
+            Awaiting review
+          </p>
+          <p className="student-console-value">{pendingCount}</p>
+          <p className="meta kpi-note">{pendingCount > 0 ? `${pendingCount} awaiting review` : "All caught up"}</p>
         </article>
       </section>
 
@@ -271,7 +295,13 @@ export default function StudentDashboardPage() {
       {loading ? (
         <p className="meta">Loading submissions...</p>
       ) : grouped.length === 0 ? (
-        <section className="card section-gap">
+        <section className="student-empty-quest section-gap">
+          <Image
+            src="/mascot/habla-man.webp"
+            alt="HablaMan waiting for your first recording"
+            width={190}
+            height={188}
+          />
           <h2 className="surface-title">No submissions yet</h2>
           <p className="empty">
             When your teacher shares an assignment link, open it to record and submit your response.
@@ -280,10 +310,10 @@ export default function StudentDashboardPage() {
         </section>
       ) : (
         grouped.map((group) => (
-          <section key={group.className} className="section-gap">
+          <section key={group.className} className="student-quest-section section-gap">
             <h2 className="student-class-heading">{group.className}</h2>
             {group.assignments.map((asg) => (
-              <div key={asg.assignmentId} className="student-assignment-group">
+              <div key={asg.assignmentId} className="student-assignment-group student-quest-card">
                 <div className="student-assignment-header">
                   <h3 className="student-assignment-title">{asg.assignmentTitle}</h3>
                   <Link className="btn btn-ghost btn-sm" href={`/a/${asg.assignmentId}`}>
@@ -300,7 +330,7 @@ export default function StudentDashboardPage() {
                     {asg.submissions.map((sub) => {
                       const grade = gradeDisplay(sub.grade, sub.maxPoints);
                       return (
-                        <article key={sub.id} className="card student-submission-card">
+                        <article key={sub.id} className="student-submission-card student-quest-card is-complete">
                           <div className="student-sub-top">
                             <div className="student-sub-info">
                               <p className="meta">Submitted {formatDate(sub.submittedAt)}</p>

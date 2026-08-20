@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
+import Image from "next/image";
+import { ArrowRight, BookOpenCheck, CircleCheck, Clock3, School, Sparkles } from "lucide-react";
 import { authOptions } from "@/auth";
 import BrandBar from "@/app/components/BrandBar";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
@@ -89,78 +91,127 @@ export default async function StudentDashboardPage() {
   const pendingCount = totalAssignments - submittedCount;
 
   return (
-    <main className="page-wrap">
+    <main className="page-wrap student-game-wrap">
       <PageTitle title="My Classes" />
       <BrandBar label="Student" />
 
-      <section className="student-dash-header">
-        <div>
-          <h1 className="student-dash-headline">Hi, {name}</h1>
-          <p className="meta">Signed in as {email}</p>
+      <section className="student-game-hero">
+        <div className="student-game-copy">
+          <p className="pill student-game-pill">
+            <Sparkles size={14} aria-hidden="true" />
+            Student workspace
+          </p>
+          <h1>Hi, {name}. Your speaking assignments are here.</h1>
+          <p>
+            Open work from every class, record in the browser, and see what you have already
+            submitted without hunting through old links.
+          </p>
+          <div className="student-game-actions">
+            <Link className="btn btn-primary" href="/student">
+              Open vault
+              <ArrowRight size={17} aria-hidden="true" />
+            </Link>
+            <Link className="student-text-link" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
+          </div>
         </div>
-        <div className="actions">
-          <Link className="btn btn-ghost" href="/student">My submissions</Link>
-          <Link className="btn btn-ghost" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
+        <div className="student-hablaman-card" aria-label="HablaMan mascot status">
+          <span className="student-hablaman-burst">H</span>
+          <Image
+            className="student-hablaman"
+            src="/mascot/habla-man.webp"
+            alt="HablaMan, Habla's superhero mascot"
+            width={330}
+            height={328}
+            priority
+          />
+          <div className="student-hablaman-speech">
+            <strong>{submittedCount}/{totalAssignments} submitted</strong>
+            <span>{pendingCount > 0 ? `${pendingCount} ready to record` : "All caught up"}</span>
+          </div>
         </div>
       </section>
 
       {classes.length > 0 ? (
-        <section className="grid cols-3 section-gap">
-          <article className="card kpi-card">
-            <p className="meta stat-label">Classes</p>
-            <p className="stat-value">{classes.length}</p>
-            <p className="meta kpi-note">Enrolled</p>
+        <section className="student-reward-console section-gap" aria-label="Assignment progress">
+          <article className="student-level-card">
+            <div>
+              <p className="student-console-label">
+                <School size={14} aria-hidden="true" />
+                Classes
+              </p>
+              <p className="student-level-value">{classes.length}</p>
+              <p className="meta">Rostered classrooms</p>
+            </div>
           </article>
-          <article className="card kpi-card kpi-warning">
-            <p className="meta stat-label">Pending</p>
-            <p className="stat-value">{pendingCount}</p>
-            <p className="meta kpi-note">Not yet submitted</p>
+          <article className="student-console-card">
+            <p className="student-console-label">
+              <CircleCheck size={14} aria-hidden="true" />
+              Submitted
+            </p>
+            <p className="student-console-value">{submittedCount}</p>
+            <p className="meta">Assignments with a recording</p>
           </article>
-          <article className="card kpi-card kpi-success">
-            <p className="meta stat-label">Submitted</p>
-            <p className="stat-value">{submittedCount}</p>
-            <p className="meta kpi-note">Recordings turned in</p>
+          <article className="student-console-card student-console-fire">
+            <p className="student-console-label">
+              <Clock3 size={14} aria-hidden="true" />
+              To record
+            </p>
+            <p className="student-console-value">{pendingCount}</p>
+            <p className="meta">{pendingCount > 0 ? "Assignments ready to open" : "All caught up"}</p>
           </article>
         </section>
       ) : null}
 
       {classes.length === 0 ? (
-        <section className="card section-gap">
-          <h2 className="surface-title">No classes yet</h2>
+        <section className="student-empty-quest section-gap">
+          <Image
+            src="/mascot/habla-man.webp"
+            alt="HablaMan waiting for your first class"
+            width={190}
+            height={188}
+          />
+          <div>
+            <p className="pill pill-subtle">Class list empty</p>
+            <h2 className="surface-title">No classes yet</h2>
+          </div>
           <p className="empty">
             You&apos;re not on any class rosters yet. Ask your teacher to add{" "}
             <strong>{email}</strong> to their class, or open the assignment link they shared
             with you directly.
           </p>
-          <div className="actions">
-            <Link className="btn btn-ghost" href="/student">View my submissions</Link>
-            <Link className="btn btn-ghost" href="/">Back home</Link>
+          <div className="student-inline-links">
+            <Link className="student-text-link" href="/student">View submissions</Link>
+            <Link className="student-text-link" href="/">Back home</Link>
           </div>
         </section>
       ) : (
         classes.map((cls) => (
-          <section key={cls.classId} className="section-gap">
+          <section key={cls.classId} className="student-quest-section section-gap">
             <h2 className="student-class-heading">{cls.className}</h2>
             {cls.assignments.length === 0 ? (
-              <div className="card">
+              <div className="student-quest-card is-empty">
                 <p className="empty">No assignments yet. Check back after your teacher posts one.</p>
               </div>
             ) : (
               cls.assignments.map((asg) => (
-                <div key={asg.assignmentId} className="student-assignment-group">
+                <div key={asg.assignmentId} className={`student-assignment-group student-quest-card ${asg.submissionCount > 0 ? "is-complete" : "is-live"}`}>
                   <div className="student-assignment-header">
                     <div>
+                      <p className="student-quest-label">{asg.submissionCount > 0 ? "Submitted" : "Ready to record"}</p>
                       <h3 className="student-assignment-title">{asg.assignmentTitle}</h3>
-                      <p className="meta">{asg.maxPoints} points</p>
+                      <p className="meta">{asg.maxPoints} points possible</p>
                     </div>
-                    <div className="actions">
+                    <div className="student-quest-actions">
                       {asg.submissionCount > 0 ? (
-                        <span className="pill pill-success">Submitted</span>
+                        <span className="pill pill-success">
+                          <BookOpenCheck size={14} aria-hidden="true" />
+                          Submitted
+                        </span>
                       ) : (
-                        <span className="pill pill-neutral">Not submitted</span>
+                        <span className="pill pill-neutral">Ready</span>
                       )}
                       <Link className="btn btn-ghost btn-sm" href={`/a/${asg.assignmentId}`}>
-                        {asg.submissionCount > 0 ? "Reopen" : "Start recording"}
+                        {asg.submissionCount > 0 ? "View assignment" : "Start recording"}
                       </Link>
                     </div>
                   </div>
