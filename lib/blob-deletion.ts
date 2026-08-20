@@ -1,5 +1,5 @@
 import "server-only";
-import { del } from "@vercel/blob";
+import { BlobNotFoundError, del } from "@vercel/blob";
 
 function toDeletionTarget(value: string) {
   const trimmed = value.trim();
@@ -13,6 +13,7 @@ export async function deleteBlobObjects(values: string[]) {
     new Set(values.map(toDeletionTarget).filter((value): value is string => Boolean(value)))
   );
   let deleted = 0;
+  let alreadyMissing = 0;
   let failed = 0;
 
   for (const target of targets) {
@@ -20,6 +21,11 @@ export async function deleteBlobObjects(values: string[]) {
       await del(target);
       deleted++;
     } catch (error) {
+      if (error instanceof BlobNotFoundError) {
+        alreadyMissing++;
+        continue;
+      }
+
       failed++;
       console.warn("Blob deletion failed during cleanup", {
         targetKind: /^https?:\/\//i.test(target) ? "url" : "pathname",
@@ -32,6 +38,7 @@ export async function deleteBlobObjects(values: string[]) {
   return {
     attempted: targets.length,
     deleted,
+    alreadyMissing,
     failed,
     skipped: values.length - targets.length,
   };

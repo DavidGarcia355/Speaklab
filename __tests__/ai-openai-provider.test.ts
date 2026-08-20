@@ -6,6 +6,20 @@ const mocks = vi.hoisted(() => ({
   parse: vi.fn(),
   transcribe: vi.fn(),
   toFile: vi.fn(async (_buffer: Buffer, name: string, options: { type: string }) => ({ name, ...options })),
+  gatewayClient: vi.fn(),
+  gatewayModel: vi.fn(() => "gateway-transcription-model"),
+  gatewayTranscribe: vi.fn(),
+}));
+
+vi.mock("ai", () => ({
+  transcribe: mocks.gatewayTranscribe,
+}));
+
+vi.mock("@ai-sdk/gateway", () => ({
+  createGateway: (options: unknown) => {
+    mocks.gatewayClient(options);
+    return { transcriptionModel: mocks.gatewayModel };
+  },
 }));
 
 vi.mock("openai", () => ({
@@ -29,10 +43,16 @@ describe("OpenAI provider contract", () => {
     process.env.AI_TRANSCRIPTION_PROVIDER = "openai";
     process.env.AI_GRADING_PROVIDER = "openai";
     process.env.OPENAI_API_KEY = "test-key";
+    delete process.env.AI_GATEWAY_API_KEY;
+    delete process.env.VERCEL;
+    delete process.env.VERCEL_OIDC_TOKEN;
     mocks.parse.mockReset();
     mocks.transcribe.mockReset();
     mocks.toFile.mockClear();
     mocks.client.mockClear();
+    mocks.gatewayClient.mockClear();
+    mocks.gatewayModel.mockClear();
+    mocks.gatewayTranscribe.mockReset();
   });
 
   it("uses strict parsed output, bounded tokens, and separates trusted instructions", async () => {
@@ -98,6 +118,73 @@ describe("OpenAI provider contract", () => {
       expect.any(Buffer),
       "audio.ogg",
       { type: "audio/ogg;codecs=opus" }
+    );
+  });
+
+  it("uses Vercel AI Gateway OIDC for production transcription", async () => {
+    process.env.VERCEL = "1";
+    process.env.VERCEL_OIDC_TOKEN = "test-oidc-token";
+    mocks.gatewayTranscribe.mockResolvedValue({
+      text: "Hola",
+      durationInSeconds: 4,
+      language: "es",
+    });
+    const { transcribeAudio } = await import("@/lib/ai/providers");
+
+    const result = await transcribeAudio({
+      config: getAiConfig(),
+      buffer: Buffer.from("synthetic"),
+      contentType: "audio/webm",
+    });
+
+    expect(result).toMatchObject({ transcript: "Hola", detectedLanguage: "es", durationSeconds: 4 });
+    expect(mocks.gatewayClient).toHaveBeenCalledWith({ apiKey: "test-oidc-token" });
+    expect(mocks.gatewayModel).toHaveBeenCalledWith("openai/whisper-1");
+    expect(mocks.transcribe).not.toHaveBeenCalled();
+  });
+
+  it("routes structured grading through the gateway model namespace", async () => {
+    process.env.VERCEL = "1";
+    process.env.VERCEL_OIDC_TOKEN = "test-oidc-token";
+    mocks.parse.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            parsed: {
+              suggestedScore: 8,
+              rubricScores: [],
+              feedback: "Draft feedback.",
+              strengths: ["Relevant details."],
+              improvements: ["Add one example."],
+              evidence: ["Hola"],
+              confidence: "medium",
+              warnings: [],
+              teacherAttention: "review",
+            },
+            refusal: null,
+          },
+        },
+      ],
+    });
+    const { gradeTranscript } = await import("@/lib/ai/providers");
+
+    await gradeTranscript({
+      config: getAiConfig(),
+      description: "Introduce yourself.",
+      instructions: "Speak in Spanish.",
+      rubric: null,
+      maxPoints: 10,
+      transcript: "Hola, me llamo Alex.",
+    });
+
+    expect(mocks.client).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        apiKey: "test-oidc-token",
+        baseURL: "https://ai-gateway.vercel.sh/v1",
+      })
+    );
+    expect(mocks.parse).toHaveBeenLastCalledWith(
+      expect.objectContaining({ model: "openai/gpt-4o-mini" })
     );
   });
 });

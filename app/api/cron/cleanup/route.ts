@@ -28,11 +28,27 @@ export async function GET(request: Request) {
 
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const storageObjects = await listStorageObjectsForHardDeleteBefore(cutoff);
-    const result = await hardDeleteSoftDeletedBefore(cutoff);
     const [audioObjects, attachmentObjects] = await Promise.all([
       deleteBlobObjects(storageObjects.audioBlobUrls),
       deleteBlobObjects(storageObjects.attachmentUrls),
     ]);
+
+    if (audioObjects.failed > 0 || attachmentObjects.failed > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Storage cleanup was incomplete. Database cleanup was deferred for retry.",
+          audioObjects,
+          attachmentObjects,
+        },
+        {
+          status: 503,
+          headers: { "Retry-After": "300" },
+        }
+      );
+    }
+
+    const result = await hardDeleteSoftDeletedBefore(cutoff);
     return NextResponse.json({
       ok: true,
       ...result,

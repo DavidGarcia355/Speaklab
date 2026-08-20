@@ -63,6 +63,7 @@ describe("cleanup cron route", () => {
     mocks.deleteBlobObjects.mockResolvedValue({
       attempted: 1,
       deleted: 1,
+      alreadyMissing: 0,
       failed: 0,
       skipped: 0,
     });
@@ -78,7 +79,7 @@ describe("cleanup cron route", () => {
     expect(mocks.deleteBlobObjects).not.toHaveBeenCalled();
   });
 
-  it("hard-deletes records and then deletes eligible blobs with a non-PII summary", async () => {
+  it("deletes eligible blobs before hard-deleting records and returns a non-PII summary", async () => {
     const { GET } = await import("@/app/api/cron/cleanup/route");
 
     const response = await GET(
@@ -103,5 +104,50 @@ describe("cleanup cron route", () => {
     expect(JSON.stringify(data)).not.toContain("student");
     expect(mocks.deleteBlobObjects).toHaveBeenCalledWith(["submissions/asg/sub.webm"]);
     expect(mocks.deleteBlobObjects).toHaveBeenCalledWith(["assignment-attachments/asg/file.pdf"]);
+    expect(mocks.deleteBlobObjects.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.hardDeleteSoftDeletedBefore.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("returns a retryable failure and preserves database references when any blob deletion fails", async () => {
+    mocks.deleteBlobObjects
+      .mockResolvedValueOnce({
+        attempted: 1,
+        deleted: 0,
+        alreadyMissing: 0,
+        failed: 1,
+        skipped: 0,
+      })
+      .mockResolvedValueOnce({
+        attempted: 1,
+        deleted: 1,
+        alreadyMissing: 0,
+        failed: 0,
+        skipped: 0,
+      });
+    const { GET } = await import("@/app/api/cron/cleanup/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/cron/cleanup", {
+        headers: { "x-cron-secret": "cron-secret" },
+      })
+    );
+    const data = (await response.json()) as {
+      ok: boolean;
+      error: string;
+      audioObjects: { failed: number };
+      attachmentObjects: { failed: number };
+    };
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("300");
+    expect(data).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("deferred for retry"),
+      audioObjects: { failed: 1 },
+      attachmentObjects: { failed: 0 },
+    });
+    expect(JSON.stringify(data)).not.toContain("student");
+    expect(mocks.hardDeleteSoftDeletedBefore).not.toHaveBeenCalled();
   });
 });

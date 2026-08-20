@@ -9,8 +9,15 @@ export async function GET(request: Request) {
     try {
       await listClasses();
     } catch {
-      // Don't reveal DB state to unauthenticated callers
+      return NextResponse.json(
+        {
+          status: "degraded",
+          timestamp: new Date().toISOString(),
+        },
+        { status: 503 }
+      );
     }
+
     return NextResponse.json({
       status: "ok",
       timestamp: new Date().toISOString(),

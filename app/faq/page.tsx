@@ -139,7 +139,7 @@ const FAQ_SECTIONS = [
       {
         question: "Is Habla free?",
         answer:
-          "Habla does not currently have a public checkout flow. Access terms for the 2026-2027 school year are a business decision to confirm before broad classroom or district use.",
+          "Teacher accounts are free during the launch beta, with no payment method or checkout required. Future pricing is not finalized, and teachers will receive notice before access terms change. District-wide use still requires the district's own review.",
       },
       {
         question: "What does the current workflow include?",

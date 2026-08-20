@@ -4,36 +4,37 @@ import BrandBar from "@/app/components/BrandBar";
 
 export const metadata: Metadata = {
   title: "Pricing - Habla",
-  description: "Current access information and district review notes for Habla.",
+  description: "Free launch-beta teacher access and district review notes for Habla.",
 };
 
 const PLAN_CARDS = [
   {
-    label: "Current access",
-    title: "Limited pilot access while Habla prepares for district review",
-    price: "No self-serve checkout",
-    detail: "2026-2027 access terms are under review",
+    label: "Launch beta",
+    title: "Teacher accounts are free during the launch beta",
+    price: "$0 today",
+    detail: "No payment method or checkout required",
     description:
-      "Habla is being prepared for the 2026-2027 school year and for school-district vendor review. New teacher access may require approval while privacy, retention, and district documentation are finalized.",
+      "Any teacher can create an account now and use Habla's core classroom workflow. Future pricing is not finalized, and teachers will receive notice before access terms change.",
     bullets: [
-      "Core class, assignment, recording, grading, and CSV workflows remain the focus",
+      "Classes, assignments, audio submissions, grading, feedback, and CSV export",
+      "No checkout or payment method during the launch beta",
+      "Advance notice before future access terms change",
       "District privacy and security review materials are being prepared",
-      "No public billing or self-serve subscription flow is currently available",
-      "Access decisions should be confirmed before classroom rollout",
     ],
     className: "pricing-card-beta",
   },
   {
-    label: "Individual teacher",
-    title: "Individual teacher access",
-    price: "Decision required",
-    detail: "pricing is not finalized in the product",
+    label: "After the beta",
+    title: "Individual teacher pricing",
+    price: "Not finalized",
+    detail: "Launch-beta access remains free",
     description:
-      "Habla does not currently include a public checkout flow. Individual teacher pricing and availability should be treated as a business decision to confirm before broad 2026-2027 use.",
+      "Habla does not currently charge teachers. Future individual pricing and timing will be decided after the beta based on classroom use and support needs.",
     bullets: [
       "Unlimited classes",
       "Unlimited assignments",
       "Audio submissions, grading, feedback, and CSV export",
+      "Notice before any future paid plan begins",
     ],
     className: "pricing-card-teacher",
   },
@@ -59,11 +60,11 @@ export default function PricingPage() {
       <BrandBar label="Pricing" />
 
       <section className="hero">
-        <p className="pill">Access status</p>
-        <h1>Access information for the 2026-2027 school year</h1>
+        <p className="pill">Launch beta</p>
+        <h1>Free teacher access during the launch beta</h1>
         <p>
-          Habla is preparing for renewed classroom use and potential district vendor review. Public
-          pricing, district terms, and broader rollout timing are not finalized in the app.
+          Create a teacher account without a payment method or checkout. Future pricing is not
+          finalized, and district-wide rollout still requires each district&apos;s own review.
         </p>
         <div className="actions hero-actions">
           <Link className="btn btn-primary" href="/teacher/register">
@@ -101,11 +102,11 @@ export default function PricingPage() {
 
       <section className="card section-gap pricing-note">
         <p className="pill pill-subtle">What happens next</p>
-        <h2 className="surface-title">Start now, then decide later</h2>
+        <h2 className="surface-title">Start free, then decide later</h2>
         <p className="meta">
-          Habla is staying intentionally simple. There is no checkout flow on this page. The goal right
-          now is to give teachers and school technology teams an accurate view of current access while
-          privacy, retention, and district-review materials are completed.
+          Habla is staying intentionally simple during the launch beta. Teachers can start without a
+          checkout or payment method. Future pricing will be communicated before access terms change,
+          while privacy, retention, and district-review materials continue to mature.
         </p>
         <div className="actions pricing-actions">
           <Link className="btn btn-primary" href="/teacher/register">

@@ -1,0 +1,66 @@
+# Secrets and machine-local configuration
+.env
+.env.*
+.npmrc
+.yarnrc
+.yarnrc.yml
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local runtime state and databases
+data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+
+# Dependencies, generated output, caches, and local toolchains
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+.cache/
+.turbo/
+.tools/
+*.tsbuildinfo
+
+# Logs, backups, and temporary files
+logs/
+*.log
+*.log.*
+*.bak
+*.backup
+*.backup-*
+*.orig
+*.tmp
+scratch-*
+tmp/
+temp/
+
+# Repository and developer-tool metadata
+.git/
+.github/
+.vercel/
+.claude/
+.codex/
+.cursor/
+.idea/
+.vscode/
+*.code-workspace
+
+# Test, review, and documentation files are not needed by the production build
+__tests__/
+test-stubs/
+vitest.config.ts
+docs/
+AGENTS.md
+CLAUDE.md
+HABLA_AUDIT.md
+HANDOFF.md
+README.md
+SCHOOL_NETWORK.md

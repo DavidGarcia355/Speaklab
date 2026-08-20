@@ -40,6 +40,22 @@ function providerFromEnv<T extends string>(key: string, fallback: T, allowed: re
   return allowed.includes(raw as T) ? (raw as T) : fallback;
 }
 
+export function getAiGatewayAuthToken() {
+  const apiKey = process.env.AI_GATEWAY_API_KEY?.trim();
+  if (apiKey) return apiKey;
+
+  // Vercel rotates this token automatically for deployed functions. Requiring
+  // VERCEL=1 avoids accidentally using an expired token pulled into local env.
+  if (process.env.VERCEL === "1") {
+    return process.env.VERCEL_OIDC_TOKEN?.trim() || "";
+  }
+  return "";
+}
+
+function hasHostedAiCredentials() {
+  return Boolean(getAiGatewayAuthToken() || process.env.OPENAI_API_KEY?.trim());
+}
+
 export function getAiConfig(): AiConfig {
   const isDev = process.env.NODE_ENV !== "production";
   const transcriptionProvider = providerFromEnv("AI_TRANSCRIPTION_PROVIDER", "openai", [
@@ -100,11 +116,15 @@ export function assertAiProviderConfig(config: AiConfig) {
       "AI_STUDENT_DATA_APPROVED=true is required after student-data, privacy, and OpenAI retention review."
     );
   }
-  if (config.transcriptionProvider === "openai" && !process.env.OPENAI_API_KEY?.trim()) {
-    throw new Error("OPENAI_API_KEY is required when AI_TRANSCRIPTION_PROVIDER=openai.");
+  if (config.transcriptionProvider === "openai" && !hasHostedAiCredentials()) {
+    throw new Error(
+      "OPENAI_API_KEY or Vercel AI Gateway credentials are required when AI_TRANSCRIPTION_PROVIDER=openai."
+    );
   }
-  if (config.gradingProvider === "openai" && !process.env.OPENAI_API_KEY?.trim()) {
-    throw new Error("OPENAI_API_KEY is required when AI_GRADING_PROVIDER=openai.");
+  if (config.gradingProvider === "openai" && !hasHostedAiCredentials()) {
+    throw new Error(
+      "OPENAI_API_KEY or Vercel AI Gateway credentials are required when AI_GRADING_PROVIDER=openai."
+    );
   }
   if (config.monthlyBudgetUsd <= 0 || config.reservedCostUsdPerGeneration <= 0) {
     throw new Error("AI monthly budget and per-generation reservation must both be greater than zero.");

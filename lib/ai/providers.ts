@@ -1,20 +1,31 @@
 import "server-only";
+import { transcribe } from "ai";
+import { createGateway, type GatewayTranscriptionModelId } from "@ai-sdk/gateway";
 import OpenAI, { toFile } from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
 import type { Rubric } from "@/lib/validation";
-import type { AiConfig } from "@/lib/ai/config";
+import { getAiGatewayAuthToken, type AiConfig } from "@/lib/ai/config";
 import { mockGrade, mockTranscribe, type MockTranscript } from "@/lib/ai/mock";
 import { aiGradingSuggestionSchema, normalizeAiSuggestion } from "@/lib/ai/schemas";
 
 let openAiClient: OpenAI | null = null;
+let openAiClientUsesGateway: boolean | null = null;
+
+function gatewayModelId(model: string) {
+  return model.includes("/") ? model : `openai/${model}`;
+}
 
 function getOpenAiClient(config: AiConfig) {
-  if (!openAiClient) {
+  const gatewayToken = getAiGatewayAuthToken();
+  const usesGateway = Boolean(gatewayToken);
+  if (!openAiClient || openAiClientUsesGateway !== usesGateway) {
     openAiClient = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey: gatewayToken || process.env.OPENAI_API_KEY,
+      ...(usesGateway ? { baseURL: "https://ai-gateway.vercel.sh/v1" } : {}),
       timeout: config.providerTimeoutMs,
       maxRetries: config.providerMaxRetries,
     });
+    openAiClientUsesGateway = usesGateway;
   }
   return openAiClient;
 }
@@ -41,6 +52,25 @@ export async function transcribeAudio(input: {
 }): Promise<MockTranscript> {
   const { config, buffer, contentType } = input;
   if (config.transcriptionProvider === "mock") return mockTranscribe(config);
+
+  const gatewayToken = getAiGatewayAuthToken();
+  if (gatewayToken) {
+    const gateway = createGateway({ apiKey: gatewayToken });
+    const transcription = await transcribe({
+      model: gateway.transcriptionModel(
+        gatewayModelId(config.transcriptionModel) as GatewayTranscriptionModelId
+      ),
+      audio: new Uint8Array(buffer),
+      maxRetries: config.providerMaxRetries,
+      abortSignal: AbortSignal.timeout(config.providerTimeoutMs),
+    });
+    return {
+      transcript: transcription.text.trim(),
+      detectedLanguage: transcription.language ?? "unknown",
+      quality: "good",
+      durationSeconds: Math.round(transcription.durationInSeconds ?? 0),
+    };
+  }
 
   const openai = getOpenAiClient(config);
   const ext = extensionForContentType(contentType);
@@ -130,8 +160,9 @@ export async function gradeTranscript(input: {
     raw = extractJSON(body.response ?? "");
   } else {
     const openai = getOpenAiClient(config);
+    const usesGateway = Boolean(getAiGatewayAuthToken());
     const completion = await openai.chat.completions.parse({
-      model: config.gradingModel,
+      model: usesGateway ? gatewayModelId(config.gradingModel) : config.gradingModel,
       store: false,
       max_tokens: config.gradingMaxOutputTokens,
       response_format: zodResponseFormat(aiGradingSuggestionSchema, "ai_grading_suggestion"),
