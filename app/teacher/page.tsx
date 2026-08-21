@@ -559,7 +559,7 @@ export default function TeacherPage() {
           <Ribbon
             className="cancer-ribbon-icon"
             data-awareness-ribbon="peach"
-            size={20}
+            size={18}
             aria-hidden="true"
           />
           <p>
@@ -572,7 +572,7 @@ export default function TeacherPage() {
             My story
           </Link>
           <a
-            className="btn btn-ghost btn-sm"
+            className="btn btn-primary btn-sm"
             href="https://paypal.me/DavidGarcia355"
             target="_blank"
             rel="noreferrer"

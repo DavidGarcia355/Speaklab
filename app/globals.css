@@ -4448,8 +4448,8 @@ html.dark .home-cta .meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 0;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
   border-top: 1px solid var(--line);
 }
 
@@ -4467,6 +4467,8 @@ html.dark .home-cta .meta {
 
 .teacher-support-copy p {
   margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 
 .teacher-support-copy strong {
