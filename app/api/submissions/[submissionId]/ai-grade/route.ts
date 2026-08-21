@@ -4,19 +4,17 @@ import {
   countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince,
   countAiAttemptsSince,
-  createAiGradingAttempt,
   findSubmissionForAiGrade,
-  getUserIsPaid,
+  getUserHasAiAccess,
   hasAudioTooLongFailure,
   latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
-import { fetchAuthorizedAudioBuffer } from "@/lib/ai/audio";
 import { reserveGenerationBudget } from "@/lib/ai/budget";
 import { assertAiProviderConfig, getAiConfig, isAiTeacherDenied, isLocalMockAi } from "@/lib/ai/config";
-import { toPublicAiError } from "@/lib/ai/errors";
-import { gradeTranscript, transcribeAudio } from "@/lib/ai/providers";
+import { gradeOneSubmission } from "@/lib/ai/grade-one";
+import { assertGradingProviderConfiguration, getGradingConfig } from "@/lib/grading/config";
 
 export const runtime = "nodejs";
 
@@ -42,6 +40,17 @@ function publicAttempt(attempt: Awaited<ReturnType<typeof listAiGradingAttemptsF
     transcriptionModel: attempt.transcriptionModel,
     gradingModel: attempt.gradingModel,
     errorMessage: attempt.errorMessage,
+    cacheHit: attempt.cacheHit,
+    inputTokens: attempt.inputTokens,
+    cachedInputTokens: attempt.cachedInputTokens,
+    outputTokens: attempt.outputTokens,
+    latencyMs: attempt.latencyMs,
+    retries: attempt.retries,
+    escalated: attempt.escalated,
+    escalationReason: attempt.escalationReason,
+    estimatedCostUsd: attempt.estimatedCostMicrousd / 1_000_000,
+    promptVersion: attempt.promptVersion,
+    resultSource: attempt.resultSource,
     createdAt: attempt.createdAt,
     completedAt: attempt.completedAt,
   };
@@ -100,6 +109,7 @@ export async function POST(
     if (!config.enabled) throw new HttpError(404, "AI grading is not available.");
     try {
       assertAiProviderConfig(config);
+      assertGradingProviderConfiguration(getGradingConfig());
     } catch {
       throw new HttpError(503, "AI grading is not fully configured.");
     }
@@ -109,11 +119,15 @@ export async function POST(
       throw new HttpError(403, "AI grading is not available for this account.");
     }
     if (!isLocalMockAi(config) && config.accessMode === "paid") {
-      const isPaid = await getUserIsPaid(teacherEmail);
-      if (!isPaid) throw new HttpError(402, "AI grading requires a paid plan.");
+      const hasAiAccess = await getUserHasAiAccess(teacherEmail);
+      if (!hasAiAccess) throw new HttpError(402, "AI grading requires an active AI billing plan.");
     }
 
     const { submissionId } = await context.params;
+    const requestBody = request.headers.get("content-type")?.includes("application/json")
+      ? ((await request.json().catch(() => null)) as { enhanced?: unknown } | null)
+      : null;
+    const enhanced = requestBody?.enhanced === true;
     const data = await findSubmissionForAiGrade(submissionId, teacherEmail);
     if (!data) throw new HttpError(403, "You don't have access to this submission.");
     if (!data.audioBlobUrl) throw new HttpError(404, "No audio found for this submission.");
@@ -138,106 +152,28 @@ export async function POST(
       }
     }
 
-    try {
-      const audio =
-        config.transcriptionProvider === "mock"
-          ? { buffer: Buffer.from("mock audio"), contentType: "audio/webm" }
-          : await fetchAuthorizedAudioBuffer(data.audioBlobUrl);
-      const transcript = await transcribeAudio({
-        config,
-        buffer: audio.buffer,
-        contentType: audio.contentType,
-      });
-
-      if (transcript.durationSeconds > config.maxAudioSeconds) {
-        await createAiGradingAttempt({
-          submissionId,
-          teacherEmail,
-          status: "failed",
-          transcript: transcript.transcript,
-          detectedLanguage: transcript.detectedLanguage,
-          transcriptQuality: transcript.quality,
-          durationSeconds: transcript.durationSeconds,
-          suggestedScore: null,
-          rubricScores: [],
-          feedback: "",
-          strengths: [],
-          improvements: [],
-          evidence: [],
-          confidence: "low",
-          warnings: [],
-          teacherAttention: "unable_to_grade",
-          transcriptionProvider: config.transcriptionProvider,
-          gradingProvider: config.gradingProvider,
-          transcriptionModel: config.transcriptionModel,
-          gradingModel: config.gradingModel,
-          errorCode: "audio_too_long",
-          errorMessage: `Audio is ${transcript.durationSeconds}s, which exceeds the ${config.maxAudioSeconds}s AI grading limit.`,
-        });
-        return NextResponse.json(
-          { error: "This recording is longer than the AI grading limit and can't be graded." },
-          { status: 413 }
-        );
-      }
-
-      const suggestion = await gradeTranscript({
-        config,
-        description: data.description,
-        instructions: data.instructions,
-        rubric: data.rubric,
-        maxPoints: data.maxPoints,
-        transcript: transcript.transcript,
-      });
-      const attempt = await createAiGradingAttempt({
-        submissionId,
-        teacherEmail,
-        status: "completed",
-        transcript: transcript.transcript,
-        detectedLanguage: transcript.detectedLanguage,
-        transcriptQuality: transcript.quality,
-        durationSeconds: transcript.durationSeconds,
-        suggestedScore: suggestion.suggestedScore,
-        rubricScores: suggestion.rubricScores,
-        feedback: suggestion.feedback,
-        strengths: suggestion.strengths,
-        improvements: suggestion.improvements,
-        evidence: suggestion.evidence,
-        confidence: suggestion.confidence,
-        warnings: suggestion.warnings,
-        teacherAttention: suggestion.teacherAttention,
-        transcriptionProvider: config.transcriptionProvider,
-        gradingProvider: config.gradingProvider,
-        transcriptionModel: config.transcriptionModel,
-        gradingModel: config.gradingModel,
-      });
-      return NextResponse.json({ attempt: publicAttempt(attempt) });
-    } catch (error) {
-      const publicError = toPublicAiError(error);
-      const failed = await createAiGradingAttempt({
-        submissionId,
-        teacherEmail,
-        status: "failed",
-        transcript: "",
-        detectedLanguage: "",
-        transcriptQuality: "",
-        durationSeconds: 0,
-        suggestedScore: null,
-        rubricScores: [],
-        feedback: "",
-        strengths: [],
-        improvements: [],
-        evidence: [],
-        confidence: "low",
-        warnings: [],
-        teacherAttention: "unable_to_grade",
-        transcriptionProvider: config.transcriptionProvider,
-        gradingProvider: config.gradingProvider,
-        transcriptionModel: config.transcriptionModel,
-        gradingModel: config.gradingModel,
-        errorCode: publicError.code,
-        errorMessage: publicError.message,
-      });
-      return NextResponse.json({ attempt: publicAttempt(failed), error: publicError.message }, { status: 502 });
+    const outcome = await gradeOneSubmission({ config, teacherEmail, data, enhanced });
+    if (outcome.status === "skipped") {
+      throw new HttpError(
+        outcome.reason === "audio_too_long" ? 413 : 404,
+        outcome.reason === "audio_too_long"
+          ? "This recording is longer than the AI grading limit and can't be graded."
+          : "No audio found for this submission."
+      );
     }
+    if (outcome.status === "failed") {
+      const attempts = await listAiGradingAttemptsForSubmission(submissionId, teacherEmail, 1);
+      return NextResponse.json(
+        {
+          attempt: attempts[0] ? publicAttempt(attempts[0]) : null,
+          error: outcome.message,
+        },
+        { status: 502 }
+      );
+    }
+    return NextResponse.json({
+      attempt: publicAttempt(outcome.attempt),
+      gradeApplied: outcome.gradeApplied,
+    });
   });
 }

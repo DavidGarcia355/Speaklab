@@ -4,6 +4,7 @@ import { POST } from "@/app/api/assignments/[assignmentId]/submissions/route";
 const mocks = vi.hoisted(() => ({
   mockRequireSchoolStudentEmail: vi.fn(),
   mockUploadSubmissionAudio: vi.fn(),
+  mockDeleteSubmissionAudio: vi.fn(),
   mockCountStudentSubmissions: vi.fn(),
   mockCreateSubmission: vi.fn(),
   mockFindAssignmentById: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("@/lib/authz", () => ({
 
 vi.mock("@/lib/audio-storage", () => ({
   uploadSubmissionAudio: mocks.mockUploadSubmissionAudio,
+  deleteSubmissionAudio: mocks.mockDeleteSubmissionAudio,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -98,6 +100,7 @@ describe("submission route domain enforcement", () => {
 
     mocks.mockRequireSchoolStudentEmail.mockReset();
     mocks.mockUploadSubmissionAudio.mockReset();
+    mocks.mockDeleteSubmissionAudio.mockReset();
     mocks.mockCountStudentSubmissions.mockReset();
     mocks.mockCreateSubmission.mockReset();
     mocks.mockFindAssignmentById.mockReset();
@@ -127,6 +130,7 @@ describe("submission route domain enforcement", () => {
       buffer: Buffer.from("audio"),
     });
     mocks.mockUploadSubmissionAudio.mockResolvedValue("https://blob.example/audio.webm");
+    mocks.mockDeleteSubmissionAudio.mockResolvedValue(undefined);
     mocks.mockCreateSubmission.mockResolvedValue({
       id: "sub_1",
       assignmentId: "asg_1",
@@ -220,7 +224,7 @@ describe("submission route domain enforcement", () => {
     expect(mocks.mockCreateSubmission).not.toHaveBeenCalled();
   });
 
-  it("falls back to protected legacy audio storage when production Blob is public-only", async () => {
+  it("fails closed when the production Blob store cannot accept private audio", async () => {
     mocks.mockUploadSubmissionAudio.mockRejectedValue(
       new Error("Vercel Blob: Cannot use private access on a public store.")
     );
@@ -228,12 +232,23 @@ describe("submission route domain enforcement", () => {
     const response = await POST(makeRequest(), {
       params: Promise.resolve({ assignmentId: "asg_1" }),
     });
+    const data = (await response.json()) as { error: string };
 
-    expect(response.status).toBe(201);
-    expect(mocks.mockCreateSubmission).toHaveBeenCalledWith(
-      expect.objectContaining({
-        audioBlobUrl: "data:audio/webm;base64,AAAA",
-      })
+    expect(response.status).toBe(503);
+    expect(data.error).toContain("upload your recording");
+    expect(mocks.mockCreateSubmission).not.toHaveBeenCalled();
+  });
+
+  it("removes an uploaded private Blob when database persistence fails", async () => {
+    mocks.mockUploadSubmissionAudio.mockResolvedValue("submissions/asg_1/orphan.webm");
+    mocks.mockCreateSubmission.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      POST(makeRequest(), { params: Promise.resolve({ assignmentId: "asg_1" }) })
+    ).rejects.toThrow("database unavailable");
+
+    expect(mocks.mockDeleteSubmissionAudio).toHaveBeenCalledWith(
+      "submissions/asg_1/orphan.webm"
     );
   });
 

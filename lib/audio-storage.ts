@@ -1,5 +1,6 @@
 import "server-only";
-import { put } from "@vercel/blob";
+import { del, put } from "@vercel/blob";
+import { getAudioBlobCommandOptions } from "@/lib/audio-blob";
 
 export async function uploadSubmissionAudio(input: {
   assignmentId: string;
@@ -19,6 +20,14 @@ export async function uploadSubmissionAudio(input: {
     access: "private",
     contentType: input.mimeType,
     addRandomSuffix: false,
+    ...getAudioBlobCommandOptions(),
   });
   return result.pathname;
+}
+
+export async function deleteSubmissionAudio(reference: string) {
+  const trimmed = reference.trim();
+  if (!trimmed || trimmed.startsWith("data:")) return;
+  const target = /^https?:\/\//i.test(trimmed) ? trimmed : trimmed.replace(/^\/+/, "");
+  await del(target, getAudioBlobCommandOptions());
 }

@@ -9,7 +9,7 @@ import {
   Check,
   CheckCircle2,
   Clock3,
-  Heart,
+  Ribbon,
   Pencil,
   Plus,
   Sparkles,
@@ -350,6 +350,9 @@ export default function TeacherPage() {
               View classes
               <ArrowRight size={17} aria-hidden="true" />
             </Link>
+            <Link className="btn btn-ghost" href="/billing">
+              AI billing
+            </Link>
           </div>
         </div>
         <div className="teacher-hero-art" aria-hidden="true">
@@ -553,20 +556,30 @@ export default function TeacherPage() {
 
       <section className="teacher-support-band section-gap">
         <div className="teacher-support-copy">
-          <Heart size={18} aria-hidden="true" />
+          <Ribbon
+            className="cancer-ribbon-icon"
+            data-awareness-ribbon="peach"
+            size={20}
+            aria-hidden="true"
+          />
           <p>
-            <strong>Help Habla keep growing.</strong>
-            <span> Built and maintained by a college student.</span>
+            <strong>Help my mom&apos;s fight against cancer.</strong>
+            <span> Thank you for supporting my family.</span>
           </p>
         </div>
-        <a
-          className="btn btn-ghost btn-sm"
-          href="https://paypal.me/DavidGarcia355"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Help fund my tuition
-        </a>
+        <div className="actions">
+          <Link className="btn btn-ghost btn-sm" href="/about">
+            My story
+          </Link>
+          <a
+            className="btn btn-ghost btn-sm"
+            href="https://paypal.me/DavidGarcia355"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Help my mom&apos;s fight against cancer
+          </a>
+        </div>
       </section>
 
       <ConfirmModal

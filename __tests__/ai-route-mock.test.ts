@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requireTeacherEmail: vi.fn(async () => "dev-teacher@local.test"),
-  getUserIsPaid: vi.fn(async () => false),
+  getUserHasAiAccess: vi.fn(async () => false),
   findSubmissionForAiGrade: vi.fn(async () => ({
     submissionId: "sub_1",
     assignmentId: "asg_1",
@@ -29,11 +29,44 @@ const mocks = vi.hoisted(() => ({
     ...input,
   })),
   reserveAiBudget: vi.fn(async () => true),
+  findValidGradingResultCache: vi.fn(async () => null),
+  upsertGradingResultCache: vi.fn(async () => null),
+  recordGradingProviderRequest: vi.fn(async () => null),
+  getTeacherGradingUsageSince: vi.fn(async () => ({
+    requestCount: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    latencyMs: 0,
+    retries: 0,
+    escalations: 0,
+    estimatedCostMicrousd: 0,
+  })),
+  applyAiGradeToSubmission: vi.fn(async (_submissionId, _teacherEmail, input) => ({
+    id: "sub_1",
+    grade: input.grade,
+    feedback: input.feedback,
+    rubricScores: input.rubricScores,
+  })),
+  getTeacherGradingUsageForUtcMonth: vi.fn(async () => ({
+    requestCount: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    latencyMs: 0,
+    retries: 0,
+    escalations: 0,
+    estimatedCostMicrousd: 0,
+  })),
+  recordDeliveredAiUsageSafely: vi.fn(async () => ({ status: "disabled", usage: null })),
 }));
 
 vi.mock("@/lib/authz", () => ({ requireTeacherEmail: mocks.requireTeacherEmail }));
+vi.mock("@/lib/billing", () => ({
+  recordDeliveredAiUsageSafely: mocks.recordDeliveredAiUsageSafely,
+}));
 vi.mock("@/lib/db", () => ({
-  getUserIsPaid: mocks.getUserIsPaid,
+  getUserHasAiAccess: mocks.getUserHasAiAccess,
   findSubmissionForAiGrade: mocks.findSubmissionForAiGrade,
   countAiAttemptsForSubmission: mocks.countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince: mocks.countAiAttemptsForTeacherSince,
@@ -42,7 +75,13 @@ vi.mock("@/lib/db", () => ({
   latestAiAttemptCreatedAt: mocks.latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission: mocks.listAiGradingAttemptsForSubmission,
   createAiGradingAttempt: mocks.createAiGradingAttempt,
+  applyAiGradeToSubmission: mocks.applyAiGradeToSubmission,
   reserveAiBudget: mocks.reserveAiBudget,
+  findValidGradingResultCache: mocks.findValidGradingResultCache,
+  upsertGradingResultCache: mocks.upsertGradingResultCache,
+  recordGradingProviderRequest: mocks.recordGradingProviderRequest,
+  getTeacherGradingUsageSince: mocks.getTeacherGradingUsageSince,
+  getTeacherGradingUsageForUtcMonth: mocks.getTeacherGradingUsageForUtcMonth,
 }));
 vi.mock("@/lib/http", async () => {
   class MockHttpError extends Error {
@@ -76,29 +115,39 @@ describe("AI grading mock route", () => {
     delete process.env.AI_ACCESS_MODE;
     delete process.env.AI_TEACHER_DENYLIST;
     mocks.requireTeacherEmail.mockClear();
-    mocks.getUserIsPaid.mockClear();
+    mocks.getUserHasAiAccess.mockClear();
     mocks.findSubmissionForAiGrade.mockClear();
     mocks.reserveAiBudget.mockReset();
     mocks.reserveAiBudget.mockResolvedValue(true);
     mocks.createAiGradingAttempt.mockClear();
+    mocks.applyAiGradeToSubmission.mockClear();
     mocks.latestAiAttemptCreatedAt.mockReset();
     mocks.latestAiAttemptCreatedAt.mockResolvedValue(null);
   });
 
-  it("creates a suggestion attempt without saving a final grade", async () => {
+  it("creates an auditable attempt and automatically saves the AI grade", async () => {
     const { POST } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
 
     const response = await POST(new Request("http://localhost/api/submissions/sub_1/ai-grade", { method: "POST" }), {
       params: Promise.resolve({ submissionId: "sub_1" }),
     });
-    const body = (await response.json()) as { attempt: { suggestedScore: number; feedback: string } };
+    const body = (await response.json()) as {
+      attempt: { suggestedScore: number; feedback: string };
+      gradeApplied: boolean;
+    };
 
     expect(response.status).toBe(200);
     expect(body.attempt.suggestedScore).toBe(8);
     expect(body.attempt.feedback).toContain("Mock suggestion");
+    expect(body.gradeApplied).toBe(true);
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledOnce();
     expect(mocks.createAiGradingAttempt.mock.calls[0][0]).not.toHaveProperty("grade");
-  }, 10_000);
+    expect(mocks.applyAiGradeToSubmission).toHaveBeenCalledWith(
+      "sub_1",
+      "dev-teacher@local.test",
+      expect.objectContaining({ grade: 8 }),
+    );
+  }, 30_000);
 
   it("returns cooldown as a visible rate-limit state", async () => {
     mocks.latestAiAttemptCreatedAt.mockResolvedValueOnce(Date.now());
@@ -111,7 +160,7 @@ describe("AI grading mock route", () => {
 
     expect(response.status).toBe(429);
     expect(body.error).toContain("wait");
-  }, 10_000);
+  }, 30_000);
 
   it("blocks a teacher on the emergency denylist before provider work", async () => {
     process.env.AI_TEACHER_DENYLIST = "DEV-TEACHER@LOCAL.TEST";
@@ -137,7 +186,7 @@ describe("AI grading mock route", () => {
     );
 
     expect(response.status).toBe(402);
-    expect(mocks.getUserIsPaid).toHaveBeenCalledOnce();
+    expect(mocks.getUserHasAiAccess).toHaveBeenCalledOnce();
     expect(mocks.reserveAiBudget).not.toHaveBeenCalled();
   });
 
@@ -153,7 +202,7 @@ describe("AI grading mock route", () => {
     );
 
     expect(response.status).toBe(429);
-    expect(mocks.getUserIsPaid).not.toHaveBeenCalled();
+    expect(mocks.getUserHasAiAccess).not.toHaveBeenCalled();
     expect(mocks.reserveAiBudget).toHaveBeenCalledOnce();
     expect(mocks.createAiGradingAttempt).not.toHaveBeenCalled();
   });

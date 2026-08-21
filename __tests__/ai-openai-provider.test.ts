@@ -5,20 +5,29 @@ const mocks = vi.hoisted(() => ({
   client: vi.fn(),
   parse: vi.fn(),
   transcribe: vi.fn(),
+  generateText: vi.fn(),
+  outputObject: vi.fn(),
   toFile: vi.fn(async (_buffer: Buffer, name: string, options: { type: string }) => ({ name, ...options })),
   gatewayClient: vi.fn(),
   gatewayModel: vi.fn(() => "gateway-transcription-model"),
+  gatewayLanguageModel: vi.fn((model: string) => {
+    void model;
+    return "gateway-language-model";
+  }),
   gatewayTranscribe: vi.fn(),
 }));
 
 vi.mock("ai", () => ({
   transcribe: mocks.gatewayTranscribe,
+  generateText: mocks.generateText,
+  Output: { object: mocks.outputObject },
 }));
 
 vi.mock("@ai-sdk/gateway", () => ({
-  createGateway: (options: unknown) => {
-    mocks.gatewayClient(options);
-    return { transcriptionModel: mocks.gatewayModel };
+  createGateway: (...args: unknown[]) => {
+    mocks.gatewayClient(...args);
+    const provider = (model: string) => mocks.gatewayLanguageModel(model);
+    return Object.assign(provider, { transcriptionModel: mocks.gatewayModel });
   },
 }));
 
@@ -49,10 +58,14 @@ describe("OpenAI provider contract", () => {
     delete process.env.VERCEL_OIDC_TOKEN;
     mocks.parse.mockReset();
     mocks.transcribe.mockReset();
+    mocks.generateText.mockReset();
+    mocks.outputObject.mockReset();
+    mocks.outputObject.mockImplementation((options) => ({ kind: "object", ...options }));
     mocks.toFile.mockClear();
     mocks.client.mockClear();
     mocks.gatewayClient.mockClear();
     mocks.gatewayModel.mockClear();
+    mocks.gatewayLanguageModel.mockClear();
     mocks.gatewayTranscribe.mockReset();
   });
 
@@ -129,6 +142,8 @@ describe("OpenAI provider contract", () => {
       text: "Hola",
       durationInSeconds: 4,
       language: "es",
+      responses: [],
+      providerMetadata: {},
     });
     const { transcribeAudio } = await import("@/lib/ai/providers");
 
@@ -139,37 +154,33 @@ describe("OpenAI provider contract", () => {
     });
 
     expect(result).toMatchObject({ transcript: "Hola", detectedLanguage: "es", durationSeconds: 4 });
-    expect(mocks.gatewayClient).toHaveBeenCalledWith({ apiKey: "test-oidc-token" });
+    expect(mocks.gatewayClient.mock.calls.at(-1)).toEqual([]);
+    expect(JSON.stringify(mocks.gatewayClient.mock.calls)).not.toContain("test-oidc-token");
     expect(mocks.gatewayModel).toHaveBeenCalledWith("openai/whisper-1");
     expect(mocks.transcribe).not.toHaveBeenCalled();
   });
 
-  it("routes structured grading through the gateway model namespace", async () => {
+  it("routes strict structured grading through the native Gateway provider", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_OIDC_TOKEN = "test-oidc-token";
-    mocks.parse.mockResolvedValue({
-      choices: [
-        {
-          message: {
-            parsed: {
-              suggestedScore: 8,
-              rubricScores: [],
-              feedback: "Draft feedback.",
-              strengths: ["Relevant details."],
-              improvements: ["Add one example."],
-              evidence: ["Hola"],
-              confidence: "medium",
-              warnings: [],
-              teacherAttention: "review",
-            },
-            refusal: null,
-          },
-        },
-      ],
+    const suggestion = {
+      suggestedScore: 8,
+      rubricScores: [],
+      feedback: "Draft feedback.",
+      strengths: ["Relevant details."],
+      improvements: ["Add one example."],
+      evidence: ["Hola"],
+      confidence: "medium",
+      warnings: [],
+      teacherAttention: "review",
+    };
+    mocks.generateText.mockResolvedValue({
+      output: suggestion,
+      finalStep: { response: { headers: {} }, providerMetadata: {} },
     });
     const { gradeTranscript } = await import("@/lib/ai/providers");
 
-    await gradeTranscript({
+    const result = await gradeTranscript({
       config: getAiConfig(),
       description: "Introduce yourself.",
       instructions: "Speak in Spanish.",
@@ -178,15 +189,23 @@ describe("OpenAI provider contract", () => {
       transcript: "Hola, me llamo Alex.",
     });
 
-    expect(mocks.client).toHaveBeenLastCalledWith(
+    expect(result.suggestedScore).toBe(8);
+    expect(mocks.gatewayClient.mock.calls.at(-1)).toEqual([]);
+    expect(mocks.gatewayLanguageModel).toHaveBeenCalledWith("openai/gpt-4o-mini");
+    expect(mocks.outputObject).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "ai_grading_suggestion" })
+    );
+    expect(mocks.generateText).toHaveBeenCalledWith(
       expect.objectContaining({
-        apiKey: "test-oidc-token",
-        baseURL: "https://ai-gateway.vercel.sh/v1",
+        model: "gateway-language-model",
+        maxOutputTokens: 1200,
+        maxRetries: 2,
+        timeout: 120_000,
+        output: expect.objectContaining({ kind: "object" }),
       })
     );
-    expect(mocks.parse).toHaveBeenLastCalledWith(
-      expect.objectContaining({ model: "openai/gpt-4o-mini" })
-    );
+    expect(mocks.parse).not.toHaveBeenCalled();
+    expect(JSON.stringify(mocks.gatewayClient.mock.calls)).not.toContain("test-oidc-token");
   });
 
   it("uses direct OpenAI when the Gateway is explicitly disabled on Vercel", async () => {

@@ -56,6 +56,9 @@ export default function Home() {
   return (
     <main className="page-wrap">
       <header className="home-top-tools" aria-label="Homepage tools">
+        <Link className="btn btn-ghost btn-sm" href="/about">
+          About me
+        </Link>
         <ThemeToggle />
       </header>
       <ExternalBrowserNotice className="home-external-browser-notice" />
@@ -117,8 +120,8 @@ export default function Home() {
           </p>
           <h2>Start with one class. Prove the workflow before a wider rollout.</h2>
           <p className="meta">
-            Teacher accounts are free during the launch beta with no payment method required. Future
-            pricing and district-wide terms are still being finalized.
+            Habla&apos;s core audio classroom is free forever. Optional AI is usage-based, while district
+            rollout and purchasing remain a separate review process.
           </p>
         </div>
         <div className="actions home-district-actions">
@@ -128,6 +131,9 @@ export default function Home() {
           </Link>
           <Link className="btn btn-ghost" href="/district">
             District review
+          </Link>
+          <Link className="btn btn-ghost" href="/pricing">
+            See pricing
           </Link>
         </div>
       </section>
@@ -147,10 +153,10 @@ export default function Home() {
         </article>
         <article>
           <BrainCircuit size={20} aria-hidden="true" />
-          <h2>AI drafts. Teachers decide.</h2>
+          <h2>AI grades. Teachers stay in control.</h2>
           <p className="meta">
-            When enabled, Habla can draft a transcript, rubric-aligned score, and feedback. Nothing becomes
-            a grade until the teacher reviews and saves it.
+            When enabled, Habla saves a whole-point score, rubric breakdown, and feedback after a
+            successful AI review. Teachers can inspect the evidence and edit the grade anytime.
           </p>
           <Link className="student-text-link" href="/teachers">
             See the teacher workflow

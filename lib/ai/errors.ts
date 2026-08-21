@@ -5,18 +5,139 @@ export type PublicAiError = {
   message: string;
 };
 
-export function toPublicAiError(error: unknown): PublicAiError {
-  const candidate = error as {
-    name?: string;
-    status?: number;
-    code?: string;
-    error?: { code?: string };
-  };
-  const name = candidate?.name ?? "";
-  const status = candidate?.status;
-  const providerCode = candidate?.code ?? candidate?.error?.code ?? "";
+export type SafeAiProviderMetadata = {
+  name?: string;
+  status?: number;
+  code?: string;
+  requestId?: string;
+  generationId?: string;
+};
 
-  if (name.includes("Timeout") || name === "AbortError") {
+type ProviderLogContext = {
+  operation: "transcription" | "grading";
+  route: "gateway" | "direct";
+  model: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function safeIdentifier(value: unknown, maxLength = 200) {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLength) return undefined;
+  return /^[a-z0-9][a-z0-9._:/=-]*$/i.test(trimmed) ? trimmed : undefined;
+}
+
+function numericStatus(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value
+    : undefined;
+}
+
+function readHeader(headers: unknown, name: string) {
+  if (headers instanceof Headers) return safeIdentifier(headers.get(name));
+  const record = asRecord(headers);
+  if (!record) return undefined;
+  const match = Object.entries(record).find(([key]) => key.toLowerCase() === name.toLowerCase());
+  return safeIdentifier(match?.[1]);
+}
+
+export function getSafeAiProviderMetadata(error: unknown): SafeAiProviderMetadata {
+  const root = asRecord(error);
+  if (!root) return {};
+
+  const queue: Record<string, unknown>[] = [root];
+  const seen = new Set<Record<string, unknown>>();
+  const records: Record<string, unknown>[] = [];
+
+  while (queue.length > 0 && records.length < 8) {
+    const current = queue.shift();
+    if (!current || seen.has(current)) continue;
+    seen.add(current);
+    records.push(current);
+
+    for (const key of ["cause", "providerMetadata", "gateway", "response", "finalStep"]) {
+      const nested = asRecord(current[key]);
+      if (nested) queue.push(nested);
+    }
+    if (Array.isArray(current.errors)) {
+      for (const item of current.errors.slice(0, 3)) {
+        const nested = asRecord(item);
+        if (nested) queue.push(nested);
+      }
+    }
+  }
+
+  let status: number | undefined;
+  let code: string | undefined;
+  let requestId: string | undefined;
+  let generationId: string | undefined;
+  let name: string | undefined;
+
+  for (const record of records) {
+    name ??= safeIdentifier(record.name, 100);
+    status ??= numericStatus(record.status) ?? numericStatus(record.statusCode);
+    code ??= safeIdentifier(record.code, 100) ?? safeIdentifier(asRecord(record.error)?.code, 100);
+    requestId ??=
+      safeIdentifier(record.requestID) ??
+      safeIdentifier(record.requestId) ??
+      safeIdentifier(record.request_id) ??
+      readHeader(record.headers, "x-request-id") ??
+      readHeader(record.responseHeaders, "x-request-id");
+    generationId ??= safeIdentifier(record.generationId);
+  }
+
+  return {
+    ...(name ? { name } : {}),
+    ...(status ? { status } : {}),
+    ...(code ? { code } : {}),
+    ...(requestId ? { requestId } : {}),
+    ...(generationId ? { generationId } : {}),
+  };
+}
+
+function safeLogContext(context: ProviderLogContext) {
+  return {
+    operation: context.operation,
+    provider: "openai",
+    route: context.route,
+    model: safeIdentifier(context.model, 100) ?? "unknown",
+  };
+}
+
+export function logAiProviderSuccess(context: ProviderLogContext, metadata: unknown) {
+  const safe = getSafeAiProviderMetadata(metadata);
+  if (!safe.requestId && !safe.generationId) return;
+  console.info("AI provider request completed", {
+    ...safeLogContext(context),
+    ...(safe.requestId ? { requestId: safe.requestId } : {}),
+    ...(safe.generationId ? { generationId: safe.generationId } : {}),
+  });
+}
+
+export function logAiProviderFailure(context: ProviderLogContext, error: unknown) {
+  const safe = getSafeAiProviderMetadata(error);
+  console.error("AI provider request failed", {
+    ...safeLogContext(context),
+    ...(safe.name ? { errorName: safe.name } : {}),
+    ...(safe.status ? { status: safe.status } : {}),
+    ...(safe.code ? { code: safe.code } : {}),
+    ...(safe.requestId ? { requestId: safe.requestId } : {}),
+    ...(safe.generationId ? { generationId: safe.generationId } : {}),
+  });
+}
+
+export function toPublicAiError(error: unknown): PublicAiError {
+  const metadata = getSafeAiProviderMetadata(error);
+  const name = metadata.name ?? "";
+  const status = metadata.status;
+  const providerCode = metadata.code ?? "";
+
+  if (name.includes("Timeout") || name === "AbortError" || status === 408) {
     return { code: "provider_timeout", message: "AI grading timed out. Please try again." };
   }
   if (status === 429 && ["insufficient_quota", "billing_hard_limit_reached"].includes(providerCode)) {

@@ -1,4 +1,5 @@
 import { get } from "@vercel/blob";
+import { getAudioBlobCommandOptions } from "@/lib/audio-blob";
 import { requireTeacherEmail } from "@/lib/authz";
 import { findSubmissionAccessById } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
@@ -81,6 +82,7 @@ export async function GET(
         headers: {
           "Content-Type": legacy.contentType,
           "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
         },
       });
     }
@@ -94,6 +96,7 @@ export async function GET(
     const upstream = await get(blobTarget.reference, {
       access: "private",
       useCache: false,
+      ...getAudioBlobCommandOptions(),
     });
     if (!upstream || upstream.statusCode !== 200 || !upstream.stream) {
       throw new HttpError(404, "Audio not found.");
@@ -104,6 +107,7 @@ export async function GET(
       headers: {
         "Content-Type": upstream.blob.contentType || "application/octet-stream",
         "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   });

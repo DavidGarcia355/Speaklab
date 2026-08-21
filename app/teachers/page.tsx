@@ -35,8 +35,8 @@ const teacherBenefits = [
   },
   {
     icon: BrainCircuit,
-    title: "Review an AI draft",
-    description: "When enabled, generate rubric-aligned transcripts, scores, and feedback drafts before the teacher makes the final call.",
+    title: "Grade with AI",
+    description: "When enabled, save rubric-aligned scores and feedback automatically, then review or edit every result.",
   },
   {
     icon: Download,
@@ -60,8 +60,8 @@ export default function TeachersPage() {
         <h1>More student speaking. Less grading drag.</h1>
         <p>
           Habla helps language teachers assign prompts, collect recordings, grade responses, and keep
-          every class organized. Optional AI can draft rubric-aligned feedback, while the teacher keeps
-          control of every score that reaches a student.
+          every class organized. Optional AI can save rubric-aligned scores and feedback automatically,
+          while the teacher can review and edit every result.
         </p>
         <div className="actions hero-actions">
           <Link className="btn btn-primary" href="/teacher/register">

@@ -3,13 +3,14 @@ import { requireTeacherEmail } from "@/lib/authz";
 import {
   countAiAttemptsForTeacherSince,
   countAiAttemptsSince,
-  getUserIsPaid,
+  getUserHasAiAccess,
   listUngradedSubmissionsForAiGrade,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 import { reserveGenerationBudget } from "@/lib/ai/budget";
 import { assertAiProviderConfig, getAiConfig, isAiTeacherDenied, isLocalMockAi } from "@/lib/ai/config";
 import { gradeOneSubmission } from "@/lib/ai/grade-one";
+import { assertGradingProviderConfiguration, getGradingConfig } from "@/lib/grading/config";
 
 export const runtime = "nodejs";
 
@@ -62,6 +63,7 @@ export async function POST(
     if (!config.bulkEnabled) throw new HttpError(404, "Bulk AI grading is not available.");
     try {
       assertAiProviderConfig(config);
+      assertGradingProviderConfiguration(getGradingConfig());
     } catch {
       throw new HttpError(503, "AI grading is not fully configured.");
     }
@@ -71,11 +73,15 @@ export async function POST(
       throw new HttpError(403, "AI grading is not available for this account.");
     }
     if (!isLocalMockAi(config) && config.accessMode === "paid") {
-      const isPaid = await getUserIsPaid(teacherEmail);
-      if (!isPaid) throw new HttpError(402, "AI grading requires a paid plan.");
+      const hasAiAccess = await getUserHasAiAccess(teacherEmail);
+      if (!hasAiAccess) throw new HttpError(402, "AI grading requires an active AI billing plan.");
     }
 
     const { assignmentId } = await context.params;
+    const requestBody = request.headers.get("content-type")?.includes("application/json")
+      ? ((await request.json().catch(() => null)) as { enhanced?: unknown } | null)
+      : null;
+    const enhanced = requestBody?.enhanced === true;
     const pending = await listUngradedSubmissionsForAiGrade(assignmentId, teacherEmail);
     if (pending.length === 0) {
       throw new HttpError(400, "There are no ungraded submissions with audio in this assignment.");
@@ -108,11 +114,13 @@ export async function POST(
       status: string;
       teacherAttention?: string;
       confidence?: string;
+      gradeApplied?: boolean;
       reason?: string;
       message?: string;
     }> = [];
 
     let completed = 0;
+    let graded = 0;
     let skipped = 0;
     let failed = 0;
 
@@ -122,15 +130,17 @@ export async function POST(
         await new Promise((resolve) => setTimeout(resolve, config.cooldownSeconds * 1000));
       }
 
-      const outcome = await gradeOneSubmission({ config, teacherEmail, data });
+      const outcome = await gradeOneSubmission({ config, teacherEmail, data, enhanced });
       if (outcome.status === "completed") {
         completed += 1;
+        if (outcome.gradeApplied) graded += 1;
         results.push({
           submissionId: data.submissionId,
           studentName: data.studentName,
           status: "completed",
           teacherAttention: outcome.teacherAttention,
           confidence: outcome.confidence,
+          gradeApplied: outcome.gradeApplied,
         });
       } else if (outcome.status === "skipped") {
         skipped += 1;
@@ -155,10 +165,11 @@ export async function POST(
       ok: true,
       total: pending.length,
       completed,
+      graded,
       skipped,
       failed,
-      // Nothing here is a grade. Every suggestion still needs a teacher.
-      needsVerification: completed,
+      // AI grades are saved immediately, but remain editable and visible for review.
+      needsVerification: graded,
       results,
     });
   });

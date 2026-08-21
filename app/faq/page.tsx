@@ -139,7 +139,17 @@ const FAQ_SECTIONS = [
       {
         question: "Is Habla free?",
         answer:
-          "Teacher accounts are free during the launch beta, with no payment method or checkout required. Future pricing is not finalized, and teachers will receive notice before access terms change. District-wide use still requires the district's own review.",
+          "Yes. Habla's core audio classroom is free forever, including classes, rosters, speaking assignments, student recordings, teacher grading, feedback, and CSV export. Optional AI is usage-based. District-wide use and purchasing remain a separate review process.",
+      },
+      {
+        question: "How does optional AI pricing work?",
+        answer:
+          "AI usage combines a successful grade, processed audio duration, and the final feedback output. Each UTC month includes one fewer free AI grade than the number of qualifying active classes. A qualifying class has a rostered student and a real assignment. Failed requests, compatible cache hits, internal retries, and model escalation are not charged as additional teacher uses. Sign in to the AI billing page to check self-serve availability.",
+      },
+      {
+        question: "Does AI save the grade automatically?",
+        answer:
+          "Yes. A successful AI run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, Habla saves no score.",
       },
       {
         question: "What does the current workflow include?",

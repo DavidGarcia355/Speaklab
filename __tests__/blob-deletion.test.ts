@@ -1,8 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   del: vi.fn(),
 }));
+
+const originalAudioStoreId = process.env.AUDIO_BLOB_STORE_ID;
+const originalVercel = process.env.VERCEL;
+
+afterAll(() => {
+  if (typeof originalAudioStoreId === "undefined") delete process.env.AUDIO_BLOB_STORE_ID;
+  else process.env.AUDIO_BLOB_STORE_ID = originalAudioStoreId;
+  if (typeof originalVercel === "undefined") delete process.env.VERCEL;
+  else process.env.VERCEL = originalVercel;
+});
 
 vi.mock("@vercel/blob", () => {
   class MockBlobNotFoundError extends Error {}
@@ -16,6 +26,8 @@ vi.mock("@vercel/blob", () => {
 describe("blob deletion", () => {
   beforeEach(() => {
     mocks.del.mockReset();
+    process.env.AUDIO_BLOB_STORE_ID = "store_audio_test";
+    process.env.VERCEL = "1";
   });
 
   it("treats an already-missing blob as successfully gone for idempotent retries", async () => {
@@ -39,7 +51,10 @@ describe("blob deletion", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     mocks.del.mockRejectedValueOnce(new Error("provider unavailable"));
 
-    const result = await deleteBlobObjects(["submissions/asg/private-student-audio.webm"]);
+    const result = await deleteBlobObjects(
+      ["submissions/asg/private-student-audio.webm"],
+      { objectClass: "audio" }
+    );
 
     expect(result).toEqual({
       attempted: 1,
@@ -53,9 +68,29 @@ describe("blob deletion", () => {
       expect.objectContaining({
         targetKind: "pathname",
         errorName: "Error",
-        errorMessage: "provider unavailable",
+        objectClass: "audio",
       })
     );
     expect(JSON.stringify(warn.mock.calls)).not.toContain("private-student-audio");
+  });
+
+  it("routes private audio to its store while preserving legacy public deletion", async () => {
+    const { deleteBlobObjects } = await import("@/lib/blob-deletion");
+    mocks.del.mockResolvedValue(undefined);
+    const publicUrl =
+      "https://legacy.public.blob.vercel-storage.com/submissions/asg/legacy.webm";
+
+    const result = await deleteBlobObjects(
+      [publicUrl, "submissions/asg/private.webm", "data:audio/webm;base64,AAAA"],
+      { objectClass: "audio" }
+    );
+
+    expect(result).toMatchObject({ attempted: 2, deleted: 2, skipped: 1 });
+    expect(mocks.del).toHaveBeenNthCalledWith(1, publicUrl, undefined);
+    expect(mocks.del).toHaveBeenNthCalledWith(
+      2,
+      "submissions/asg/private.webm",
+      expect.objectContaining({ storeId: "store_audio_test" })
+    );
   });
 });

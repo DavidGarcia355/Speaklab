@@ -4,6 +4,7 @@ import { deleteBlobObjects } from "@/lib/blob-deletion";
 import { hardDeleteSoftDeletedBefore, listStorageObjectsForHardDeleteBefore } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { HttpError, withApiHandler } from "@/lib/http";
+import { flushPendingAiBillingUsage } from "@/lib/billing";
 
 export const runtime = "nodejs";
 
@@ -26,11 +27,16 @@ export async function GET(request: Request) {
       throw new HttpError(403, "You don't have access to this page.");
     }
 
+    const billingUsage = await flushPendingAiBillingUsage(100).catch((error) => {
+      console.error("Stripe usage retry failed", error);
+      return { attempted: 0, reported: 0, failed: 1 };
+    });
+
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const storageObjects = await listStorageObjectsForHardDeleteBefore(cutoff);
     const [audioObjects, attachmentObjects] = await Promise.all([
-      deleteBlobObjects(storageObjects.audioBlobUrls),
-      deleteBlobObjects(storageObjects.attachmentUrls),
+      deleteBlobObjects(storageObjects.audioBlobUrls, { objectClass: "audio" }),
+      deleteBlobObjects(storageObjects.attachmentUrls, { objectClass: "attachment" }),
     ]);
 
     if (audioObjects.failed > 0 || attachmentObjects.failed > 0) {
@@ -40,6 +46,7 @@ export async function GET(request: Request) {
           error: "Storage cleanup was incomplete. Database cleanup was deferred for retry.",
           audioObjects,
           attachmentObjects,
+          billingUsage,
         },
         {
           status: 503,
@@ -54,6 +61,7 @@ export async function GET(request: Request) {
       ...result,
       audioObjects,
       attachmentObjects,
+      billingUsage,
     });
   });
 }

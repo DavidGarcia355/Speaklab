@@ -13,6 +13,11 @@
     "ai:seed": "node scripts/local-ai.mjs seed",
     "ai:reset": "node scripts/local-ai.mjs reset",
     "ai:smoke": "node scripts/local-ai.mjs smoke",
+    "ai:benchmark": "tsx scripts/grading-benchmark.ts",
+    "ai:benchmark:paid": "tsx scripts/grading-benchmark.ts --allow-paid",
+    "ai:profit": "tsx scripts/grading-profit.ts",
+    "stripe:catalog:plan": "tsx scripts/stripe-setup.ts",
+    "stripe:catalog:test:apply": "tsx scripts/stripe-setup.ts --apply",
     "lint": "eslint",
     "test": "vitest run",
     "typecheck": "next typegen && tsc --noEmit",
@@ -23,7 +28,7 @@
     "@libsql/client": "^0.17.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.36.4",
-    "@vercel/blob": "^2.3.1",
+    "@vercel/blob": "^2.8.0",
     "ai": "^7.0.70",
     "lucide-react": "^0.577.0",
     "next": "16.3.1",
@@ -32,6 +37,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "resend": "6.0.2",
+    "stripe": "22.5.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -43,6 +49,7 @@
     "eslint": "^9",
     "eslint-config-next": "^16.3.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5",
     "vitest": "^4.1.0"
   }

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   requireTeacherEmail: vi.fn(),
   findSubmissionForAiGrade: vi.fn(),
-  getUserIsPaid: vi.fn(),
+  getUserHasAiAccess: vi.fn(),
   countAiAttemptsForSubmission: vi.fn(),
   countAiAttemptsForTeacherSince: vi.fn(),
   countAiAttemptsSince: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock("@/lib/authz", () => ({
 
 vi.mock("@/lib/db", () => ({
   findSubmissionForAiGrade: mocks.findSubmissionForAiGrade,
-  getUserIsPaid: mocks.getUserIsPaid,
+  getUserHasAiAccess: mocks.getUserHasAiAccess,
   countAiAttemptsForSubmission: mocks.countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince: mocks.countAiAttemptsForTeacherSince,
   countAiAttemptsSince: mocks.countAiAttemptsSince,
@@ -74,7 +74,7 @@ describe("AI grading feature flag", () => {
     delete process.env.AI_BULK_GRADING_ENABLED;
     mocks.requireTeacherEmail.mockReset();
     mocks.findSubmissionForAiGrade.mockReset();
-    mocks.getUserIsPaid.mockReset();
+    mocks.getUserHasAiAccess.mockReset();
     mocks.blobGet.mockReset();
   });
 

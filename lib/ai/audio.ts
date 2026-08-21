@@ -1,5 +1,6 @@
 import "server-only";
 import { get } from "@vercel/blob";
+import { getAudioBlobCommandOptions } from "@/lib/audio-blob";
 import { HttpError } from "@/lib/http";
 import { parseAudioDataUrl } from "@/lib/validation";
 
@@ -35,7 +36,11 @@ export async function fetchAuthorizedAudioBuffer(
   }
 
   const reference = trimmed.replace(/^\/+/, "");
-  const blob = await get(reference, { access: "private", useCache: false });
+  const blob = await get(reference, {
+    access: "private",
+    useCache: false,
+    ...getAudioBlobCommandOptions(),
+  });
   if (!blob || blob.statusCode !== 200 || !blob.stream) {
     throw new HttpError(404, "Audio not found.");
   }

@@ -8,6 +8,10 @@ import BrandBar from "@/app/components/BrandBar";
 import ConfirmModal from "@/app/components/ConfirmModal";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import PageTitle from "@/app/components/PageTitle";
+import {
+  studentGradeProvenance,
+  type StudentGradeSource,
+} from "@/lib/ai/student-provenance";
 
 type StudentSubmission = {
   id: string;
@@ -19,6 +23,7 @@ type StudentSubmission = {
   submittedAt: number;
   feedback: string;
   grade: number | null;
+  gradeSource: StudentGradeSource;
 };
 
 type StudentAssignmentHistory = {
@@ -329,6 +334,7 @@ export default function StudentDashboardPage() {
                   <div className="grid student-submission-list">
                     {asg.submissions.map((sub) => {
                       const grade = gradeDisplay(sub.grade, sub.maxPoints);
+                      const provenance = studentGradeProvenance(sub.gradeSource);
                       return (
                         <article key={sub.id} className="student-submission-card student-quest-card is-complete">
                           <div className="student-sub-top">
@@ -337,6 +343,9 @@ export default function StudentDashboardPage() {
                             </div>
                             <div className="student-sub-actions">
                               <span className={`pill ${grade.tone}`}>{grade.text}</span>
+                              {sub.grade !== null && provenance.badge ? (
+                                <span className="pill pill-subtle">{provenance.badge}</span>
+                              ) : null}
                               {sub.grade === null ? (
                                 <button
                                   type="button"
@@ -352,7 +361,7 @@ export default function StudentDashboardPage() {
                           {sub.feedback ? (
                             <div className="student-sub-feedback">
                               <p className="label" style={{ marginBottom: "0.2rem", fontSize: "0.84rem" }}>
-                                Teacher feedback
+                                {provenance.feedbackLabel}
                               </p>
                               <p className="meta">{sub.feedback}</p>
                             </div>

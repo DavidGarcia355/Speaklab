@@ -1,5 +1,8 @@
 import "server-only";
 import { BlobNotFoundError, del } from "@vercel/blob";
+import { getAudioBlobCommandOptions } from "@/lib/audio-blob";
+
+export type BlobObjectClass = "audio" | "attachment";
 
 function toDeletionTarget(value: string) {
   const trimmed = value.trim();
@@ -8,7 +11,19 @@ function toDeletionTarget(value: string) {
   return trimmed.replace(/^\/+/, "");
 }
 
-export async function deleteBlobObjects(values: string[]) {
+function isLegacyPublicBlobUrl(target: string) {
+  if (!/^https?:\/\//i.test(target)) return false;
+  try {
+    return new URL(target).hostname.toLowerCase().endsWith(".public.blob.vercel-storage.com");
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteBlobObjects(
+  values: string[],
+  options: { objectClass?: BlobObjectClass } = {}
+) {
   const targets = Array.from(
     new Set(values.map(toDeletionTarget).filter((value): value is string => Boolean(value)))
   );
@@ -18,7 +33,11 @@ export async function deleteBlobObjects(values: string[]) {
 
   for (const target of targets) {
     try {
-      await del(target);
+      const commandOptions =
+        options.objectClass === "audio" && !isLegacyPublicBlobUrl(target)
+          ? getAudioBlobCommandOptions()
+          : undefined;
+      await del(target, commandOptions);
       deleted++;
     } catch (error) {
       if (error instanceof BlobNotFoundError) {
@@ -30,7 +49,7 @@ export async function deleteBlobObjects(values: string[]) {
       console.warn("Blob deletion failed during cleanup", {
         targetKind: /^https?:\/\//i.test(target) ? "url" : "pathname",
         errorName: error instanceof Error ? error.name : "unknown",
-        errorMessage: error instanceof Error ? error.message : "unknown",
+        objectClass: options.objectClass ?? "attachment",
       });
     }
   }

@@ -1,7 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { createClient, type Client, type InValue, type Row } from "@libsql/client";
+import { createClient, type Client, type InStatement, type InValue, type Row } from "@libsql/client";
 import type { Rubric, RubricScore } from "@/lib/validation";
 
 const QUERY_TIMEOUT_MS = 5000;
@@ -53,6 +53,7 @@ export type SubmissionRow = {
   submittedAt: number;
   feedback: string;
   grade: number | null;
+  gradeSource: "teacher" | "ai";
   rubricScores: RubricScore[] | null;
 };
 
@@ -75,6 +76,7 @@ export type StudentSubmissionRow = {
   submittedAt: number;
   feedback: string;
   grade: number | null;
+  gradeSource: "teacher" | "ai";
 };
 
 export type StudentAssignmentHistoryRow = {
@@ -182,8 +184,157 @@ export type AiGradingAttemptRow = {
   gradingModel: string;
   errorCode: string;
   errorMessage: string;
+  cacheKey: string;
+  cacheHit: boolean;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  latencyMs: number;
+  retries: number;
+  escalated: boolean;
+  escalationReason: string;
+  estimatedCostMicrousd: number;
+  promptVersion: string;
+  resultSource: string;
+  billingRequired: boolean;
+  billingPriceBookId: string;
+  billableOutputTokens: number;
   createdAt: number;
   completedAt: number | null;
+};
+
+export type GradingResultCacheRow = {
+  cacheKey: string;
+  submissionId: string;
+  teacherEmail: string;
+  resultJson: string;
+  provider: string;
+  model: string;
+  promptVersion: string;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
+};
+
+export type GradingProviderRequestStatus = "pending" | "completed" | "failed";
+
+export type GradingProviderRequestRow = {
+  id: string;
+  attemptId: string | null;
+  submissionId: string;
+  teacherEmail: string;
+  requestStage: string;
+  provider: string;
+  model: string;
+  providerRequestId: string;
+  status: GradingProviderRequestStatus;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  latencyMs: number;
+  retries: number;
+  escalated: boolean;
+  escalationReason: string;
+  estimatedCostMicrousd: number;
+  promptVersion: string;
+  errorCode: string;
+  createdAt: number;
+  completedAt: number | null;
+};
+
+export type GradingUsageAggregate = {
+  requestCount: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  latencyMs: number;
+  retries: number;
+  escalations: number;
+  estimatedCostMicrousd: number;
+};
+
+export type StripeBillingAccountRow = {
+  teacherEmail: string;
+  stripeCustomerId: string;
+  stripeSubscriptionId: string | null;
+  subscriptionStatus: string;
+  priceBookId: string;
+  stripeEventCreated: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type StripeWebhookEventRow = {
+  eventId: string;
+  eventType: string;
+  stripeEventCreated: number;
+  processedAt: number;
+};
+
+export type AiBillingCreditPeriodRow = {
+  teacherEmail: string;
+  billingMonth: string;
+  qualifyingClassHighWater: number;
+  usedCredits: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type AiBillingUsageStatus = "pending" | "credited" | "reported" | "failed";
+export type AiBillingUsageDimension = "base" | "audio" | "output";
+
+export type AiBillingUsageRow = {
+  id: string;
+  teacherEmail: string;
+  billingMonth: string;
+  cacheKey: string;
+  priceBookId: string;
+  attemptId: string;
+  submissionId: string;
+  freeCreditApplied: boolean;
+  baseUnits: number;
+  durationSeconds: number;
+  outputTokens: number;
+  baseAttemptedAt: number | null;
+  audioAttemptedAt: number | null;
+  outputAttemptedAt: number | null;
+  baseReportedAt: number | null;
+  audioReportedAt: number | null;
+  outputReportedAt: number | null;
+  status: AiBillingUsageStatus;
+  lastErrorDimension: AiBillingUsageDimension | null;
+  lastError: string;
+  lastFailedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type AiBillingMonthlySummary = {
+  teacherEmail: string;
+  billingMonth: string;
+  qualifyingClassHighWater: number;
+  earnedCredits: number;
+  usedCredits: number;
+  remainingCredits: number;
+  successfulResults: number;
+  freeCreditResults: number;
+  billableResults: number;
+  billableBaseUnits: number;
+  billableDurationSeconds: number;
+  billableOutputTokens: number;
+  pendingResults: number;
+  reportedResults: number;
+  failedResults: number;
+};
+
+export type UnqueuedAiBillingAttemptRow = {
+  attemptId: string;
+  teacherEmail: string;
+  cacheKey: string;
+  priceBookId: string;
+  submissionId: string;
+  durationSeconds: number;
+  outputTokens: number;
 };
 
 /**
@@ -263,7 +414,13 @@ async function rawExecute(sql: string, args: InValue[] = []) {
 }
 
 async function ensureColumn(
-  tableName: "classes" | "assignments" | "submissions" | "users",
+  tableName:
+    | "classes"
+    | "assignments"
+    | "submissions"
+    | "users"
+    | "ai_grading_attempts"
+    | "ai_billing_usage",
   columnName: string,
   definition: string
 ) {
@@ -306,6 +463,7 @@ async function ensureInitialized() {
           submitted_at INTEGER NOT NULL,
           feedback TEXT,
           grade INTEGER,
+          grade_source TEXT NOT NULL DEFAULT 'teacher' CHECK (grade_source IN ('teacher', 'ai')),
           deleted_at INTEGER,
           FOREIGN KEY(assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
         )`,
@@ -363,8 +521,62 @@ async function ensureInitialized() {
           grading_model TEXT NOT NULL DEFAULT '',
           error_code TEXT NOT NULL DEFAULT '',
           error_message TEXT NOT NULL DEFAULT '',
+          cache_key TEXT NOT NULL DEFAULT '',
+          cache_hit INTEGER NOT NULL DEFAULT 0,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0,
+          latency_ms INTEGER NOT NULL DEFAULT 0,
+          retries INTEGER NOT NULL DEFAULT 0,
+          escalated INTEGER NOT NULL DEFAULT 0,
+          escalation_reason TEXT NOT NULL DEFAULT '',
+          estimated_cost_microusd INTEGER NOT NULL DEFAULT 0,
+          prompt_version TEXT NOT NULL DEFAULT '',
+          result_source TEXT NOT NULL DEFAULT 'ai',
+          billing_required INTEGER NOT NULL DEFAULT 0 CHECK (billing_required IN (0, 1)),
+          billing_price_book_id TEXT NOT NULL DEFAULT '',
+          billable_output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (billable_output_tokens >= 0),
           created_at INTEGER NOT NULL,
           completed_at INTEGER,
+          FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS grading_result_cache (
+          cache_key TEXT NOT NULL,
+          submission_id TEXT NOT NULL,
+          teacher_email TEXT NOT NULL,
+          result_json TEXT NOT NULL,
+          provider TEXT NOT NULL DEFAULT '',
+          model TEXT NOT NULL DEFAULT '',
+          prompt_version TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          PRIMARY KEY(cache_key, teacher_email),
+          FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS grading_provider_requests (
+          id TEXT PRIMARY KEY,
+          attempt_id TEXT,
+          submission_id TEXT NOT NULL,
+          teacher_email TEXT NOT NULL,
+          request_stage TEXT NOT NULL DEFAULT '',
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          provider_request_id TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'completed', 'failed')),
+          input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+          cached_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cached_input_tokens >= 0),
+          output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+          latency_ms INTEGER NOT NULL DEFAULT 0 CHECK (latency_ms >= 0),
+          retries INTEGER NOT NULL DEFAULT 0 CHECK (retries >= 0),
+          escalated INTEGER NOT NULL DEFAULT 0 CHECK (escalated IN (0, 1)),
+          escalation_reason TEXT NOT NULL DEFAULT '',
+          estimated_cost_microusd INTEGER NOT NULL DEFAULT 0 CHECK (estimated_cost_microusd >= 0),
+          prompt_version TEXT NOT NULL DEFAULT '',
+          error_code TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          completed_at INTEGER,
+          FOREIGN KEY(attempt_id) REFERENCES ai_grading_attempts(id) ON DELETE SET NULL,
           FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE
         )`,
         `CREATE TABLE IF NOT EXISTS ai_budget_reservations (
@@ -373,11 +585,74 @@ async function ensureInitialized() {
           reserved_microusd INTEGER NOT NULL CHECK (reserved_microusd > 0),
           created_at INTEGER NOT NULL
         )`,
+        `CREATE TABLE IF NOT EXISTS stripe_billing_accounts (
+          teacher_email TEXT PRIMARY KEY COLLATE NOCASE,
+          stripe_customer_id TEXT NOT NULL UNIQUE,
+          stripe_subscription_id TEXT UNIQUE,
+          subscription_status TEXT NOT NULL DEFAULT '',
+          price_book_id TEXT NOT NULL DEFAULT '',
+          stripe_event_created INTEGER NOT NULL DEFAULT 0 CHECK (stripe_event_created >= 0),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )`,
+        `CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+          event_id TEXT PRIMARY KEY,
+          event_type TEXT NOT NULL,
+          stripe_event_created INTEGER NOT NULL CHECK (stripe_event_created >= 0),
+          processed_at INTEGER NOT NULL
+        )`,
+        `CREATE TABLE IF NOT EXISTS ai_billing_credit_periods (
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          billing_month TEXT NOT NULL,
+          qualifying_class_high_water INTEGER NOT NULL DEFAULT 0 CHECK (qualifying_class_high_water >= 0),
+          used_credits INTEGER NOT NULL DEFAULT 0 CHECK (used_credits >= 0),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(teacher_email, billing_month)
+        )`,
+        `CREATE TABLE IF NOT EXISTS ai_billing_usage (
+          id TEXT PRIMARY KEY,
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          billing_month TEXT NOT NULL,
+          cache_key TEXT NOT NULL,
+          price_book_id TEXT NOT NULL,
+          attempt_id TEXT NOT NULL,
+          submission_id TEXT NOT NULL,
+          free_credit_applied INTEGER NOT NULL DEFAULT 0 CHECK (free_credit_applied IN (0, 1)),
+          base_units INTEGER NOT NULL DEFAULT 1 CHECK (base_units >= 0),
+          duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK (duration_seconds >= 0),
+          output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+          base_attempted_at INTEGER,
+          audio_attempted_at INTEGER,
+          output_attempted_at INTEGER,
+          base_reported_at INTEGER,
+          audio_reported_at INTEGER,
+          output_reported_at INTEGER,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'credited', 'reported', 'failed')),
+          last_error_dimension TEXT CHECK (last_error_dimension IS NULL OR last_error_dimension IN ('base', 'audio', 'output')),
+          last_error TEXT NOT NULL DEFAULT '',
+          last_failed_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(teacher_email, cache_key, price_book_id)
+        )`,
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_roster_class_student ON roster(class_id, LOWER(student_email))",
         "CREATE INDEX IF NOT EXISTS idx_roster_class_id ON roster(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_submission ON ai_grading_attempts(submission_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_teacher ON ai_grading_attempts(LOWER(teacher_email), created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_grading_result_cache_expiry ON grading_result_cache(expires_at)",
+        "CREATE INDEX IF NOT EXISTS idx_grading_result_cache_submission ON grading_result_cache(submission_id)",
+        "CREATE INDEX IF NOT EXISTS idx_grading_provider_requests_teacher ON grading_provider_requests(LOWER(teacher_email), created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_grading_provider_requests_attempt ON grading_provider_requests(attempt_id)",
+        "CREATE INDEX IF NOT EXISTS idx_grading_provider_requests_submission ON grading_provider_requests(submission_id)",
+        "CREATE INDEX IF NOT EXISTS idx_grading_provider_requests_created ON grading_provider_requests(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_ai_budget_reservations_created ON ai_budget_reservations(created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_stripe_billing_accounts_customer ON stripe_billing_accounts(stripe_customer_id)",
+        "CREATE INDEX IF NOT EXISTS idx_stripe_billing_accounts_subscription ON stripe_billing_accounts(stripe_subscription_id)",
+        "CREATE INDEX IF NOT EXISTS idx_stripe_webhook_events_processed ON stripe_webhook_events(processed_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_billing_period_teacher_month ON ai_billing_credit_periods(teacher_email, billing_month)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_pending ON ai_billing_usage(status, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_teacher_month ON ai_billing_usage(teacher_email, billing_month, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_class_id ON assignments(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_deleted_at ON assignments(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON submissions(assignment_id)",
@@ -417,8 +692,42 @@ async function ensureInitialized() {
       await ensureColumn("submissions", "student_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
       await ensureColumn("submissions", "rubric_scores", "TEXT");
+      await ensureColumn("submissions", "grade_source", "TEXT NOT NULL DEFAULT 'teacher'");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
       await ensureColumn("users", "is_paid", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_grading_attempts", "cache_key", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn("ai_grading_attempts", "cache_hit", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_grading_attempts", "input_tokens", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_grading_attempts", "cached_input_tokens", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_grading_attempts", "output_tokens", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_grading_attempts", "latency_ms", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_grading_attempts", "retries", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_grading_attempts", "escalated", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_grading_attempts", "escalation_reason", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn("ai_grading_attempts", "estimated_cost_microusd", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_grading_attempts", "prompt_version", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn("ai_grading_attempts", "result_source", "TEXT NOT NULL DEFAULT 'ai'");
+      await ensureColumn("ai_grading_attempts", "billing_required", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_grading_attempts", "billing_price_book_id", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn("ai_grading_attempts", "billable_output_tokens", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("ai_billing_usage", "base_attempted_at", "INTEGER");
+      await ensureColumn("ai_billing_usage", "audio_attempted_at", "INTEGER");
+      await ensureColumn("ai_billing_usage", "output_attempted_at", "INTEGER");
+      // A legacy failed delivery is ambiguous: Stripe might have accepted the
+      // request before the process observed the error. Freeze it for manual
+      // reconciliation instead of risking a second customer charge.
+      await rawExecute(`UPDATE ai_billing_usage
+        SET base_attempted_at = COALESCE(base_attempted_at, last_failed_at, created_at)
+        WHERE status = 'failed' AND base_units > 0 AND base_reported_at IS NULL`);
+      await rawExecute(`UPDATE ai_billing_usage
+        SET audio_attempted_at = COALESCE(audio_attempted_at, last_failed_at, created_at)
+        WHERE status = 'failed' AND duration_seconds > 0 AND audio_reported_at IS NULL`);
+      await rawExecute(`UPDATE ai_billing_usage
+        SET output_attempted_at = COALESCE(output_attempted_at, last_failed_at, created_at)
+        WHERE status = 'failed' AND output_tokens > 0 AND output_reported_at IS NULL`);
+      await rawExecute(
+        "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_cache ON ai_grading_attempts(cache_key)"
+      );
     })();
   }
   return initPromise;
@@ -429,12 +738,23 @@ async function query(sql: string, args: InValue[] = []) {
   return withTimeout(sql, () => db.execute({ sql, args }));
 }
 
+async function writeBatch(statements: InStatement[]) {
+  await ensureInitialized();
+  return withTimeout("database write batch", () => db.batch(statements, "write"));
+}
+
 function makeId(prefix: string) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
 function toNumber(value: unknown) {
   return Number(value ?? 0);
+}
+
+function toNonNegativeInteger(value: unknown) {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.floor(parsed);
 }
 
 function toNullableNumber(value: unknown) {
@@ -444,6 +764,37 @@ function toNullableNumber(value: unknown) {
 
 function toStringValue(value: unknown) {
   return typeof value === "string" ? value : String(value ?? "");
+}
+
+function requireTrimmedValue(name: string, value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`${name} is required.`);
+  return trimmed;
+}
+
+function requireNonNegativeInteger(name: string, value: number) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative safe integer.`);
+  }
+  return value;
+}
+
+function normalizeBillingTeacherEmail(value: string) {
+  return requireTrimmedValue("teacherEmail", value).toLowerCase();
+}
+
+function normalizeBillingMonth(value: string) {
+  const trimmed = value.trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(trimmed)) {
+    throw new Error("billingMonth must use UTC YYYY-MM format.");
+  }
+  return trimmed;
+}
+
+export function getAiBillingUtcMonth(now = Date.now()) {
+  requireNonNegativeInteger("now", now);
+  const date = new Date(now);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 function toProtectedAudioPath(id: string) {
@@ -941,6 +1292,7 @@ export async function listSubmissionsByClassId(classId: string, ownerEmail?: str
       s.submitted_at as submittedAt,
       COALESCE(s.feedback, '') as feedback,
       s.grade as grade,
+      s.grade_source as gradeSource,
       s.rubric_scores as rubricScores
     FROM submissions s
     JOIN assignments a ON a.id = s.assignment_id
@@ -963,6 +1315,7 @@ export async function listSubmissionsByClassId(classId: string, ownerEmail?: str
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
+    gradeSource: toStringValue(row.gradeSource) === "ai" ? "ai" : "teacher",
     rubricScores: parseJsonValue<RubricScore[]>(row.rubricScores),
   }));
 }
@@ -978,7 +1331,8 @@ export async function listSubmissionsByStudentEmail(studentEmail: string): Promi
       s.student_name as studentName,
       s.submitted_at as submittedAt,
       COALESCE(s.feedback, '') as feedback,
-      s.grade as grade
+      s.grade as grade,
+      s.grade_source as gradeSource
     FROM submissions s
     JOIN assignments a ON a.id = s.assignment_id
     JOIN classes c ON c.id = a.class_id
@@ -999,6 +1353,7 @@ export async function listSubmissionsByStudentEmail(studentEmail: string): Promi
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
+    gradeSource: toStringValue(row.gradeSource) === "ai" ? "ai" : "teacher",
   }));
 }
 
@@ -1077,6 +1432,7 @@ export async function findSubmissionById(submissionId: string, ownerEmail?: stri
       s.submitted_at as submittedAt,
       COALESCE(s.feedback, '') as feedback,
       s.grade as grade,
+      s.grade_source as gradeSource,
       s.rubric_scores as rubricScores
     FROM submissions s
     JOIN assignments a ON a.id = s.assignment_id
@@ -1101,6 +1457,7 @@ export async function findSubmissionById(submissionId: string, ownerEmail?: stri
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
+    gradeSource: toStringValue(row.gradeSource) === "ai" ? "ai" : "teacher",
     rubricScores: parseJsonValue<RubricScore[]>(row.rubricScores),
   };
 }
@@ -1141,7 +1498,7 @@ export async function updateSubmission(
 ) {
   await query(
     `UPDATE submissions
-    SET student_name = ?, grade = ?, feedback = ?, rubric_scores = ?
+    SET student_name = ?, grade = ?, feedback = ?, rubric_scores = ?, grade_source = 'teacher'
     WHERE id = ?
       AND id IN (
         SELECT s.id
@@ -1163,6 +1520,45 @@ export async function updateSubmission(
       ownerEmail,
     ]
   );
+  return findSubmissionById(submissionId, ownerEmail);
+}
+
+/**
+ * Applies a completed AI result only while every teacher-authored grading
+ * field is still blank, without mutating student identity.
+ */
+export async function applyAiGradeToSubmission(
+  submissionId: string,
+  ownerEmail: string,
+  input: { grade: number; feedback: string; rubricScores: RubricScore[] | null }
+): Promise<SubmissionRow | null> {
+  if (!Number.isFinite(input.grade)) throw new RangeError("grade must be a finite number.");
+  const result = await query(
+    `UPDATE submissions
+    SET grade = ?, feedback = ?, rubric_scores = ?, grade_source = 'ai'
+    WHERE id = ?
+      AND deleted_at IS NULL
+      AND grade IS NULL
+      AND TRIM(COALESCE(feedback, '')) = ''
+      AND rubric_scores IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM assignments a
+        JOIN classes c ON c.id = a.class_id
+        WHERE a.id = submissions.assignment_id
+          AND a.deleted_at IS NULL
+          AND c.deleted_at IS NULL
+          AND LOWER(c.owner_email) = LOWER(?)
+      )`,
+    [
+      input.grade,
+      input.feedback,
+      stringifyJsonValue(input.rubricScores),
+      submissionId,
+      ownerEmail,
+    ]
+  );
+  if (toNumber(result.rowsAffected) !== 1) return null;
   return findSubmissionById(submissionId, ownerEmail);
 }
 
@@ -1639,6 +2035,763 @@ export async function setUserPaid(email: string, isPaid: boolean): Promise<boole
   return result.rowsAffected > 0;
 }
 
+function rowToStripeBillingAccount(row: Row): StripeBillingAccountRow {
+  return {
+    teacherEmail: toStringValue(row.teacherEmail),
+    stripeCustomerId: toStringValue(row.stripeCustomerId),
+    stripeSubscriptionId:
+      row.stripeSubscriptionId === null ? null : toStringValue(row.stripeSubscriptionId),
+    subscriptionStatus: toStringValue(row.subscriptionStatus),
+    priceBookId: toStringValue(row.priceBookId),
+    stripeEventCreated: toNumber(row.stripeEventCreated),
+    createdAt: toNumber(row.createdAt),
+    updatedAt: toNumber(row.updatedAt),
+  };
+}
+
+const STRIPE_BILLING_ACCOUNT_SELECT = `SELECT
+  teacher_email as teacherEmail,
+  stripe_customer_id as stripeCustomerId,
+  stripe_subscription_id as stripeSubscriptionId,
+  subscription_status as subscriptionStatus,
+  price_book_id as priceBookId,
+  stripe_event_created as stripeEventCreated,
+  created_at as createdAt,
+  updated_at as updatedAt
+FROM stripe_billing_accounts`;
+
+export async function getStripeBillingAccountByTeacherEmail(
+  teacherEmail: string
+): Promise<StripeBillingAccountRow | null> {
+  const normalized = normalizeBillingTeacherEmail(teacherEmail);
+  const result = await query(
+    `${STRIPE_BILLING_ACCOUNT_SELECT}
+    WHERE teacher_email = ?
+    LIMIT 1`,
+    [normalized]
+  );
+  return result.rows[0] ? rowToStripeBillingAccount(result.rows[0]) : null;
+}
+
+export async function getStripeBillingAccountByCustomerId(
+  stripeCustomerId: string
+): Promise<StripeBillingAccountRow | null> {
+  const customerId = requireTrimmedValue("stripeCustomerId", stripeCustomerId);
+  const result = await query(
+    `${STRIPE_BILLING_ACCOUNT_SELECT}
+    WHERE stripe_customer_id = ?
+    LIMIT 1`,
+    [customerId]
+  );
+  return result.rows[0] ? rowToStripeBillingAccount(result.rows[0]) : null;
+}
+
+export async function upsertStripeBillingCustomer(input: {
+  teacherEmail: string;
+  stripeCustomerId: string;
+  now?: number;
+}): Promise<StripeBillingAccountRow> {
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const stripeCustomerId = requireTrimmedValue("stripeCustomerId", input.stripeCustomerId);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  await query(
+    `INSERT INTO stripe_billing_accounts (
+      teacher_email, stripe_customer_id, stripe_subscription_id,
+      subscription_status, price_book_id, stripe_event_created, created_at, updated_at
+    ) VALUES (?, ?, NULL, '', '', 0, ?, ?)
+    ON CONFLICT(teacher_email) DO UPDATE SET
+      stripe_subscription_id = CASE
+        WHEN stripe_billing_accounts.stripe_customer_id = excluded.stripe_customer_id
+          THEN stripe_billing_accounts.stripe_subscription_id
+        ELSE NULL
+      END,
+      subscription_status = CASE
+        WHEN stripe_billing_accounts.stripe_customer_id = excluded.stripe_customer_id
+          THEN stripe_billing_accounts.subscription_status
+        ELSE ''
+      END,
+      price_book_id = CASE
+        WHEN stripe_billing_accounts.stripe_customer_id = excluded.stripe_customer_id
+          THEN stripe_billing_accounts.price_book_id
+        ELSE ''
+      END,
+      stripe_event_created = CASE
+        WHEN stripe_billing_accounts.stripe_customer_id = excluded.stripe_customer_id
+          THEN stripe_billing_accounts.stripe_event_created
+        ELSE 0
+      END,
+      stripe_customer_id = excluded.stripe_customer_id,
+      updated_at = excluded.updated_at`,
+    [teacherEmail, stripeCustomerId, now, now]
+  );
+  const account = await getStripeBillingAccountByTeacherEmail(teacherEmail);
+  if (!account) throw new Error("Stripe billing customer upsert did not persist an account.");
+  return account;
+}
+
+/**
+ * Projects a Stripe subscription webhook onto the local account. Older events
+ * are ignored. At an equal Stripe timestamp, a non-entitled projection can
+ * replace an entitled one, but an entitled projection cannot restore access
+ * over a non-entitled one. This gives same-second events a fail-closed order.
+ */
+export async function upsertStripeBillingSubscription(input: {
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  subscriptionStatus: string;
+  priceBookId: string;
+  stripeEventCreated: number;
+  now?: number;
+}): Promise<StripeBillingAccountRow | null> {
+  const stripeCustomerId = requireTrimmedValue("stripeCustomerId", input.stripeCustomerId);
+  const stripeSubscriptionId = requireTrimmedValue(
+    "stripeSubscriptionId",
+    input.stripeSubscriptionId
+  );
+  const subscriptionStatus = requireTrimmedValue(
+    "subscriptionStatus",
+    input.subscriptionStatus
+  ).toLowerCase();
+  const priceBookId = requireTrimmedValue("priceBookId", input.priceBookId);
+  const stripeEventCreated = requireNonNegativeInteger(
+    "stripeEventCreated",
+    input.stripeEventCreated
+  );
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  await query(
+    `UPDATE stripe_billing_accounts
+    SET stripe_subscription_id = ?,
+        subscription_status = ?,
+        price_book_id = ?,
+        stripe_event_created = ?,
+        updated_at = ?
+    WHERE stripe_customer_id = ?
+      AND (
+        stripe_event_created < ?
+        OR (
+          stripe_event_created = ?
+          AND NOT (
+            subscription_status NOT IN ('active', 'trialing')
+            AND ? IN ('active', 'trialing')
+          )
+        )
+      )`,
+    [
+      stripeSubscriptionId,
+      subscriptionStatus,
+      priceBookId,
+      stripeEventCreated,
+      now,
+      stripeCustomerId,
+      stripeEventCreated,
+      stripeEventCreated,
+      subscriptionStatus,
+    ]
+  );
+  return getStripeBillingAccountByCustomerId(stripeCustomerId);
+}
+
+export async function getStripeSubscriptionGrantsAiAccess(teacherEmail: string): Promise<boolean> {
+  const normalized = normalizeBillingTeacherEmail(teacherEmail);
+  const result = await query(
+    `SELECT EXISTS(
+      SELECT 1
+      FROM stripe_billing_accounts
+      WHERE teacher_email = ?
+        AND subscription_status IN ('active', 'trialing')
+    ) as hasAccess`,
+    [normalized]
+  );
+  return toNumber(result.rows[0]?.hasAccess) === 1;
+}
+
+/** Existing manual grants remain valid while Stripe subscriptions are additive. */
+export async function getUserHasAiAccess(email: string): Promise<boolean> {
+  const normalized = normalizeBillingTeacherEmail(email);
+  const result = await query(
+    `SELECT CASE WHEN
+      EXISTS(
+        SELECT 1 FROM users
+        WHERE LOWER(email) = LOWER(?) AND is_paid = 1
+      )
+      OR EXISTS(
+        SELECT 1 FROM stripe_billing_accounts
+        WHERE teacher_email = ?
+          AND subscription_status IN ('active', 'trialing')
+      )
+      THEN 1 ELSE 0 END as hasAccess`,
+    [normalized, normalized]
+  );
+  return toNumber(result.rows[0]?.hasAccess) === 1;
+}
+
+function rowToStripeWebhookEvent(row: Row): StripeWebhookEventRow {
+  return {
+    eventId: toStringValue(row.eventId),
+    eventType: toStringValue(row.eventType),
+    stripeEventCreated: toNumber(row.stripeEventCreated),
+    processedAt: toNumber(row.processedAt),
+  };
+}
+
+export async function getProcessedStripeWebhookEvent(
+  eventId: string
+): Promise<StripeWebhookEventRow | null> {
+  const normalizedEventId = requireTrimmedValue("eventId", eventId);
+  const result = await query(
+    `SELECT
+      event_id as eventId,
+      event_type as eventType,
+      stripe_event_created as stripeEventCreated,
+      processed_at as processedAt
+    FROM stripe_webhook_events
+    WHERE event_id = ?
+    LIMIT 1`,
+    [normalizedEventId]
+  );
+  return result.rows[0] ? rowToStripeWebhookEvent(result.rows[0]) : null;
+}
+
+export async function hasProcessedStripeWebhookEvent(eventId: string): Promise<boolean> {
+  return (await getProcessedStripeWebhookEvent(eventId)) !== null;
+}
+
+/** Call only after the webhook's business effects have completed successfully. */
+export async function recordProcessedStripeWebhookEvent(input: {
+  eventId: string;
+  eventType: string;
+  stripeEventCreated: number;
+  processedAt?: number;
+}): Promise<boolean> {
+  const eventId = requireTrimmedValue("eventId", input.eventId);
+  const eventType = requireTrimmedValue("eventType", input.eventType);
+  const stripeEventCreated = requireNonNegativeInteger(
+    "stripeEventCreated",
+    input.stripeEventCreated
+  );
+  const processedAt = requireNonNegativeInteger("processedAt", input.processedAt ?? Date.now());
+  const result = await query(
+    `INSERT INTO stripe_webhook_events (
+      event_id, event_type, stripe_event_created, processed_at
+    ) VALUES (?, ?, ?, ?)
+    ON CONFLICT(event_id) DO NOTHING`,
+    [eventId, eventType, stripeEventCreated, processedAt]
+  );
+  return toNumber(result.rowsAffected) === 1;
+}
+
+export async function countQualifyingAiBillingClasses(teacherEmail: string): Promise<number> {
+  const normalized = normalizeBillingTeacherEmail(teacherEmail);
+  const result = await query(
+    `SELECT COUNT(*) as qualifyingClassCount
+    FROM classes c
+    WHERE LOWER(c.owner_email) = LOWER(?)
+      AND c.deleted_at IS NULL
+      AND EXISTS (
+        SELECT 1 FROM roster r WHERE r.class_id = c.id
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM assignments a
+        WHERE a.class_id = c.id
+          AND a.deleted_at IS NULL
+      )`,
+    [normalized]
+  );
+  return toNumber(result.rows[0]?.qualifyingClassCount);
+}
+
+function rowToAiBillingCreditPeriod(row: Row): AiBillingCreditPeriodRow {
+  return {
+    teacherEmail: toStringValue(row.teacherEmail),
+    billingMonth: toStringValue(row.billingMonth),
+    qualifyingClassHighWater: toNumber(row.qualifyingClassHighWater),
+    usedCredits: toNumber(row.usedCredits),
+    createdAt: toNumber(row.createdAt),
+    updatedAt: toNumber(row.updatedAt),
+  };
+}
+
+export async function getAiBillingCreditPeriod(
+  teacherEmail: string,
+  billingMonth = getAiBillingUtcMonth()
+): Promise<AiBillingCreditPeriodRow | null> {
+  const normalized = normalizeBillingTeacherEmail(teacherEmail);
+  const month = normalizeBillingMonth(billingMonth);
+  const result = await query(
+    `SELECT
+      teacher_email as teacherEmail,
+      billing_month as billingMonth,
+      qualifying_class_high_water as qualifyingClassHighWater,
+      used_credits as usedCredits,
+      created_at as createdAt,
+      updated_at as updatedAt
+    FROM ai_billing_credit_periods
+    WHERE teacher_email = ? AND billing_month = ?
+    LIMIT 1`,
+    [normalized, month]
+  );
+  return result.rows[0] ? rowToAiBillingCreditPeriod(result.rows[0]) : null;
+}
+
+function normalizeAiBillingUsageStatus(value: unknown): AiBillingUsageStatus {
+  const status = toStringValue(value);
+  if (status === "credited" || status === "reported" || status === "failed") return status;
+  return "pending";
+}
+
+function normalizeAiBillingUsageDimension(value: unknown): AiBillingUsageDimension | null {
+  const dimension = toStringValue(value);
+  return dimension === "base" || dimension === "audio" || dimension === "output"
+    ? dimension
+    : null;
+}
+
+function rowToAiBillingUsage(row: Row): AiBillingUsageRow {
+  return {
+    id: toStringValue(row.id),
+    teacherEmail: toStringValue(row.teacherEmail),
+    billingMonth: toStringValue(row.billingMonth),
+    cacheKey: toStringValue(row.cacheKey),
+    priceBookId: toStringValue(row.priceBookId),
+    attemptId: toStringValue(row.attemptId),
+    submissionId: toStringValue(row.submissionId),
+    freeCreditApplied: toNumber(row.freeCreditApplied) === 1,
+    baseUnits: toNumber(row.baseUnits),
+    durationSeconds: toNumber(row.durationSeconds),
+    outputTokens: toNumber(row.outputTokens),
+    baseAttemptedAt: toNullableNumber(row.baseAttemptedAt),
+    audioAttemptedAt: toNullableNumber(row.audioAttemptedAt),
+    outputAttemptedAt: toNullableNumber(row.outputAttemptedAt),
+    baseReportedAt: toNullableNumber(row.baseReportedAt),
+    audioReportedAt: toNullableNumber(row.audioReportedAt),
+    outputReportedAt: toNullableNumber(row.outputReportedAt),
+    status: normalizeAiBillingUsageStatus(row.status),
+    lastErrorDimension: normalizeAiBillingUsageDimension(row.lastErrorDimension),
+    lastError: toStringValue(row.lastError),
+    lastFailedAt: toNullableNumber(row.lastFailedAt),
+    createdAt: toNumber(row.createdAt),
+    updatedAt: toNumber(row.updatedAt),
+  };
+}
+
+const AI_BILLING_USAGE_SELECT = `SELECT
+  id as id,
+  teacher_email as teacherEmail,
+  billing_month as billingMonth,
+  cache_key as cacheKey,
+  price_book_id as priceBookId,
+  attempt_id as attemptId,
+  submission_id as submissionId,
+  free_credit_applied as freeCreditApplied,
+  base_units as baseUnits,
+  duration_seconds as durationSeconds,
+  output_tokens as outputTokens,
+  base_attempted_at as baseAttemptedAt,
+  audio_attempted_at as audioAttemptedAt,
+  output_attempted_at as outputAttemptedAt,
+  base_reported_at as baseReportedAt,
+  audio_reported_at as audioReportedAt,
+  output_reported_at as outputReportedAt,
+  status as status,
+  last_error_dimension as lastErrorDimension,
+  last_error as lastError,
+  last_failed_at as lastFailedAt,
+  created_at as createdAt,
+  updated_at as updatedAt
+FROM ai_billing_usage`;
+
+/**
+ * Claims one semantic result and its monthly credit in a single write batch.
+ * A unique teacher/cache/price-book key makes concurrent duplicate calls return
+ * the row won by the first transaction without consuming a second credit.
+ */
+export async function createAiBillingUsage(input: {
+  teacherEmail: string;
+  cacheKey: string;
+  priceBookId: string;
+  attemptId: string;
+  submissionId: string;
+  baseUnits?: number;
+  durationSeconds: number;
+  outputTokens: number;
+  now?: number;
+}): Promise<AiBillingUsageRow | null> {
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const cacheKey = requireTrimmedValue("cacheKey", input.cacheKey);
+  const priceBookId = requireTrimmedValue("priceBookId", input.priceBookId);
+  const attemptId = requireTrimmedValue("attemptId", input.attemptId);
+  const submissionId = requireTrimmedValue("submissionId", input.submissionId);
+  const baseUnits = requireNonNegativeInteger("baseUnits", input.baseUnits ?? 1);
+  const durationSeconds = requireNonNegativeInteger("durationSeconds", input.durationSeconds);
+  const outputTokens = requireNonNegativeInteger("outputTokens", input.outputTokens);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  const billingMonth = getAiBillingUtcMonth(now);
+  const id = makeId("aiu");
+
+  const results = await writeBatch([
+    {
+      sql: `INSERT INTO ai_billing_credit_periods (
+        teacher_email, billing_month, qualifying_class_high_water,
+        used_credits, created_at, updated_at
+      )
+      SELECT ?, ?, COUNT(*), 0, ?, ?
+      FROM classes c
+      WHERE LOWER(c.owner_email) = LOWER(?)
+        AND c.deleted_at IS NULL
+        AND EXISTS (
+          SELECT 1 FROM roster r WHERE r.class_id = c.id
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM assignments a
+          WHERE a.class_id = c.id
+            AND a.deleted_at IS NULL
+        )
+      ON CONFLICT(teacher_email, billing_month) DO UPDATE SET
+        qualifying_class_high_water = MAX(
+          ai_billing_credit_periods.qualifying_class_high_water,
+          excluded.qualifying_class_high_water
+        ),
+        updated_at = excluded.updated_at`,
+      args: [teacherEmail, billingMonth, now, now, teacherEmail],
+    },
+    {
+      sql: `INSERT INTO ai_billing_usage (
+        id, teacher_email, billing_month, cache_key, price_book_id,
+        attempt_id, submission_id, free_credit_applied, base_units,
+        duration_seconds, output_tokens, base_reported_at, audio_reported_at,
+        output_reported_at, status, last_error_dimension, last_error,
+        last_failed_at, created_at, updated_at
+      )
+      SELECT
+        ?, ?, ?, ?, ?, ?, ?,
+        CASE
+          WHEN ? > 0
+            AND p.used_credits < MAX(0, p.qualifying_class_high_water - 1)
+          THEN 1 ELSE 0
+        END,
+        ?, ?, ?, NULL, NULL, NULL,
+        CASE
+          WHEN ? > 0
+            AND p.used_credits < MAX(0, p.qualifying_class_high_water - 1)
+          THEN 'credited'
+          WHEN ? = 0 AND ? = 0 AND ? = 0 THEN 'reported'
+          ELSE 'pending'
+        END,
+        NULL, '', NULL, ?, ?
+      FROM ai_billing_credit_periods p
+      JOIN submissions s ON s.id = ?
+      JOIN assignments a ON a.id = s.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      JOIN ai_grading_attempts ag ON ag.id = ?
+      WHERE p.teacher_email = ?
+        AND p.billing_month = ?
+        AND LOWER(c.owner_email) = LOWER(?)
+        AND s.deleted_at IS NULL
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND ag.submission_id = s.id
+        AND LOWER(ag.teacher_email) = LOWER(?)
+        AND ag.status = 'completed'
+        AND ag.cache_key = ?
+      ON CONFLICT(teacher_email, cache_key, price_book_id) DO NOTHING`,
+      args: [
+        id,
+        teacherEmail,
+        billingMonth,
+        cacheKey,
+        priceBookId,
+        attemptId,
+        submissionId,
+        baseUnits,
+        baseUnits,
+        durationSeconds,
+        outputTokens,
+        baseUnits,
+        baseUnits,
+        durationSeconds,
+        outputTokens,
+        now,
+        now,
+        submissionId,
+        attemptId,
+        teacherEmail,
+        billingMonth,
+        teacherEmail,
+        teacherEmail,
+        cacheKey,
+      ],
+    },
+    {
+      sql: `UPDATE ai_billing_credit_periods
+      SET used_credits = used_credits + 1,
+          updated_at = ?
+      WHERE teacher_email = ?
+        AND billing_month = ?
+        AND EXISTS (
+          SELECT 1
+          FROM ai_billing_usage u
+          WHERE u.id = ?
+            AND u.free_credit_applied = 1
+        )`,
+      args: [now, teacherEmail, billingMonth, id],
+    },
+    {
+      sql: `${AI_BILLING_USAGE_SELECT}
+      WHERE teacher_email = ?
+        AND cache_key = ?
+        AND price_book_id = ?
+      LIMIT 1`,
+      args: [teacherEmail, cacheKey, priceBookId],
+    },
+  ]);
+
+  const row = results[3]?.rows[0];
+  return row ? rowToAiBillingUsage(row) : null;
+}
+
+export async function getAiBillingUsageById(id: string): Promise<AiBillingUsageRow | null> {
+  const normalizedId = requireTrimmedValue("id", id);
+  const result = await query(
+    `${AI_BILLING_USAGE_SELECT}
+    WHERE id = ?
+    LIMIT 1`,
+    [normalizedId]
+  );
+  return result.rows[0] ? rowToAiBillingUsage(result.rows[0]) : null;
+}
+
+export async function listPendingAiBillingUsage(limit = 100): Promise<AiBillingUsageRow[]> {
+  const safeLimit = Math.max(1, Math.min(requireNonNegativeInteger("limit", limit), 500));
+  const result = await query(
+    `${AI_BILLING_USAGE_SELECT}
+    WHERE free_credit_applied = 0
+      AND status IN ('pending', 'failed')
+      AND (
+        (base_units > 0 AND base_reported_at IS NULL AND base_attempted_at IS NULL)
+        OR (duration_seconds > 0 AND audio_reported_at IS NULL AND audio_attempted_at IS NULL)
+        OR (output_tokens > 0 AND output_reported_at IS NULL AND output_attempted_at IS NULL)
+      )
+    ORDER BY created_at ASC, id ASC
+    LIMIT ?`,
+    [safeLimit]
+  );
+  return result.rows.map(rowToAiBillingUsage);
+}
+
+const AI_BILLING_DIMENSION_COLUMNS: Record<
+  AiBillingUsageDimension,
+  {
+    quantity: "base_units" | "duration_seconds" | "output_tokens";
+    attemptedAt: "base_attempted_at" | "audio_attempted_at" | "output_attempted_at";
+    reportedAt: "base_reported_at" | "audio_reported_at" | "output_reported_at";
+  }
+> = {
+  base: {
+    quantity: "base_units",
+    attemptedAt: "base_attempted_at",
+    reportedAt: "base_reported_at",
+  },
+  audio: {
+    quantity: "duration_seconds",
+    attemptedAt: "audio_attempted_at",
+    reportedAt: "audio_reported_at",
+  },
+  output: {
+    quantity: "output_tokens",
+    attemptedAt: "output_attempted_at",
+    reportedAt: "output_reported_at",
+  },
+};
+
+function requireAiBillingDimension(value: AiBillingUsageDimension) {
+  if (value !== "base" && value !== "audio" && value !== "output") {
+    throw new Error("dimension must be base, audio, or output.");
+  }
+  return value;
+}
+
+/**
+ * Atomically claims one external meter-event delivery. Claims are intentionally
+ * never reset automatically: after a crash or network error, delivery is
+ * ambiguous and must be reconciled rather than blindly retried after Stripe's
+ * rolling identifier-deduplication window.
+ */
+export async function claimAiBillingUsageDimensionForDelivery(input: {
+  usageId: string;
+  dimension: AiBillingUsageDimension;
+  attemptedAt?: number;
+}): Promise<{ usage: AiBillingUsageRow | null; claimed: boolean }> {
+  const usageId = requireTrimmedValue("usageId", input.usageId);
+  const dimension = requireAiBillingDimension(input.dimension);
+  const attemptedAt = requireNonNegativeInteger("attemptedAt", input.attemptedAt ?? Date.now());
+  const columns = AI_BILLING_DIMENSION_COLUMNS[dimension];
+  const results = await writeBatch([
+    {
+      sql: `UPDATE ai_billing_usage
+      SET ${columns.attemptedAt} = ?,
+          updated_at = ?
+      WHERE id = ?
+        AND free_credit_applied = 0
+        AND ${columns.quantity} > 0
+        AND ${columns.reportedAt} IS NULL
+        AND ${columns.attemptedAt} IS NULL`,
+      args: [attemptedAt, attemptedAt, usageId],
+    },
+    {
+      sql: `${AI_BILLING_USAGE_SELECT} WHERE id = ? LIMIT 1`,
+      args: [usageId],
+    },
+  ]);
+  const row = results[1]?.rows[0];
+  return {
+    usage: row ? rowToAiBillingUsage(row) : null,
+    claimed: toNumber(results[0]?.rowsAffected) > 0,
+  };
+}
+
+export async function markAiBillingUsageDimensionReported(input: {
+  usageId: string;
+  dimension: AiBillingUsageDimension;
+  reportedAt?: number;
+}): Promise<AiBillingUsageRow | null> {
+  const usageId = requireTrimmedValue("usageId", input.usageId);
+  const dimension = requireAiBillingDimension(input.dimension);
+  const reportedAt = requireNonNegativeInteger("reportedAt", input.reportedAt ?? Date.now());
+  const columns = AI_BILLING_DIMENSION_COLUMNS[dimension];
+  const results = await writeBatch([
+    {
+      sql: `UPDATE ai_billing_usage
+      SET ${columns.reportedAt} = COALESCE(${columns.reportedAt}, ?),
+          last_error_dimension = CASE
+            WHEN last_error_dimension = ? THEN NULL ELSE last_error_dimension
+          END,
+          last_error = CASE
+            WHEN last_error_dimension = ? THEN '' ELSE last_error
+          END,
+          last_failed_at = CASE
+            WHEN last_error_dimension = ? THEN NULL ELSE last_failed_at
+          END,
+          updated_at = ?
+      WHERE id = ?
+        AND free_credit_applied = 0
+        AND ${columns.quantity} > 0`,
+      args: [reportedAt, dimension, dimension, dimension, reportedAt, usageId],
+    },
+    {
+      sql: `UPDATE ai_billing_usage
+      SET status = CASE
+            WHEN (base_units = 0 OR base_reported_at IS NOT NULL)
+              AND (duration_seconds = 0 OR audio_reported_at IS NOT NULL)
+              AND (output_tokens = 0 OR output_reported_at IS NOT NULL)
+            THEN 'reported'
+            WHEN last_error <> '' THEN 'failed'
+            ELSE 'pending'
+          END,
+          updated_at = ?
+      WHERE id = ?
+        AND free_credit_applied = 0`,
+      args: [reportedAt, usageId],
+    },
+    {
+      sql: `${AI_BILLING_USAGE_SELECT} WHERE id = ? LIMIT 1`,
+      args: [usageId],
+    },
+  ]);
+  const row = results[2]?.rows[0];
+  return row ? rowToAiBillingUsage(row) : null;
+}
+
+export async function markAiBillingUsageDimensionFailed(input: {
+  usageId: string;
+  dimension: AiBillingUsageDimension;
+  error: string;
+  failedAt?: number;
+}): Promise<AiBillingUsageRow | null> {
+  const usageId = requireTrimmedValue("usageId", input.usageId);
+  const dimension = requireAiBillingDimension(input.dimension);
+  const error = requireTrimmedValue("error", input.error).slice(0, 1_000);
+  const failedAt = requireNonNegativeInteger("failedAt", input.failedAt ?? Date.now());
+  const columns = AI_BILLING_DIMENSION_COLUMNS[dimension];
+  const results = await writeBatch([
+    {
+      sql: `UPDATE ai_billing_usage
+      SET status = 'failed',
+          last_error_dimension = ?,
+          last_error = ?,
+          last_failed_at = ?,
+          updated_at = ?
+      WHERE id = ?
+        AND free_credit_applied = 0
+        AND ${columns.quantity} > 0
+        AND ${columns.attemptedAt} IS NOT NULL
+        AND ${columns.reportedAt} IS NULL`,
+      args: [dimension, error, failedAt, failedAt, usageId],
+    },
+    {
+      sql: `${AI_BILLING_USAGE_SELECT} WHERE id = ? LIMIT 1`,
+      args: [usageId],
+    },
+  ]);
+  const row = results[1]?.rows[0];
+  return row ? rowToAiBillingUsage(row) : null;
+}
+
+export async function getAiBillingMonthlySummary(
+  teacherEmail: string,
+  billingMonth = getAiBillingUtcMonth()
+): Promise<AiBillingMonthlySummary> {
+  const normalized = normalizeBillingTeacherEmail(teacherEmail);
+  const month = normalizeBillingMonth(billingMonth);
+  const result = await query(
+    `SELECT
+      COALESCE((
+        SELECT qualifying_class_high_water
+        FROM ai_billing_credit_periods
+        WHERE teacher_email = ? AND billing_month = ?
+      ), 0) as qualifyingClassHighWater,
+      COALESCE((
+        SELECT used_credits
+        FROM ai_billing_credit_periods
+        WHERE teacher_email = ? AND billing_month = ?
+      ), 0) as usedCredits,
+      COUNT(*) as successfulResults,
+      COALESCE(SUM(CASE WHEN free_credit_applied = 1 THEN 1 ELSE 0 END), 0) as freeCreditResults,
+      COALESCE(SUM(CASE WHEN free_credit_applied = 0 THEN 1 ELSE 0 END), 0) as billableResults,
+      COALESCE(SUM(CASE WHEN free_credit_applied = 0 THEN base_units ELSE 0 END), 0) as billableBaseUnits,
+      COALESCE(SUM(CASE WHEN free_credit_applied = 0 THEN duration_seconds ELSE 0 END), 0) as billableDurationSeconds,
+      COALESCE(SUM(CASE WHEN free_credit_applied = 0 THEN output_tokens ELSE 0 END), 0) as billableOutputTokens,
+      COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pendingResults,
+      COALESCE(SUM(CASE WHEN status = 'reported' THEN 1 ELSE 0 END), 0) as reportedResults,
+      COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failedResults
+    FROM ai_billing_usage
+    WHERE teacher_email = ? AND billing_month = ?`,
+    [normalized, month, normalized, month, normalized, month]
+  );
+  const row = result.rows[0];
+  const qualifyingClassHighWater = toNumber(row?.qualifyingClassHighWater);
+  const earnedCredits = Math.max(0, qualifyingClassHighWater - 1);
+  const usedCredits = toNumber(row?.usedCredits);
+  return {
+    teacherEmail: normalized,
+    billingMonth: month,
+    qualifyingClassHighWater,
+    earnedCredits,
+    usedCredits,
+    remainingCredits: Math.max(0, earnedCredits - usedCredits),
+    successfulResults: toNumber(row?.successfulResults),
+    freeCreditResults: toNumber(row?.freeCreditResults),
+    billableResults: toNumber(row?.billableResults),
+    billableBaseUnits: toNumber(row?.billableBaseUnits),
+    billableDurationSeconds: toNumber(row?.billableDurationSeconds),
+    billableOutputTokens: toNumber(row?.billableOutputTokens),
+    pendingResults: toNumber(row?.pendingResults),
+    reportedResults: toNumber(row?.reportedResults),
+    failedResults: toNumber(row?.failedResults),
+  };
+}
+
 export type SubmissionForAiGradeRow = {
   submissionId: string;
   assignmentId: string;
@@ -1772,6 +2925,21 @@ function rowToAiAttempt(row: Row): AiGradingAttemptRow {
     gradingModel: toStringValue(row.gradingModel),
     errorCode: toStringValue(row.errorCode),
     errorMessage: toStringValue(row.errorMessage),
+    cacheKey: toStringValue(row.cacheKey),
+    cacheHit: toNumber(row.cacheHit) === 1,
+    inputTokens: toNumber(row.inputTokens),
+    cachedInputTokens: toNumber(row.cachedInputTokens),
+    outputTokens: toNumber(row.outputTokens),
+    latencyMs: toNumber(row.latencyMs),
+    retries: toNumber(row.retries),
+    escalated: toNumber(row.escalated) === 1,
+    escalationReason: toStringValue(row.escalationReason),
+    estimatedCostMicrousd: toNumber(row.estimatedCostMicrousd),
+    promptVersion: toStringValue(row.promptVersion),
+    resultSource: toStringValue(row.resultSource) || "ai",
+    billingRequired: toNumber(row.billingRequired) === 1,
+    billingPriceBookId: toStringValue(row.billingPriceBookId),
+    billableOutputTokens: toNumber(row.billableOutputTokens),
     createdAt: toNumber(row.createdAt),
     completedAt: toNullableNumber(row.completedAt),
   };
@@ -1800,14 +2968,55 @@ export async function createAiGradingAttempt(input: {
   gradingModel: string;
   errorCode?: string;
   errorMessage?: string;
+  cacheKey?: string;
+  cacheHit?: boolean;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  outputTokens?: number;
+  latencyMs?: number;
+  retries?: number;
+  escalated?: boolean;
+  escalationReason?: string;
+  estimatedCostMicrousd?: number;
+  promptVersion?: string;
+  resultSource?: string;
+  billingRequired?: boolean;
+  billingPriceBookId?: string;
+  billableOutputTokens?: number;
 }): Promise<AiGradingAttemptRow> {
+  const requestedBillingRequired = input.billingRequired === true;
+  const billingPriceBookId = input.billingPriceBookId?.trim() ?? "";
+  const billingAccount =
+    requestedBillingRequired && billingPriceBookId
+      ? await getStripeBillingAccountByTeacherEmail(input.teacherEmail)
+      : null;
   const item = {
+    ...input,
     id: makeId("ai"),
     createdAt: Date.now(),
     completedAt: Date.now(),
     errorCode: input.errorCode ?? "",
     errorMessage: input.errorMessage ?? "",
-    ...input,
+    cacheKey: input.cacheKey ?? "",
+    cacheHit: input.cacheHit ?? false,
+    inputTokens: toNonNegativeInteger(input.inputTokens),
+    cachedInputTokens: toNonNegativeInteger(input.cachedInputTokens),
+    outputTokens: toNonNegativeInteger(input.outputTokens),
+    latencyMs: toNonNegativeInteger(input.latencyMs),
+    retries: toNonNegativeInteger(input.retries),
+    escalated: input.escalated ?? false,
+    escalationReason: input.escalationReason ?? "",
+    estimatedCostMicrousd: toNonNegativeInteger(input.estimatedCostMicrousd),
+    promptVersion: input.promptVersion ?? "",
+    resultSource: input.resultSource ?? "ai",
+    billingRequired:
+      requestedBillingRequired &&
+      Boolean(billingAccount) &&
+      (billingAccount?.subscriptionStatus === "active" ||
+        billingAccount?.subscriptionStatus === "trialing") &&
+      billingAccount?.priceBookId === billingPriceBookId,
+    billingPriceBookId,
+    billableOutputTokens: toNonNegativeInteger(input.billableOutputTokens),
   };
   await query(
     `INSERT INTO ai_grading_attempts (
@@ -1816,8 +3025,14 @@ export async function createAiGradingAttempt(input: {
       feedback, strengths, improvements, evidence, confidence, warnings,
       teacher_attention, transcription_provider, grading_provider,
       transcription_model, grading_model, error_code, error_message,
-      created_at, completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      cache_key, cache_hit, input_tokens, cached_input_tokens, output_tokens,
+      latency_ms, retries, escalated, escalation_reason, estimated_cost_microusd,
+      prompt_version, result_source, billing_required, billing_price_book_id,
+      billable_output_tokens, created_at, completed_at
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    )`,
     [
       item.id,
       item.submissionId,
@@ -1842,6 +3057,21 @@ export async function createAiGradingAttempt(input: {
       item.gradingModel,
       item.errorCode ?? "",
       item.errorMessage ?? "",
+      item.cacheKey,
+      item.cacheHit ? 1 : 0,
+      item.inputTokens,
+      item.cachedInputTokens,
+      item.outputTokens,
+      item.latencyMs,
+      item.retries,
+      item.escalated ? 1 : 0,
+      item.escalationReason,
+      item.estimatedCostMicrousd,
+      item.promptVersion,
+      item.resultSource,
+      item.billingRequired ? 1 : 0,
+      item.billingPriceBookId,
+      item.billableOutputTokens,
       item.createdAt,
       item.completedAt,
     ]
@@ -1851,6 +3081,58 @@ export async function createAiGradingAttempt(input: {
     errorCode: item.errorCode ?? "",
     errorMessage: item.errorMessage ?? "",
   };
+}
+
+/**
+ * Finds current-month, subscribed-at-delivery attempts whose durable billing
+ * marker has not produced a semantic usage row yet. This closes the gap if the
+ * process stops after saving a grade but before creating its Stripe outbox row.
+ */
+export async function listUnqueuedAiBillingAttempts(
+  priceBookId: string,
+  limit = 100,
+  now = Date.now()
+): Promise<UnqueuedAiBillingAttemptRow[]> {
+  const normalizedPriceBookId = requireTrimmedValue("priceBookId", priceBookId);
+  const safeLimit = Math.max(1, Math.min(requireNonNegativeInteger("limit", limit), 500));
+  const safeNow = requireNonNegativeInteger("now", now);
+  const current = new Date(safeNow);
+  const monthStart = Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), 1);
+  const result = await query(
+    `SELECT
+      ag.id as attemptId,
+      ag.teacher_email as teacherEmail,
+      ag.cache_key as cacheKey,
+      ag.billing_price_book_id as priceBookId,
+      ag.submission_id as submissionId,
+      ag.duration_seconds as durationSeconds,
+      ag.billable_output_tokens as outputTokens
+    FROM ai_grading_attempts ag
+    WHERE ag.status = 'completed'
+      AND ag.billing_required = 1
+      AND ag.billing_price_book_id = ?
+      AND ag.cache_key <> ''
+      AND ag.created_at >= ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM ai_billing_usage u
+        WHERE LOWER(u.teacher_email) = LOWER(ag.teacher_email)
+          AND u.cache_key = ag.cache_key
+          AND u.price_book_id = ag.billing_price_book_id
+      )
+    ORDER BY ag.created_at ASC, ag.id ASC
+    LIMIT ?`,
+    [normalizedPriceBookId, monthStart, safeLimit]
+  );
+  return result.rows.map((row) => ({
+    attemptId: toStringValue(row.attemptId),
+    teacherEmail: toStringValue(row.teacherEmail),
+    cacheKey: toStringValue(row.cacheKey),
+    priceBookId: toStringValue(row.priceBookId),
+    submissionId: toStringValue(row.submissionId),
+    durationSeconds: toNumber(row.durationSeconds),
+    outputTokens: toNumber(row.outputTokens),
+  }));
 }
 
 export async function listAiGradingAttemptsForSubmission(
@@ -1883,6 +3165,21 @@ export async function listAiGradingAttemptsForSubmission(
       ag.grading_model as gradingModel,
       ag.error_code as errorCode,
       ag.error_message as errorMessage,
+      ag.cache_key as cacheKey,
+      ag.cache_hit as cacheHit,
+      ag.input_tokens as inputTokens,
+      ag.cached_input_tokens as cachedInputTokens,
+      ag.output_tokens as outputTokens,
+      ag.latency_ms as latencyMs,
+      ag.retries as retries,
+      ag.escalated as escalated,
+      ag.escalation_reason as escalationReason,
+      ag.estimated_cost_microusd as estimatedCostMicrousd,
+      ag.prompt_version as promptVersion,
+      ag.result_source as resultSource,
+      ag.billing_required as billingRequired,
+      ag.billing_price_book_id as billingPriceBookId,
+      ag.billable_output_tokens as billableOutputTokens,
       ag.created_at as createdAt,
       ag.completed_at as completedAt
     FROM ai_grading_attempts ag
@@ -1899,6 +3196,381 @@ export async function listAiGradingAttemptsForSubmission(
     [submissionId, ownerEmail, Math.max(1, Math.min(limit, 20))]
   );
   return result.rows.map(rowToAiAttempt);
+}
+
+function rowToGradingResultCache(row: Row): GradingResultCacheRow {
+  return {
+    cacheKey: toStringValue(row.cacheKey),
+    submissionId: toStringValue(row.submissionId),
+    teacherEmail: toStringValue(row.teacherEmail),
+    resultJson: toStringValue(row.resultJson),
+    provider: toStringValue(row.provider),
+    model: toStringValue(row.model),
+    promptVersion: toStringValue(row.promptVersion),
+    createdAt: toNumber(row.createdAt),
+    updatedAt: toNumber(row.updatedAt),
+    expiresAt: toNumber(row.expiresAt),
+  };
+}
+
+function hasValidJson(value: string) {
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns a reusable result only while its source submission and owning class
+ * are active. The owner join is deliberate: a cache key is never an access
+ * token and cannot be used to read another teacher's grading data.
+ */
+export async function findValidGradingResultCache(
+  cacheKey: string,
+  ownerEmail: string,
+  now = Date.now()
+): Promise<GradingResultCacheRow | null> {
+  const result = await query(
+    `SELECT
+      grc.cache_key as cacheKey,
+      grc.submission_id as submissionId,
+      grc.teacher_email as teacherEmail,
+      grc.result_json as resultJson,
+      grc.provider as provider,
+      grc.model as model,
+      grc.prompt_version as promptVersion,
+      grc.created_at as createdAt,
+      grc.updated_at as updatedAt,
+      grc.expires_at as expiresAt
+    FROM grading_result_cache grc
+    JOIN submissions s ON s.id = grc.submission_id
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE grc.cache_key = ?
+      AND LOWER(grc.teacher_email) = LOWER(?)
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND grc.expires_at > ?
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    LIMIT 1`,
+    [cacheKey, ownerEmail, ownerEmail, now]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  const cached = rowToGradingResultCache(row);
+  return hasValidJson(cached.resultJson) ? cached : null;
+}
+
+export async function upsertGradingResultCache(input: {
+  cacheKey: string;
+  submissionId: string;
+  teacherEmail: string;
+  resultJson: string;
+  provider?: string;
+  model?: string;
+  promptVersion?: string;
+  expiresAt: number;
+  now?: number;
+}): Promise<GradingResultCacheRow | null> {
+  const cacheKey = input.cacheKey.trim();
+  const teacherEmail = input.teacherEmail.trim().toLowerCase();
+  const resultJson = input.resultJson.trim();
+  if (!cacheKey) throw new Error("A grading cache key is required.");
+  if (!resultJson || !hasValidJson(resultJson)) {
+    throw new Error("A grading cache entry must contain valid JSON.");
+  }
+
+  const now = toNonNegativeInteger(input.now ?? Date.now());
+  const expiresAt = toNonNegativeInteger(input.expiresAt);
+  const result = await query(
+    `INSERT INTO grading_result_cache (
+      cache_key, submission_id, teacher_email, result_json, provider, model,
+      prompt_version, created_at, updated_at, expires_at
+    )
+    SELECT ?, s.id, LOWER(c.owner_email), ?, ?, ?, ?, ?, ?, ?
+    FROM submissions s
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE s.id = ?
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    ON CONFLICT(cache_key, teacher_email) DO UPDATE SET
+      submission_id = excluded.submission_id,
+      result_json = excluded.result_json,
+      provider = excluded.provider,
+      model = excluded.model,
+      prompt_version = excluded.prompt_version,
+      updated_at = excluded.updated_at,
+      expires_at = excluded.expires_at`,
+    [
+      cacheKey,
+      resultJson,
+      input.provider ?? "",
+      input.model ?? "",
+      input.promptVersion ?? "",
+      now,
+      now,
+      expiresAt,
+      input.submissionId,
+      teacherEmail,
+    ]
+  );
+  if (toNumber(result.rowsAffected) === 0) return null;
+  return findValidGradingResultCache(cacheKey, teacherEmail, now);
+}
+
+function rowToGradingProviderRequest(row: Row): GradingProviderRequestRow {
+  const status = toStringValue(row.status);
+  return {
+    id: toStringValue(row.id),
+    attemptId: row.attemptId === null ? null : toStringValue(row.attemptId),
+    submissionId: toStringValue(row.submissionId),
+    teacherEmail: toStringValue(row.teacherEmail),
+    requestStage: toStringValue(row.requestStage),
+    provider: toStringValue(row.provider),
+    model: toStringValue(row.model),
+    providerRequestId: toStringValue(row.providerRequestId),
+    status: status === "pending" || status === "failed" ? status : "completed",
+    inputTokens: toNumber(row.inputTokens),
+    cachedInputTokens: toNumber(row.cachedInputTokens),
+    outputTokens: toNumber(row.outputTokens),
+    latencyMs: toNumber(row.latencyMs),
+    retries: toNumber(row.retries),
+    escalated: toNumber(row.escalated) === 1,
+    escalationReason: toStringValue(row.escalationReason),
+    estimatedCostMicrousd: toNumber(row.estimatedCostMicrousd),
+    promptVersion: toStringValue(row.promptVersion),
+    errorCode: toStringValue(row.errorCode),
+    createdAt: toNumber(row.createdAt),
+    completedAt: toNullableNumber(row.completedAt),
+  };
+}
+
+/** Records one provider call without storing its prompt or response body. */
+export async function recordGradingProviderRequest(input: {
+  id?: string;
+  attemptId?: string | null;
+  submissionId: string;
+  teacherEmail: string;
+  requestStage: string;
+  provider: string;
+  model: string;
+  providerRequestId?: string;
+  status?: GradingProviderRequestStatus;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  outputTokens?: number;
+  latencyMs?: number;
+  retries?: number;
+  escalated?: boolean;
+  escalationReason?: string;
+  estimatedCostMicrousd?: number;
+  promptVersion?: string;
+  errorCode?: string;
+  createdAt?: number;
+  completedAt?: number | null;
+}): Promise<GradingProviderRequestRow | null> {
+  const status = input.status ?? "completed";
+  const createdAt = toNonNegativeInteger(input.createdAt ?? Date.now());
+  const item: GradingProviderRequestRow = {
+    id: input.id?.trim() || makeId("gpr"),
+    attemptId: input.attemptId?.trim() || null,
+    submissionId: input.submissionId,
+    teacherEmail: input.teacherEmail.trim().toLowerCase(),
+    requestStage: input.requestStage.trim(),
+    provider: input.provider.trim(),
+    model: input.model.trim(),
+    providerRequestId: input.providerRequestId?.trim() ?? "",
+    status,
+    inputTokens: toNonNegativeInteger(input.inputTokens),
+    cachedInputTokens: toNonNegativeInteger(input.cachedInputTokens),
+    outputTokens: toNonNegativeInteger(input.outputTokens),
+    latencyMs: toNonNegativeInteger(input.latencyMs),
+    retries: toNonNegativeInteger(input.retries),
+    escalated: input.escalated ?? false,
+    escalationReason: input.escalationReason?.trim() ?? "",
+    estimatedCostMicrousd: toNonNegativeInteger(input.estimatedCostMicrousd),
+    promptVersion: input.promptVersion?.trim() ?? "",
+    errorCode: input.errorCode?.trim() ?? "",
+    createdAt,
+    completedAt:
+      typeof input.completedAt === "number"
+        ? toNonNegativeInteger(input.completedAt)
+        : status === "pending"
+          ? null
+          : createdAt,
+  };
+
+  const result = await query(
+    `INSERT INTO grading_provider_requests (
+      id, attempt_id, submission_id, teacher_email, request_stage, provider,
+      model, provider_request_id, status, input_tokens, cached_input_tokens,
+      output_tokens, latency_ms, retries, escalated, escalation_reason,
+      estimated_cost_microusd, prompt_version, error_code, created_at, completed_at
+    )
+    SELECT ?, ?, s.id, LOWER(c.owner_email), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    FROM submissions s
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE s.id = ?
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+      AND (
+        ? IS NULL OR EXISTS (
+          SELECT 1
+          FROM ai_grading_attempts ag
+          WHERE ag.id = ?
+            AND ag.submission_id = s.id
+        )
+      )`,
+    [
+      item.id,
+      item.attemptId,
+      item.requestStage,
+      item.provider,
+      item.model,
+      item.providerRequestId,
+      item.status,
+      item.inputTokens,
+      item.cachedInputTokens,
+      item.outputTokens,
+      item.latencyMs,
+      item.retries,
+      item.escalated ? 1 : 0,
+      item.escalationReason,
+      item.estimatedCostMicrousd,
+      item.promptVersion,
+      item.errorCode,
+      item.createdAt,
+      item.completedAt,
+      item.submissionId,
+      item.teacherEmail,
+      item.attemptId,
+      item.attemptId,
+    ]
+  );
+  return toNumber(result.rowsAffected) === 1 ? item : null;
+}
+
+export async function listGradingProviderRequestsForSubmission(
+  submissionId: string,
+  ownerEmail: string,
+  limit = 100
+): Promise<GradingProviderRequestRow[]> {
+  const result = await query(
+    `SELECT
+      gpr.id as id,
+      gpr.attempt_id as attemptId,
+      gpr.submission_id as submissionId,
+      gpr.teacher_email as teacherEmail,
+      gpr.request_stage as requestStage,
+      gpr.provider as provider,
+      gpr.model as model,
+      gpr.provider_request_id as providerRequestId,
+      gpr.status as status,
+      gpr.input_tokens as inputTokens,
+      gpr.cached_input_tokens as cachedInputTokens,
+      gpr.output_tokens as outputTokens,
+      gpr.latency_ms as latencyMs,
+      gpr.retries as retries,
+      gpr.escalated as escalated,
+      gpr.escalation_reason as escalationReason,
+      gpr.estimated_cost_microusd as estimatedCostMicrousd,
+      gpr.prompt_version as promptVersion,
+      gpr.error_code as errorCode,
+      gpr.created_at as createdAt,
+      gpr.completed_at as completedAt
+    FROM grading_provider_requests gpr
+    JOIN submissions s ON s.id = gpr.submission_id
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE gpr.submission_id = ?
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    ORDER BY gpr.created_at ASC, gpr.id ASC
+    LIMIT ?`,
+    [submissionId, ownerEmail, Math.max(1, Math.min(Math.floor(limit), 500))]
+  );
+  return result.rows.map(rowToGradingProviderRequest);
+}
+
+async function getTeacherGradingUsageBetween(
+  teacherEmail: string,
+  since: number,
+  before: number | null
+): Promise<GradingUsageAggregate> {
+  const result = await query(
+    `SELECT
+      COUNT(*) as requestCount,
+      COALESCE(SUM(input_tokens), 0) as inputTokens,
+      COALESCE(SUM(cached_input_tokens), 0) as cachedInputTokens,
+      COALESCE(SUM(output_tokens), 0) as outputTokens,
+      COALESCE(SUM(latency_ms), 0) as latencyMs,
+      COALESCE(SUM(retries), 0) as retries,
+      COALESCE(SUM(CASE WHEN escalated = 1 THEN 1 ELSE 0 END), 0) as escalations,
+      COALESCE(SUM(estimated_cost_microusd), 0) as estimatedCostMicrousd
+    FROM grading_provider_requests
+    WHERE LOWER(teacher_email) = LOWER(?)
+      AND created_at >= ?
+      AND (? IS NULL OR created_at < ?)`,
+    [teacherEmail, since, before, before]
+  );
+  const row = result.rows[0];
+  return {
+    requestCount: toNumber(row?.requestCount),
+    inputTokens: toNumber(row?.inputTokens),
+    cachedInputTokens: toNumber(row?.cachedInputTokens),
+    outputTokens: toNumber(row?.outputTokens),
+    latencyMs: toNumber(row?.latencyMs),
+    retries: toNumber(row?.retries),
+    escalations: toNumber(row?.escalations),
+    estimatedCostMicrousd: toNumber(row?.estimatedCostMicrousd),
+  };
+}
+
+export async function getTeacherGradingUsageSince(
+  teacherEmail: string,
+  since: number
+): Promise<GradingUsageAggregate> {
+  return getTeacherGradingUsageBetween(teacherEmail, since, null);
+}
+
+export async function getTeacherGradingUsageForUtcMonth(
+  teacherEmail: string,
+  now = Date.now()
+): Promise<GradingUsageAggregate> {
+  const date = new Date(now);
+  const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  const nextMonthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+  return getTeacherGradingUsageBetween(teacherEmail, monthStart, nextMonthStart);
+}
+
+export async function deleteExpiredGradingResultCache(now = Date.now()): Promise<number> {
+  const result = await query(`DELETE FROM grading_result_cache WHERE expires_at <= ?`, [now]);
+  return toNumber(result.rowsAffected);
+}
+
+export async function deleteGradingProviderRequestsBefore(cutoffTimestamp: number): Promise<number> {
+  const result = await query(`DELETE FROM grading_provider_requests WHERE created_at < ?`, [cutoffTimestamp]);
+  return toNumber(result.rowsAffected);
+}
+
+export async function cleanupGradingPersistence(input: {
+  now?: number;
+  providerRequestCutoff: number;
+}) {
+  const cacheEntriesDeleted = await deleteExpiredGradingResultCache(input.now ?? Date.now());
+  const providerRequestsDeleted = await deleteGradingProviderRequestsBefore(input.providerRequestCutoff);
+  return { cacheEntriesDeleted, providerRequestsDeleted };
 }
 
 export async function countAiAttemptsForSubmission(submissionId: string, ownerEmail: string): Promise<number> {

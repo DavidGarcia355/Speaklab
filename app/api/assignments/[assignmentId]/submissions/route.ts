@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSchoolStudentEmail } from "@/lib/authz";
-import { uploadSubmissionAudio } from "@/lib/audio-storage";
+import { deleteSubmissionAudio, uploadSubmissionAudio } from "@/lib/audio-storage";
 import {
   countStudentSubmissions,
   createSubmission,
@@ -26,13 +26,6 @@ function shouldEnforceStudentDomain() {
 
 function shouldRequireRosterForSubmissions() {
   return process.env.REQUIRE_ROSTER_FOR_SUBMISSIONS === "true";
-}
-
-function isPublicBlobStoreError(error: unknown) {
-  return (
-    error instanceof Error &&
-    error.message.toLowerCase().includes("cannot use private access on a public store")
-  );
 }
 
 export async function POST(
@@ -95,15 +88,14 @@ export async function POST(
         buffer: parsedAudio.buffer,
       });
     } catch (error) {
-      if (getEnv().isDev || isPublicBlobStoreError(error)) {
-        // Fallback keeps submissions functional while production Blob is public-only.
-        // Playback and AI access still go through authenticated server routes.
+      if (getEnv().isDev) {
+        // Local development can keep working without cloud storage. Production
+        // must fail closed rather than place student audio in Turso or a public store.
         audioBlobUrl = body.audioData;
       } else {
         console.warn("Audio upload failed for submission upload", {
           assignmentId,
           errorName: error instanceof Error ? error.name : "unknown",
-          errorMessage: error instanceof Error ? error.message : "unknown",
         });
         throw new HttpError(
           503,
@@ -112,12 +104,25 @@ export async function POST(
       }
     }
 
-    const created = await createSubmission({
-      assignmentId,
-      studentName,
-      studentEmail,
-      audioBlobUrl,
-    });
+    let created: Awaited<ReturnType<typeof createSubmission>>;
+    try {
+      created = await createSubmission({
+        assignmentId,
+        studentName,
+        studentEmail,
+        audioBlobUrl,
+      });
+    } catch (error) {
+      try {
+        await deleteSubmissionAudio(audioBlobUrl);
+      } catch (cleanupError) {
+        console.error("Compensating audio deletion failed", {
+          assignmentId,
+          errorName: cleanupError instanceof Error ? cleanupError.name : "unknown",
+        });
+      }
+      throw error;
+    }
 
     upsertRosterEntry({
       classId: assignment.classId,

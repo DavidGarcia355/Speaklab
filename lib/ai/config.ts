@@ -40,22 +40,28 @@ function providerFromEnv<T extends string>(key: string, fallback: T, allowed: re
   return allowed.includes(raw as T) ? (raw as T) : fallback;
 }
 
-export function getAiGatewayAuthToken() {
-  if (process.env.AI_GATEWAY_ENABLED?.trim().toLowerCase() === "false") return "";
+export function shouldUseAiGateway() {
+  const configured = process.env.AI_GATEWAY_ENABLED?.trim().toLowerCase();
+  if (configured === "false") return false;
+  if (configured === "true") return true;
 
-  const apiKey = process.env.AI_GATEWAY_API_KEY?.trim();
-  if (apiKey) return apiKey;
+  // Vercel deployments use Gateway by default. Local development remains on
+  // direct OpenAI unless a Gateway API key is deliberately configured.
+  return Boolean(process.env.VERCEL === "1" || process.env.AI_GATEWAY_API_KEY?.trim());
+}
 
-  // Vercel rotates this token automatically for deployed functions. Requiring
-  // VERCEL=1 avoids accidentally using an expired token pulled into local env.
-  if (process.env.VERCEL === "1") {
-    return process.env.VERCEL_OIDC_TOKEN?.trim() || "";
-  }
-  return "";
+function hasGatewayCredentials() {
+  return Boolean(
+    process.env.AI_GATEWAY_API_KEY?.trim() ||
+      process.env.VERCEL === "1" ||
+      process.env.VERCEL_OIDC_TOKEN?.trim()
+  );
 }
 
 function hasHostedAiCredentials() {
-  return Boolean(getAiGatewayAuthToken() || process.env.OPENAI_API_KEY?.trim());
+  return shouldUseAiGateway()
+    ? hasGatewayCredentials()
+    : Boolean(process.env.OPENAI_API_KEY?.trim());
 }
 
 export function getAiConfig(): AiConfig {
@@ -120,12 +126,16 @@ export function assertAiProviderConfig(config: AiConfig) {
   }
   if (config.transcriptionProvider === "openai" && !hasHostedAiCredentials()) {
     throw new Error(
-      "OPENAI_API_KEY or Vercel AI Gateway credentials are required when AI_TRANSCRIPTION_PROVIDER=openai."
+      shouldUseAiGateway()
+        ? "Vercel AI Gateway credentials are required when AI_TRANSCRIPTION_PROVIDER=openai."
+        : "OPENAI_API_KEY is required when AI_TRANSCRIPTION_PROVIDER=openai and Gateway is disabled."
     );
   }
   if (config.gradingProvider === "openai" && !hasHostedAiCredentials()) {
     throw new Error(
-      "OPENAI_API_KEY or Vercel AI Gateway credentials are required when AI_GRADING_PROVIDER=openai."
+      shouldUseAiGateway()
+        ? "Vercel AI Gateway credentials are required when AI_GRADING_PROVIDER=openai."
+        : "OPENAI_API_KEY is required when AI_GRADING_PROVIDER=openai and Gateway is disabled."
     );
   }
   if (config.monthlyBudgetUsd <= 0 || config.reservedCostUsdPerGeneration <= 0) {

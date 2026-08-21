@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assertAiProviderConfig,
   getAiConfig,
-  getAiGatewayAuthToken,
   isAiAccessConfigurationSafe,
   isAiTeacherDenied,
+  shouldUseAiGateway,
 } from "@/lib/ai/config";
 
 const KEYS = [
@@ -86,6 +86,7 @@ describe("AI launch configuration", () => {
       gradingProvider: "openai" as const,
     };
 
+    expect(shouldUseAiGateway()).toBe(true);
     expect(() => assertAiProviderConfig(config)).not.toThrow();
   });
 
@@ -104,8 +105,28 @@ describe("AI launch configuration", () => {
       gradingProvider: "openai" as const,
     };
 
-    expect(getAiGatewayAuthToken()).toBe("");
+    expect(shouldUseAiGateway()).toBe(false);
     expect(() => assertAiProviderConfig(config)).not.toThrow();
+  });
+
+  it("does not silently bypass an explicitly enabled Gateway with a direct OpenAI key", () => {
+    process.env.AI_GATEWAY_ENABLED = "true";
+    process.env.OPENAI_API_KEY = "direct-key-that-must-not-be-used";
+    delete process.env.AI_GATEWAY_API_KEY;
+    delete process.env.VERCEL;
+    delete process.env.VERCEL_OIDC_TOKEN;
+    const config = {
+      ...getAiConfig(),
+      enabled: true,
+      isDev: false,
+      studentDataApproved: true,
+      accessMode: "paid" as const,
+      transcriptionProvider: "openai" as const,
+      gradingProvider: "openai" as const,
+    };
+
+    expect(shouldUseAiGateway()).toBe(true);
+    expect(() => assertAiProviderConfig(config)).toThrow(/Gateway credentials/);
   });
 
   it("fails closed without direct or gateway provider credentials", () => {
@@ -123,7 +144,7 @@ describe("AI launch configuration", () => {
       gradingProvider: "openai" as const,
     };
 
-    expect(() => assertAiProviderConfig(config)).toThrow(/Gateway credentials/);
+    expect(() => assertAiProviderConfig(config)).toThrow(/OPENAI_API_KEY/);
   });
 
   it("rejects broad AI access combined with open production registration", () => {

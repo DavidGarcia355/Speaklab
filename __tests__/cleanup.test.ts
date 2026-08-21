@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   listStorageObjectsForHardDeleteBefore: vi.fn(),
   hardDeleteSoftDeletedBefore: vi.fn(),
   deleteBlobObjects: vi.fn(),
+  flushPendingAiBillingUsage: vi.fn(),
 }));
 
 vi.mock("@/lib/env", () => ({
@@ -18,6 +19,10 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/blob-deletion", () => ({
   deleteBlobObjects: mocks.deleteBlobObjects,
+}));
+
+vi.mock("@/lib/billing", () => ({
+  flushPendingAiBillingUsage: mocks.flushPendingAiBillingUsage,
 }));
 
 vi.mock("@/lib/http", async () => {
@@ -50,6 +55,8 @@ describe("cleanup cron route", () => {
     mocks.listStorageObjectsForHardDeleteBefore.mockReset();
     mocks.hardDeleteSoftDeletedBefore.mockReset();
     mocks.deleteBlobObjects.mockReset();
+    mocks.flushPendingAiBillingUsage.mockReset();
+    mocks.flushPendingAiBillingUsage.mockResolvedValue({ attempted: 0, reported: 0, failed: 0 });
     mocks.getEnv.mockReturnValue({ cronSecret: "cron-secret" });
     mocks.listStorageObjectsForHardDeleteBefore.mockResolvedValue({
       audioBlobUrls: ["submissions/asg/sub.webm"],
@@ -102,8 +109,14 @@ describe("cleanup cron route", () => {
       attachmentObjects: { deleted: 1 },
     });
     expect(JSON.stringify(data)).not.toContain("student");
-    expect(mocks.deleteBlobObjects).toHaveBeenCalledWith(["submissions/asg/sub.webm"]);
-    expect(mocks.deleteBlobObjects).toHaveBeenCalledWith(["assignment-attachments/asg/file.pdf"]);
+    expect(mocks.deleteBlobObjects).toHaveBeenCalledWith(
+      ["submissions/asg/sub.webm"],
+      { objectClass: "audio" }
+    );
+    expect(mocks.deleteBlobObjects).toHaveBeenCalledWith(
+      ["assignment-attachments/asg/file.pdf"],
+      { objectClass: "attachment" }
+    );
     expect(mocks.deleteBlobObjects.mock.invocationCallOrder[1]).toBeLessThan(
       mocks.hardDeleteSoftDeletedBefore.mock.invocationCallOrder[0]
     );

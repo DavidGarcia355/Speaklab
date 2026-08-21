@@ -83,6 +83,7 @@ type AiAttempt = {
   transcriptionProvider: string;
   gradingProvider: string;
   errorMessage: string;
+  gradeApplied?: boolean;
 };
 type Tone = "warning" | "success" | "neutral";
 type AssignmentView = AssignmentSummary & {
@@ -269,6 +270,7 @@ export default function ClassDetailPage() {
   type BulkAiResult = {
     total: number;
     completed: number;
+    graded: number;
     skipped: number;
     failed: number;
   };
@@ -773,13 +775,46 @@ export default function ClassDetailPage() {
       const response = await fetch(`/api/submissions/${submissionId}/ai-grade`, {
         method: "POST",
       });
-      const data = (await response.json()) as { attempt?: AiAttempt; error?: string };
+      const data = (await response.json()) as {
+        attempt?: AiAttempt;
+        gradeApplied?: boolean;
+        error?: string;
+      };
       if (!response.ok) {
         throw new Error(data.error ?? "AI grading failed.");
       }
-      setAiSuggestions((prev) => ({ ...prev, [submissionId]: data.attempt ?? null }));
+      const attempt = data.attempt
+        ? { ...data.attempt, gradeApplied: data.gradeApplied === true }
+        : null;
+      setAiSuggestions((prev) => ({ ...prev, [submissionId]: attempt }));
+      if (attempt?.gradeApplied && attempt.suggestedScore !== null) {
+        const rubricScoreInputs = Object.fromEntries(
+          attempt.rubricScores.map((score) => [score.criterionId, String(score.awarded)]),
+        );
+        updatePayloadSubmissions((items) =>
+          items.map((row) =>
+            row.id === submissionId
+              ? {
+                  ...row,
+                  grade: attempt.suggestedScore,
+                  feedback: attempt.feedback,
+                  rubricScores: attempt.rubricScores.length > 0 ? attempt.rubricScores : null,
+                }
+              : row,
+          ),
+        );
+        setDraft(submissionId, {
+          gradeInput: String(attempt.suggestedScore),
+          feedback: attempt.feedback,
+          rubricScoreInputs,
+        });
+        setAiGradeErrors((prev) => ({
+          ...prev,
+          [submissionId]: "AI grade saved automatically. You can review or edit it anytime.",
+        }));
+      }
       if (data.attempt?.status === "failed") {
-        setAiGradeErrors((prev) => ({ ...prev, [submissionId]: "Score not prefilled for rubric assignments — feedback added." }));
+        setAiGradeErrors((prev) => ({ ...prev, [submissionId]: "AI could not save a grade for this submission." }));
       }
     } catch (error) {
       setAiGradeErrors((prev) => ({
@@ -816,13 +851,14 @@ export default function ClassDetailPage() {
     try {
       const response = await fetch(`/api/assignments/${assignmentId}/ai-grade-all`, { method: "POST" });
       const data = (await response.json()) as BulkAiResult & {
-        results?: Array<{ submissionId: string }>;
+        results?: Array<{ submissionId: string; gradeApplied?: boolean }>;
         error?: string;
       };
       if (!response.ok) throw new Error(data.error ?? "Bulk AI grading failed.");
       setBulkAiResult({
         total: data.total,
         completed: data.completed,
+        graded: data.graded,
         skipped: data.skipped,
         failed: data.failed,
       });
@@ -836,7 +872,30 @@ export default function ClassDetailPage() {
             if (!latest.ok) return;
             const payload = (await latest.json()) as { latest?: AiAttempt | null };
             if (payload.latest) {
-              setAiSuggestions((prev) => ({ ...prev, [item.submissionId]: payload.latest ?? null }));
+              const attempt = { ...payload.latest, gradeApplied: item.gradeApplied === true };
+              setAiSuggestions((prev) => ({ ...prev, [item.submissionId]: attempt }));
+              if (attempt.gradeApplied && attempt.suggestedScore !== null) {
+                const rubricScoreInputs = Object.fromEntries(
+                  attempt.rubricScores.map((score) => [score.criterionId, String(score.awarded)]),
+                );
+                updatePayloadSubmissions((items) =>
+                  items.map((row) =>
+                    row.id === item.submissionId
+                      ? {
+                          ...row,
+                          grade: attempt.suggestedScore,
+                          feedback: attempt.feedback,
+                          rubricScores: attempt.rubricScores.length > 0 ? attempt.rubricScores : null,
+                        }
+                      : row,
+                  ),
+                );
+                setDraft(item.submissionId, {
+                  gradeInput: String(attempt.suggestedScore),
+                  feedback: attempt.feedback,
+                  rubricScoreInputs,
+                });
+              }
             }
           } catch {
             // A suggestion that fails to load here is still saved server-side.
@@ -1366,18 +1425,18 @@ export default function ClassDetailPage() {
                 {bulkAiError ? <p className="card-inline-error">{bulkAiError}</p> : null}
                 {bulkAiRunning ? (
                   <div className="notice info">
-                    Generating AI suggestions. Leave this page open — nothing is saved as a grade.
+                    Generating and saving AI grades. Leave this page open until the run finishes.
                   </div>
                 ) : null}
                 {bulkAiResult ? (
                   <div className="notice info">
                     <strong>
-                      {bulkAiResult.completed} of {bulkAiResult.total} suggestion
-                      {bulkAiResult.completed === 1 ? "" : "s"} ready for your review.
+                      {bulkAiResult.graded} of {bulkAiResult.total} grade
+                      {bulkAiResult.graded === 1 ? "" : "s"} saved automatically.
                     </strong>{" "}
                     {bulkAiResult.skipped > 0 ? `${bulkAiResult.skipped} skipped. ` : ""}
                     {bulkAiResult.failed > 0 ? `${bulkAiResult.failed} failed. ` : ""}
-                    No grades were saved — open each student below, check the suggestion, then save.
+                    Students can see saved results immediately; every grade remains editable below.
                   </div>
                 ) : null}
 
@@ -1465,11 +1524,13 @@ export default function ClassDetailPage() {
                           {aiSuggestion ? (
                             <div className="notice info">
                               <p className="meta" style={{ marginBottom: "0.35rem" }}>
-                                <strong>{localAiTestMode ? "Local AI test mode" : "AI suggestion"}</strong>{" "}
-                                {aiSuggestion.gradingProvider === "mock" ? "Mock suggestion" : "Teacher review required"}
+                                <strong>{localAiTestMode ? "Local AI test mode" : "AI grade details"}</strong>{" "}
+                                {aiSuggestion.gradingProvider === "mock" ? "Mock result" : "Review and edit anytime"}
                               </p>
                               <p className="meta" style={{ marginBottom: "0.35rem" }}>
-                                <span className="status-badge status-warning">Needs human verification</span>{" "}
+                                <span className="status-badge status-warning">
+                                  {aiSuggestion.gradeApplied ? "Grade saved by AI" : "Review before applying"}
+                                </span>{" "}
                                 {aiSuggestion.confidence ? (
                                   <span className="pill pill-subtle">AI confidence: {aiSuggestion.confidence}</span>
                                 ) : null}{" "}
@@ -1495,9 +1556,11 @@ export default function ClassDetailPage() {
                                 {aiSuggestion.evidence.length > 0 ? <p className="meta">Evidence: {aiSuggestion.evidence.join("; ")}</p> : null}
                               </details>
                               <div className="actions" style={{ marginTop: "0.5rem" }}>
-                                <button type="button" className="btn btn-ghost" onClick={() => applyAiSuggestion(submission.id, aiSuggestion)}>
-                                  Use suggestion
-                                </button>
+                                {!aiSuggestion.gradeApplied ? (
+                                  <button type="button" className="btn btn-ghost" onClick={() => applyAiSuggestion(submission.id, aiSuggestion)}>
+                                    Use this grade
+                                  </button>
+                                ) : null}
                                 <button type="button" className="btn btn-ghost" onClick={() => setAiSuggestions((prev) => ({ ...prev, [submission.id]: null }))}>
                                   Dismiss
                                 </button>
@@ -1506,7 +1569,7 @@ export default function ClassDetailPage() {
                           ) : null}
                           <div className="actions submission-actions">
                             {aiGradingEnabled ? (
-                              <button type="button" className="btn btn-ghost" onClick={() => void aiGradeSubmission(submission.id)} disabled={aiGrading[submission.id] || draft.saving}>{aiGrading[submission.id] ? "Generating..." : "Generate AI suggestion"}</button>
+                              <button type="button" className="btn btn-ghost" onClick={() => void aiGradeSubmission(submission.id)} disabled={aiGrading[submission.id] || draft.saving}>{aiGrading[submission.id] ? "Grading & saving..." : "AI grade & save"}</button>
                             ) : null}
                             <button type="button" className="btn btn-primary" onClick={() => void saveSubmission(submission.id)} disabled={draft.saving}>{draft.saving ? "Saving..." : "Save grade"}</button>
                           </div>
@@ -1703,9 +1766,9 @@ export default function ClassDetailPage() {
         description={
           bulkAiPreflight && !bulkAiPreflight.fits
             ? `This needs ${bulkAiPreflight.ungradedCount} AI generations but only ${bulkAiPreflight.remaining} remain today. Grade some by hand, or try again tomorrow when the limit resets.`
-            : `Every ungraded submission gets an AI suggestion marked "needs verification". Nothing is saved as a grade and no student sees anything until you review and save each one. This takes about ${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60))} minute${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60)) === 1 ? "" : "s"}.`
+            : `Every eligible submission gets an AI score, rubric breakdown, and feedback saved automatically and visible to that student immediately. You can review and edit every grade afterward. This takes about ${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60))} minute${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60)) === 1 ? "" : "s"}.`
         }
-        confirmLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "OK" : "Generate suggestions"}
+        confirmLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "OK" : "Grade with AI"}
         cancelLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "Close" : "Cancel"}
         onCancel={() => setBulkAiPreflight(null)}
         onConfirm={() => {

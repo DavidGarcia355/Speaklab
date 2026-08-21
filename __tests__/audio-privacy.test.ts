@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   blobPut: vi.fn(),
   blobGet: vi.fn(),
+  blobDel: vi.fn(),
   requireTeacherEmail: vi.fn(),
   findSubmissionAccessById: vi.fn(),
 }));
@@ -10,7 +11,21 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@vercel/blob", () => ({
   put: mocks.blobPut,
   get: mocks.blobGet,
+  del: mocks.blobDel,
 }));
+
+const originalAudioStoreId = process.env.AUDIO_BLOB_STORE_ID;
+const originalAudioToken = process.env.AUDIO_READ_WRITE_TOKEN;
+const originalVercel = process.env.VERCEL;
+
+afterAll(() => {
+  if (typeof originalAudioStoreId === "undefined") delete process.env.AUDIO_BLOB_STORE_ID;
+  else process.env.AUDIO_BLOB_STORE_ID = originalAudioStoreId;
+  if (typeof originalAudioToken === "undefined") delete process.env.AUDIO_READ_WRITE_TOKEN;
+  else process.env.AUDIO_READ_WRITE_TOKEN = originalAudioToken;
+  if (typeof originalVercel === "undefined") delete process.env.VERCEL;
+  else process.env.VERCEL = originalVercel;
+});
 
 vi.mock("@/lib/authz", () => ({
   requireTeacherEmail: mocks.requireTeacherEmail,
@@ -47,6 +62,10 @@ vi.mock("@/lib/http", async () => {
 describe("private-only audio storage", () => {
   beforeEach(() => {
     mocks.blobPut.mockReset();
+    mocks.blobDel.mockReset();
+    process.env.AUDIO_BLOB_STORE_ID = "store_audio_test";
+    process.env.VERCEL = "1";
+    delete process.env.AUDIO_READ_WRITE_TOKEN;
   });
 
   it("uploads submission audio with private access", async () => {
@@ -68,8 +87,25 @@ describe("private-only audio storage", () => {
         access: "private",
         contentType: "audio/webm",
         addRandomSuffix: false,
+        storeId: "store_audio_test",
       })
     );
+  });
+
+  it("fails before upload when the dedicated private store is not configured", async () => {
+    const { uploadSubmissionAudio } = await import("@/lib/audio-storage");
+    delete process.env.AUDIO_BLOB_STORE_ID;
+
+    await expect(
+      uploadSubmissionAudio({
+        assignmentId: "asg_1",
+        submissionId: "sub_1",
+        mimeType: "audio/webm",
+        buffer: Buffer.from("audio"),
+      })
+    ).rejects.toThrow(/AUDIO_BLOB_STORE_ID/);
+
+    expect(mocks.blobPut).not.toHaveBeenCalled();
   });
 
   it("does not retry with public access when private upload fails", async () => {
@@ -96,6 +132,8 @@ describe("audio playback authorization and legacy handling", () => {
     mocks.requireTeacherEmail.mockReset();
     mocks.findSubmissionAccessById.mockReset();
     mocks.requireTeacherEmail.mockResolvedValue("teacher@example.com");
+    process.env.AUDIO_BLOB_STORE_ID = "store_audio_test";
+    process.env.VERCEL = "1";
   });
 
   async function callAudioRoute(submissionId = "sub_1") {
@@ -154,6 +192,32 @@ describe("audio playback authorization and legacy handling", () => {
     const response = await callAudioRoute();
 
     expect(response.status).toBe(404);
+  });
+
+  it("serves private audio from the dedicated store with no-sniff headers", async () => {
+    mocks.findSubmissionAccessById.mockResolvedValue({
+      id: "sub_1",
+      studentEmail: "student@example.com",
+      audioBlobUrl: "submissions/asg/sub.webm",
+    });
+    mocks.blobGet.mockResolvedValue({
+      statusCode: 200,
+      stream: new Response("audio").body,
+      blob: { contentType: "audio/webm" },
+    });
+
+    const response = await callAudioRoute();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(mocks.blobGet).toHaveBeenCalledWith(
+      "submissions/asg/sub.webm",
+      expect.objectContaining({
+        access: "private",
+        storeId: "store_audio_test",
+      })
+    );
   });
 
   it("blocks public blob URLs instead of proxying unsafe legacy storage", async () => {
