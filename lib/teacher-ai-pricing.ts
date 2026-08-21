@@ -4,7 +4,6 @@ export type TeacherAiPricingInputs = {
   aiAssignmentsPerClass: number;
   submissionsPerStudent: number;
   averageAudioMinutes: number;
-  outputTokensPerGrade: number;
 };
 
 export type TeacherAiPriceBook = {
@@ -15,7 +14,7 @@ export type TeacherAiPriceBook = {
   readonly effectiveAt: string | null;
   readonly baseSuccessfulGradeUsd: number;
   readonly audioMinuteUsd: number;
-  readonly outputThousandTokensUsd: number;
+  readonly feedbackIncluded: true;
   readonly freeCreditPolicy: {
     readonly kind: "qualifying_classes_minus_one";
     readonly qualifyingClass: "rostered_student_and_assignment";
@@ -26,14 +25,14 @@ export type TeacherAiPriceBook = {
 };
 
 export const TEACHER_AI_PRICE_BOOK: TeacherAiPriceBook = Object.freeze({
-  id: "habla-teacher-ai-usd-v1",
+  id: "habla-teacher-ai-usd-v2",
   currency: "USD",
   status: "active",
   publishedAt: "2026-08-21",
   effectiveAt: "2026-08-21",
-  baseSuccessfulGradeUsd: 0.01,
+  baseSuccessfulGradeUsd: 0.05,
   audioMinuteUsd: 0.01,
-  outputThousandTokensUsd: 0.005,
+  feedbackIncluded: true,
   freeCreditPolicy: Object.freeze({
     kind: "qualifying_classes_minus_one",
     qualifyingClass: "rostered_student_and_assignment",
@@ -58,7 +57,6 @@ export const TEACHER_AI_PRICING_LIMITS = Object.freeze({
   aiAssignmentsPerClass: { min: 0, max: 30 },
   submissionsPerStudent: { min: 0, max: 3 },
   averageAudioMinutes: { min: 0, max: 10 },
-  outputTokensPerGrade: { min: 0, max: 2_000 },
 });
 
 const MICRO_USD_PER_USD = 1_000_000;
@@ -97,17 +95,12 @@ function validateInputs(input: TeacherAiPricingInputs) {
   assertInRange("averageAudioMinutes", input.averageAudioMinutes, {
     ...TEACHER_AI_PRICING_LIMITS.averageAudioMinutes,
   });
-  assertInRange("outputTokensPerGrade", input.outputTokensPerGrade, {
-    ...TEACHER_AI_PRICING_LIMITS.outputTokensPerGrade,
-    integer: true,
-  });
 }
 
 function validatePriceBook(priceBook: TeacherAiPriceBook) {
   for (const [name, value] of Object.entries({
     baseSuccessfulGradeUsd: priceBook.baseSuccessfulGradeUsd,
     audioMinuteUsd: priceBook.audioMinuteUsd,
-    outputThousandTokensUsd: priceBook.outputThousandTokensUsd,
   })) {
     if (!Number.isFinite(value) || value < 0) {
       throw new RangeError(`${name} must be a non-negative number.`);
@@ -137,21 +130,16 @@ export function estimateTeacherAiPricing(
   const appliedFreeAiGrades = Math.min(projectedAiGrades, monthlyFreeAiGrades);
   const billableAiGrades = Math.max(0, projectedAiGrades - appliedFreeAiGrades);
   const billableAudioMinutes = billableAiGrades * input.averageAudioMinutes;
-  const billableOutputTokens = billableAiGrades * input.outputTokensPerGrade;
 
   const baseMicros = dollarsToMicros(
     billableAiGrades * priceBook.baseSuccessfulGradeUsd,
   );
   const audioMicros = dollarsToMicros(billableAudioMinutes * priceBook.audioMinuteUsd);
-  const outputMicros = dollarsToMicros(
-    (billableOutputTokens / 1_000) * priceBook.outputThousandTokensUsd,
-  );
-  const estimatedMonthlyMicros = baseMicros + audioMicros + outputMicros;
+  const estimatedMonthlyMicros = baseMicros + audioMicros;
 
   const perSuccessfulGradeMicros = dollarsToMicros(
     priceBook.baseSuccessfulGradeUsd +
-      input.averageAudioMinutes * priceBook.audioMinuteUsd +
-      (input.outputTokensPerGrade / 1_000) * priceBook.outputThousandTokensUsd,
+      input.averageAudioMinutes * priceBook.audioMinuteUsd,
   );
   const freeCreditValueMicros = perSuccessfulGradeMicros * appliedFreeAiGrades;
 
@@ -163,10 +151,8 @@ export function estimateTeacherAiPricing(
     appliedFreeAiGrades,
     billableAiGrades,
     billableAudioMinutes,
-    billableOutputTokens,
     baseChargeUsd: microsToDollars(baseMicros),
     audioChargeUsd: microsToDollars(audioMicros),
-    outputChargeUsd: microsToDollars(outputMicros),
     estimatedMonthlyUsd: microsToDollars(estimatedMonthlyMicros),
     estimatedPerSuccessfulGradeUsd: microsToDollars(perSuccessfulGradeMicros),
     freeCreditValueUsd: microsToDollars(freeCreditValueMicros),

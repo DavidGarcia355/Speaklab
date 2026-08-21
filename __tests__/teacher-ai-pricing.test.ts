@@ -11,20 +11,19 @@ const typicalInputs: TeacherAiPricingInputs = {
   aiAssignmentsPerClass: 4,
   submissionsPerStudent: 1,
   averageAudioMinutes: 2,
-  outputTokensPerGrade: 300,
 };
 
 describe("teacher AI pricing", () => {
-  it("locks launch price book v1 as an immutable policy contract", () => {
+  it("locks launch price book v2 as an immutable policy contract", () => {
     expect(TEACHER_AI_PRICE_BOOK).toEqual({
-      id: "habla-teacher-ai-usd-v1",
+      id: "habla-teacher-ai-usd-v2",
       currency: "USD",
       status: "active",
       publishedAt: "2026-08-21",
       effectiveAt: "2026-08-21",
-      baseSuccessfulGradeUsd: 0.01,
+      baseSuccessfulGradeUsd: 0.05,
       audioMinuteUsd: 0.01,
-      outputThousandTokensUsd: 0.005,
+      feedbackIncluded: true,
       freeCreditPolicy: {
         kind: "qualifying_classes_minus_one",
         qualifyingClass: "rostered_student_and_assignment",
@@ -37,24 +36,22 @@ describe("teacher AI pricing", () => {
     expect(Object.isFrozen(TEACHER_AI_PRICE_BOOK.freeCreditPolicy)).toBe(true);
   });
 
-  it("uses classroom volume, audio duration, and output tokens", () => {
+  it("uses classroom volume and audio duration with feedback included", () => {
     const estimate = estimateTeacherAiPricing(typicalInputs);
 
     expect(estimate).toMatchObject({
-      priceBookId: "habla-teacher-ai-usd-v1",
+      priceBookId: "habla-teacher-ai-usd-v2",
       totalStudents: 140,
       projectedAiGrades: 560,
       monthlyFreeAiGrades: 4,
       appliedFreeAiGrades: 4,
       billableAiGrades: 556,
       billableAudioMinutes: 1_112,
-      billableOutputTokens: 166_800,
-      baseChargeUsd: 5.56,
+      baseChargeUsd: 27.8,
       audioChargeUsd: 11.12,
-      outputChargeUsd: 0.834,
-      estimatedMonthlyUsd: 17.514,
-      estimatedPerSuccessfulGradeUsd: 0.0315,
-      freeCreditValueUsd: 0.126,
+      estimatedMonthlyUsd: 38.92,
+      estimatedPerSuccessfulGradeUsd: 0.07,
+      freeCreditValueUsd: 0.28,
     });
   });
 
@@ -72,11 +69,12 @@ describe("teacher AI pricing", () => {
       aiAssignmentsPerClass: 8,
       submissionsPerStudent: 1,
       averageAudioMinutes: 5,
-      outputTokensPerGrade: 200,
     });
 
     expect(canonical.projectedAiGrades).toBe(2_240);
     expect(canonical.billableAiGrades).toBe(2_234);
+    expect(canonical.estimatedPerSuccessfulGradeUsd).toBe(0.1);
+    expect(canonical.estimatedMonthlyUsd).toBe(223.4);
   });
 
   it("never turns unused free credits into a negative bill", () => {
@@ -101,7 +99,7 @@ describe("teacher AI pricing", () => {
       estimateTeacherAiPricing({ ...typicalInputs, studentsPerClass: Number.NaN }),
     ).toThrow(RangeError);
     expect(() =>
-      estimateTeacherAiPricing({ ...typicalInputs, outputTokensPerGrade: 2_100 }),
+      estimateTeacherAiPricing({ ...typicalInputs, averageAudioMinutes: 10.5 }),
     ).toThrow(RangeError);
   });
 });

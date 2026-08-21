@@ -16,7 +16,6 @@ export const runtime = "nodejs";
 function estimatedRetailChargeUsd(input: {
   baseUnits: number;
   durationSeconds: number;
-  outputTokens: number;
 }) {
   const baseMicros = Math.round(
     input.baseUnits * TEACHER_AI_PRICE_BOOK.baseSuccessfulGradeUsd * 1_000_000,
@@ -24,12 +23,7 @@ function estimatedRetailChargeUsd(input: {
   const audioMicros = Math.round(
     (input.durationSeconds / 60) * TEACHER_AI_PRICE_BOOK.audioMinuteUsd * 1_000_000,
   );
-  const outputMicros = Math.round(
-    (input.outputTokens / 1_000) *
-      TEACHER_AI_PRICE_BOOK.outputThousandTokensUsd *
-      1_000_000,
-  );
-  return (baseMicros + audioMicros + outputMicros) / 1_000_000;
+  return (baseMicros + audioMicros) / 1_000_000;
 }
 
 async function loadSubscriptionPeriodEnd(
@@ -83,14 +77,12 @@ export async function GET(request: Request) {
       usage: {
         successfulGrades: summary.successfulResults,
         audioSeconds: summary.billableDurationSeconds,
-        outputTokens: summary.billableOutputTokens,
         qualifyingClasses: summary.qualifyingClassHighWater,
         monthlyFreeCredits: summary.earnedCredits,
         freeCreditsUsed: summary.usedCredits,
         estimatedChargeUsd: estimatedRetailChargeUsd({
           baseUnits: summary.billableBaseUnits,
           durationSeconds: summary.billableDurationSeconds,
-          outputTokens: summary.billableOutputTokens,
         }),
       },
     });

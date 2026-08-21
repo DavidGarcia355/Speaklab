@@ -24,7 +24,6 @@ const DEFAULT_INPUTS: TeacherAiPricingInputs = {
   aiAssignmentsPerClass: 4,
   submissionsPerStudent: 1,
   averageAudioMinutes: 2,
-  outputTokensPerGrade: 300,
 };
 
 const CONTROLS: readonly PricingControl[] = [
@@ -71,15 +70,6 @@ const CONTROLS: readonly PricingControl[] = [
     step: 0.5,
     suffix: "minutes",
   },
-  {
-    key: "outputTokensPerGrade",
-    label: "Expected feedback output",
-    hint: "Estimate the final selected response size. Internal retries are not customer usage.",
-    min: 100,
-    max: 2_000,
-    step: 100,
-    suffix: "tokens",
-  },
 ] as const;
 
 const usd = new Intl.NumberFormat("en-US", {
@@ -110,7 +100,8 @@ export default function PricingCalculator() {
           <p className="pill pill-subtle">Build your estimate</p>
           <h3>Match AI to your classroom</h3>
           <p>
-            Core Habla stays free. These controls estimate the optional AI work you choose to run.
+            Core Habla stays free. These controls estimate what you would pay Habla for the optional
+            AI grading you choose to use.
           </p>
         </div>
 
@@ -143,13 +134,13 @@ export default function PricingCalculator() {
         </div>
       </div>
 
-      <aside className="pricing-estimate-card" aria-label="Estimated monthly AI price">
+      <aside className="pricing-estimate-card" aria-label="Estimated monthly Habla price">
         <div className="pricing-estimate-head">
-          <span>Your AI estimate</span>
+          <span>Estimated monthly price</span>
           <strong aria-live="polite" aria-atomic="true">
             {usd.format(estimate.estimatedMonthlyUsd)}
           </strong>
-          <small>estimated per month</small>
+          <small>what you would pay Habla</small>
         </div>
 
         <dl className="pricing-estimate-stats">
@@ -171,7 +162,7 @@ export default function PricingCalculator() {
           </div>
         </dl>
 
-        <div className="pricing-receipt" aria-label="AI estimate details">
+        <div className="pricing-receipt" aria-label="Estimated Habla invoice details">
           <div>
             <span>Successful AI grades</span>
             <span>{usd.format(estimate.baseChargeUsd)}</span>
@@ -181,11 +172,11 @@ export default function PricingCalculator() {
             <span>{usd.format(estimate.audioChargeUsd)}</span>
           </div>
           <div>
-            <span>{number.format(estimate.billableOutputTokens)} feedback tokens</span>
-            <span>{usd.format(estimate.outputChargeUsd)}</span>
+            <span>AI feedback</span>
+            <span>Included</span>
           </div>
           <div className="pricing-receipt-total">
-            <span>Estimated total</span>
+            <span>Estimated monthly price</span>
             <span>{usd.format(estimate.estimatedMonthlyUsd)}</span>
           </div>
         </div>
@@ -198,8 +189,9 @@ export default function PricingCalculator() {
               } included — one fewer than your active class count.`}
         </p>
         <p className="pricing-estimate-fineprint">
-          This is an estimate, not a bill. Actual audio is measured by whole seconds and actual final
-          feedback tokens; failures, compatible cache hits, and Habla&apos;s internal retries are not charged again.
+          This estimates what you would pay Habla, not a final invoice. Recording time is measured
+          by whole seconds. Feedback is included. Failed attempts and duplicate results are not
+          charged.
         </p>
       </aside>
     </div>

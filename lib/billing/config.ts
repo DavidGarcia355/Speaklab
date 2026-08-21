@@ -3,7 +3,6 @@ export const STRIPE_API_VERSION = "2026-07-29.dahlia" as const;
 export const STRIPE_PRICE_ENV_KEYS = Object.freeze({
   aiGrade: "STRIPE_AI_GRADE_PRICE_ID",
   audioMinute: "STRIPE_AI_AUDIO_SECONDS_PRICE_ID",
-  feedbackTokens: "STRIPE_AI_FEEDBACK_TOKENS_PRICE_ID",
 } as const);
 
 export type StripeBillingEnv = Readonly<Record<string, string | undefined>>;
@@ -18,7 +17,6 @@ export type StripeBillingConfig = Readonly<{
   priceIds: Readonly<{
     aiGrade: string;
     audioMinute: string;
-    feedbackTokens: string;
   }>;
   automaticTaxEnabled: boolean;
 }>;
@@ -131,7 +129,6 @@ export function parseStripeBillingConfig(env: StripeBillingEnv): StripeBillingCo
   const priceIds = {
     aiGrade: requiredValue(env, STRIPE_PRICE_ENV_KEYS.aiGrade, issues),
     audioMinute: requiredValue(env, STRIPE_PRICE_ENV_KEYS.audioMinute, issues),
-    feedbackTokens: requiredValue(env, STRIPE_PRICE_ENV_KEYS.feedbackTokens, issues),
   };
 
   const mode = keyMode(secretKey);

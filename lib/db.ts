@@ -2,6 +2,7 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient, type Client, type InStatement, type InValue, type Row } from "@libsql/client";
+import { TEACHER_AI_PRICING_LIMITS } from "@/lib/teacher-ai-pricing";
 import type { Rubric, RubricScore } from "@/lib/validation";
 
 const QUERY_TIMEOUT_MS = 5000;
@@ -2422,9 +2423,12 @@ export async function createAiBillingUsage(input: {
   const priceBookId = requireTrimmedValue("priceBookId", input.priceBookId);
   const attemptId = requireTrimmedValue("attemptId", input.attemptId);
   const submissionId = requireTrimmedValue("submissionId", input.submissionId);
-  const baseUnits = requireNonNegativeInteger("baseUnits", input.baseUnits ?? 1);
-  const durationSeconds = requireNonNegativeInteger("durationSeconds", input.durationSeconds);
-  const outputTokens = requireNonNegativeInteger("outputTokens", input.outputTokens);
+  // Retain validation for the existing call contract, but never use caller
+  // quantities as the billing source of truth. A marked successful result is
+  // exactly one base unit, and the durable attempt owns its variable units.
+  requireNonNegativeInteger("baseUnits", input.baseUnits ?? 1);
+  requireNonNegativeInteger("durationSeconds", input.durationSeconds);
+  requireNonNegativeInteger("outputTokens", input.outputTokens);
   const now = requireNonNegativeInteger("now", input.now ?? Date.now());
   const billingMonth = getAiBillingUtcMonth(now);
   const id = makeId("aiu");
@@ -2435,7 +2439,7 @@ export async function createAiBillingUsage(input: {
         teacher_email, billing_month, qualifying_class_high_water,
         used_credits, created_at, updated_at
       )
-      SELECT ?, ?, COUNT(*), 0, ?, ?
+      SELECT ?, ?, MIN(COUNT(*), ?), 0, ?, ?
       FROM classes c
       WHERE LOWER(c.owner_email) = LOWER(?)
         AND c.deleted_at IS NULL
@@ -2449,12 +2453,23 @@ export async function createAiBillingUsage(input: {
             AND a.deleted_at IS NULL
         )
       ON CONFLICT(teacher_email, billing_month) DO UPDATE SET
-        qualifying_class_high_water = MAX(
-          ai_billing_credit_periods.qualifying_class_high_water,
-          excluded.qualifying_class_high_water
+        qualifying_class_high_water = MIN(
+          ?,
+          MAX(
+            ai_billing_credit_periods.qualifying_class_high_water,
+            excluded.qualifying_class_high_water
+          )
         ),
         updated_at = excluded.updated_at`,
-      args: [teacherEmail, billingMonth, now, now, teacherEmail],
+      args: [
+        teacherEmail,
+        billingMonth,
+        TEACHER_AI_PRICING_LIMITS.classCount.max,
+        now,
+        now,
+        teacherEmail,
+        TEACHER_AI_PRICING_LIMITS.classCount.max,
+      ],
     },
     {
       sql: `INSERT INTO ai_billing_usage (
@@ -2467,16 +2482,23 @@ export async function createAiBillingUsage(input: {
       SELECT
         ?, ?, ?, ?, ?, ?, ?,
         CASE
-          WHEN ? > 0
-            AND p.used_credits < MAX(0, p.qualifying_class_high_water - 1)
+          WHEN p.used_credits < MAX(0, p.qualifying_class_high_water - 1)
           THEN 1 ELSE 0
         END,
-        ?, ?, ?, NULL, NULL, NULL,
+        1,
+        MAX(
+          0,
+          CAST(ag.duration_seconds AS INTEGER) +
+            CASE
+              WHEN ag.duration_seconds > CAST(ag.duration_seconds AS INTEGER) THEN 1
+              ELSE 0
+            END
+        ),
+        ag.billable_output_tokens,
+        NULL, NULL, NULL,
         CASE
-          WHEN ? > 0
-            AND p.used_credits < MAX(0, p.qualifying_class_high_water - 1)
+          WHEN p.used_credits < MAX(0, p.qualifying_class_high_water - 1)
           THEN 'credited'
-          WHEN ? = 0 AND ? = 0 AND ? = 0 THEN 'reported'
           ELSE 'pending'
         END,
         NULL, '', NULL, ?, ?
@@ -2495,6 +2517,8 @@ export async function createAiBillingUsage(input: {
         AND LOWER(ag.teacher_email) = LOWER(?)
         AND ag.status = 'completed'
         AND ag.cache_key = ?
+        AND ag.billing_required = 1
+        AND ag.billing_price_book_id = ?
       ON CONFLICT(teacher_email, cache_key, price_book_id) DO NOTHING`,
       args: [
         id,
@@ -2504,14 +2528,6 @@ export async function createAiBillingUsage(input: {
         priceBookId,
         attemptId,
         submissionId,
-        baseUnits,
-        baseUnits,
-        durationSeconds,
-        outputTokens,
-        baseUnits,
-        baseUnits,
-        durationSeconds,
-        outputTokens,
         now,
         now,
         submissionId,
@@ -2521,6 +2537,7 @@ export async function createAiBillingUsage(input: {
         teacherEmail,
         teacherEmail,
         cacheKey,
+        priceBookId,
       ],
     },
     {
@@ -3081,6 +3098,60 @@ export async function createAiGradingAttempt(input: {
     errorCode: item.errorCode ?? "",
     errorMessage: item.errorMessage ?? "",
   };
+}
+
+/**
+ * Durably marks a completed, delivered AI result for billing after its grade
+ * has been applied. Every entitlement and ownership predicate is part of the
+ * same update so a stale pre-check cannot make an inactive or foreign result
+ * billable.
+ */
+export async function markAiGradingAttemptBillingRequired(input: {
+  attemptId: string;
+  ownerEmail: string;
+  priceBookId: string;
+}): Promise<boolean> {
+  const attemptId = requireTrimmedValue("attemptId", input.attemptId);
+  const ownerEmail = requireTrimmedValue("ownerEmail", input.ownerEmail).toLowerCase();
+  const priceBookId = requireTrimmedValue("priceBookId", input.priceBookId);
+  const result = await query(
+    `UPDATE ai_grading_attempts
+    SET billing_required = 1,
+        billing_price_book_id = ?
+    WHERE id = ?
+      AND status = 'completed'
+      AND TRIM(cache_key) <> ''
+      AND cache_hit = 0
+      AND suggested_score IS NOT NULL
+      AND TRIM(error_code) = ''
+      AND result_source NOT IN ('cache', 'deterministic', 'failed', 'teacher_review')
+      AND confidence = 'high'
+      AND LOWER(teacher_email) = LOWER(?)
+      AND EXISTS (
+        SELECT 1
+        FROM submissions s
+        JOIN assignments a ON a.id = s.assignment_id
+        JOIN classes c ON c.id = a.class_id
+        WHERE s.id = ai_grading_attempts.submission_id
+          AND s.deleted_at IS NULL
+          AND a.deleted_at IS NULL
+          AND c.deleted_at IS NULL
+          AND LOWER(c.owner_email) = LOWER(?)
+          AND s.grade_source = 'ai'
+          AND s.grade IS NOT NULL
+          AND ai_grading_attempts.suggested_score IS NOT NULL
+          AND s.grade = ai_grading_attempts.suggested_score
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM stripe_billing_accounts sba
+        WHERE LOWER(sba.teacher_email) = LOWER(?)
+          AND sba.subscription_status IN ('active', 'trialing')
+          AND sba.price_book_id = ?
+      )`,
+    [priceBookId, attemptId, ownerEmail, ownerEmail, ownerEmail, priceBookId]
+  );
+  return toNumber(result.rowsAffected) === 1;
 }
 
 /**

@@ -298,14 +298,6 @@ export async function gradeAudioWithGemini(input: {
         providerRequestId: body.responseId,
       });
     }
-    const durationAudioTokens = Math.ceil(audioGrade.duration_seconds * 32);
-    if (durationAudioTokens > usage.audioInputTokens) {
-      usage.audioInputTokens = durationAudioTokens;
-      usage.usage.inputTokens = Math.max(
-        usage.usage.inputTokens,
-        usage.audioInputTokens + usage.textInputTokens
-      );
-    }
     return {
       transcript,
       detectedLanguage: audioGrade.detected_language,

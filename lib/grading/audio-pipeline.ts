@@ -35,6 +35,8 @@ export type DirectAudioPipelineResult = {
   model: string;
   /** Usage from the final schema-valid provider call selected for the result. */
   billableUsage: TokenUsage;
+  /** Audio tokens reported for the final selected provider call only. */
+  billableAudioInputTokens: number;
   /** Aggregate provider usage across retries and escalation attempts. */
   usage: TokenUsage;
   audioInputTokens: number;
@@ -209,6 +211,7 @@ export async function runDirectAudioGradingPipeline(input: {
         provider: cached!.provider,
         model: cached!.model,
         billableUsage: EMPTY_USAGE,
+        billableAudioInputTokens: 0,
         usage: EMPTY_USAGE,
         audioInputTokens: 0,
         estimatedCostMicrousd: 0,
@@ -417,6 +420,7 @@ export async function runDirectAudioGradingPipeline(input: {
     provider: selectedModel.provider,
     model: selectedModel.model,
     billableUsage: selected.usage,
+    billableAudioInputTokens: selected.audioInputTokens,
     usage: calls.reduce((total, item) => addUsage(total, item.usage), EMPTY_USAGE),
     audioInputTokens: calls.reduce((total, item) => total + item.audioInputTokens, 0),
     estimatedCostMicrousd: calls.reduce(

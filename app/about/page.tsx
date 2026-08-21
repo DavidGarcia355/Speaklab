@@ -42,7 +42,7 @@ export default function AboutPage() {
             size={28}
             aria-hidden="true"
           />
-          <h2 className="surface-title">My mom is fighting cancer.</h2>
+          <h2 className="surface-title">My mom is fighting endometrial cancer.</h2>
           <p className="meta">
             While I keep Habla running, my family is standing beside her. If Habla has helped you and
             you would like to support us, I&apos;m deeply grateful.
@@ -54,7 +54,7 @@ export default function AboutPage() {
               target="_blank"
               rel="noreferrer"
             >
-              Help my mom&apos;s fight against cancer
+              Help my mom&apos;s fight against endometrial cancer
               <ArrowUpRight size={17} aria-hidden="true" />
             </a>
             <Link className="btn btn-ghost" href="/">

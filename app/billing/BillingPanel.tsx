@@ -18,7 +18,6 @@ type BillingStatus = {
   usage: {
     successfulGrades: number;
     audioSeconds: number;
-    outputTokens: number;
     qualifyingClasses: number;
     monthlyFreeCredits: number;
     freeCreditsUsed: number;
@@ -150,7 +149,7 @@ export default function BillingPanel() {
             </h2>
             <p>
               {subscribed
-                ? `Usage is tracked under ${status.priceBook.id}.${
+                ? `Your usage is billed at the published Habla AI rates.${
                     status.periodEnd ? ` Current period ends ${formatPeriodEnd(status.periodEnd)}.` : ""
                   }`
                 : status.access === "pilot"
@@ -202,7 +201,7 @@ export default function BillingPanel() {
       <aside className="billing-usage-card" aria-label="Current month AI usage">
         <span>Current UTC month</span>
         <strong>{usd.format(status.usage.estimatedChargeUsd)}</strong>
-        <small>recorded retail usage</small>
+        <small>estimated Habla usage charge</small>
         <dl>
           <div>
             <dt>Successful grades</dt>
@@ -220,8 +219,8 @@ export default function BillingPanel() {
             </dd>
           </div>
           <div>
-            <dt>Feedback tokens</dt>
-            <dd>{status.usage.outputTokens.toLocaleString()}</dd>
+            <dt>AI feedback</dt>
+            <dd>Included</dd>
           </div>
           <div>
             <dt>Free credits</dt>

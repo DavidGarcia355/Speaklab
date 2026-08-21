@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     errorMessage: "",
     ...input,
   })),
+  markAiGradingAttemptBillingRequired: vi.fn(async () => true),
   reserveAiBudget: vi.fn(async () => true),
   findValidGradingResultCache: vi.fn(async () => null),
   upsertGradingResultCache: vi.fn(async () => null),
@@ -75,6 +76,7 @@ vi.mock("@/lib/db", () => ({
   latestAiAttemptCreatedAt: mocks.latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission: mocks.listAiGradingAttemptsForSubmission,
   createAiGradingAttempt: mocks.createAiGradingAttempt,
+  markAiGradingAttemptBillingRequired: mocks.markAiGradingAttemptBillingRequired,
   applyAiGradeToSubmission: mocks.applyAiGradeToSubmission,
   reserveAiBudget: mocks.reserveAiBudget,
   findValidGradingResultCache: mocks.findValidGradingResultCache,
@@ -120,6 +122,7 @@ describe("AI grading mock route", () => {
     mocks.reserveAiBudget.mockReset();
     mocks.reserveAiBudget.mockResolvedValue(true);
     mocks.createAiGradingAttempt.mockClear();
+    mocks.markAiGradingAttemptBillingRequired.mockClear();
     mocks.applyAiGradeToSubmission.mockClear();
     mocks.latestAiAttemptCreatedAt.mockReset();
     mocks.latestAiAttemptCreatedAt.mockResolvedValue(null);
@@ -142,6 +145,9 @@ describe("AI grading mock route", () => {
     expect(body.gradeApplied).toBe(true);
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledOnce();
     expect(mocks.createAiGradingAttempt.mock.calls[0][0]).not.toHaveProperty("grade");
+    expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ billingRequired: false }),
+    );
     expect(mocks.applyAiGradeToSubmission).toHaveBeenCalledWith(
       "sub_1",
       "dev-teacher@local.test",

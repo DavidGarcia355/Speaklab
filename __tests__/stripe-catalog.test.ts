@@ -115,14 +115,14 @@ class FakeStripeCatalogClient implements StripeCatalogClient {
 }
 
 describe("Stripe teacher AI catalog", () => {
-  it("derives all three Stripe prices from the canonical launch price book", () => {
+  it("derives both customer-facing Stripe prices from the canonical launch price book", () => {
     const manifest = createStripeCatalogManifest();
     const dimensions = Object.fromEntries(manifest.dimensions.map((item) => [item.key, item]));
 
     expect(manifest).toMatchObject({
       schemaVersion: 1,
       apiVersion: "2026-07-29.dahlia",
-      priceBookId: "habla-teacher-ai-usd-v1",
+      priceBookId: "habla-teacher-ai-usd-v2",
       priceBookStatus: "active",
       currency: "usd",
       publishedAt: "2026-08-21",
@@ -131,7 +131,7 @@ describe("Stripe teacher AI catalog", () => {
     expect(manifest.fingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(dimensions.successful_grade).toMatchObject({
       meterEventName: "habla_ai_successful_grade",
-      unitAmountDecimalCents: "1",
+      unitAmountDecimalCents: "5",
       priceEnvironmentVariable: "STRIPE_AI_GRADE_PRICE_ID",
     });
     expect(dimensions.audio_second).toMatchObject({
@@ -139,11 +139,7 @@ describe("Stripe teacher AI catalog", () => {
       unitAmountDecimalCents: "0.016666666667",
       priceEnvironmentVariable: "STRIPE_AI_AUDIO_SECONDS_PRICE_ID",
     });
-    expect(dimensions.feedback_token).toMatchObject({
-      meterEventName: "habla_ai_feedback_tokens",
-      unitAmountDecimalCents: "0.0005",
-      priceEnvironmentVariable: "STRIPE_AI_FEEDBACK_TOKENS_PRICE_ID",
-    });
+    expect(manifest.dimensions).toHaveLength(2);
     expect(
       manifest.dimensions.every(
         (dimension) =>
@@ -168,15 +164,13 @@ describe("Stripe teacher AI catalog", () => {
 
     expect(client.writes).toBe(0);
     expect(result.applied).toBe(false);
-    expect(result.actions).toHaveLength(9);
+    expect(result.actions).toHaveLength(6);
     expect(result.actions.every((action) => action.action === "create")).toBe(true);
     expect(result.priceEnvironment).toEqual({
       STRIPE_AI_GRADE_PRICE_ID:
-        "<created by --apply for habla_teacher_ai_usd_v1_successful_grade_monthly>",
+        "<created by --apply for habla_teacher_ai_usd_v2_successful_grade_monthly>",
       STRIPE_AI_AUDIO_SECONDS_PRICE_ID:
-        "<created by --apply for habla_teacher_ai_usd_v1_audio_second_monthly>",
-      STRIPE_AI_FEEDBACK_TOKENS_PRICE_ID:
-        "<created by --apply for habla_teacher_ai_usd_v1_feedback_token_monthly>",
+        "<created by --apply for habla_teacher_ai_usd_v2_audio_second_monthly>",
     });
   });
 
@@ -185,16 +179,15 @@ describe("Stripe teacher AI catalog", () => {
     const created = await reconcileStripeCatalog(client, { apply: true });
 
     expect(created.actions.every((action) => action.action === "create")).toBe(true);
-    expect(client.writes).toBe(9);
+    expect(client.writes).toBe(6);
     expect(created.priceEnvironment).toEqual({
       STRIPE_AI_GRADE_PRICE_ID: "price_test_successful_grade",
       STRIPE_AI_AUDIO_SECONDS_PRICE_ID: "price_test_audio_second",
-      STRIPE_AI_FEEDBACK_TOKENS_PRICE_ID: "price_test_feedback_token",
     });
 
     const rerun = await reconcileStripeCatalog(client, { apply: true });
     expect(rerun.actions.every((action) => action.action === "unchanged")).toBe(true);
-    expect(client.writes).toBe(9);
+    expect(client.writes).toBe(6);
   });
 
   it("reconciles mutable meter and Product presentation fields", async () => {
@@ -215,7 +208,7 @@ describe("Stripe teacher AI catalog", () => {
     );
     expect(client.meters[0].displayName).toBe("Habla successful AI grades");
     expect(product.name).toBe("Habla AI successful grades");
-    expect(client.writes).toBe(11);
+    expect(client.writes).toBe(8);
   });
 
   it("fails closed on live resources, immutable drift, or identity metadata drift", async () => {

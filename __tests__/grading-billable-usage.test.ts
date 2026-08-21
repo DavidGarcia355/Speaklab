@@ -274,6 +274,7 @@ describe("grading billable usage", () => {
       audioGrader: retryGrader,
     });
     expect(retried.billableUsage).toEqual(retrySelectedUsage);
+    expect(retried.billableAudioInputTokens).toBe(100);
     expect(retried.usage).toEqual(addUsage(retryFailureUsage, retrySelectedUsage));
 
     const cheapUsage = { inputTokens: 70, cachedInputTokens: 7, outputTokens: 10 };
@@ -293,6 +294,7 @@ describe("grading billable usage", () => {
       audioGrader: escalationGrader,
     });
     expect(escalated.billableUsage).toEqual(escalationUsage);
+    expect(escalated.billableAudioInputTokens).toBe(100);
     expect(escalated.usage).toEqual(addUsage(cheapUsage, escalationUsage));
     expect(escalated.escalated).toBe(true);
   });
@@ -323,6 +325,7 @@ describe("grading billable usage", () => {
     expect(first.billableUsage).toEqual(selectedUsage);
     expect(cached.source).toBe("cache");
     expect(cached.billableUsage).toEqual(EMPTY_USAGE);
+    expect(cached.billableAudioInputTokens).toBe(0);
     expect(cached.usage).toEqual(EMPTY_USAGE);
     expect(calls).toBe(1);
   });

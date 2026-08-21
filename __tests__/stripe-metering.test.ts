@@ -57,7 +57,6 @@ const config: StripeBillingConfig = {
   priceIds: {
     aiGrade: "price_ai_grade",
     audioMinute: "price_audio_seconds",
-    feedbackTokens: "price_feedback_tokens",
   },
   automaticTaxEnabled: false,
 };
@@ -68,7 +67,6 @@ const deliveredInput = {
   attemptId: "attempt-1",
   submissionId: "submission-1",
   durationSeconds: 12.01,
-  outputTokens: 345.9,
 };
 
 function account(
@@ -99,7 +97,7 @@ function usage(overrides: Partial<AiBillingUsageRow> = {}): AiBillingUsageRow {
     freeCreditApplied: false,
     baseUnits: 1,
     durationSeconds: 13,
-    outputTokens: 345,
+    outputTokens: 0,
     baseAttemptedAt: null,
     audioAttemptedAt: null,
     outputAttemptedAt: null,
@@ -248,32 +246,27 @@ describe("Stripe AI usage metering", () => {
     moduleMocks.markFailed.mockReset();
   });
 
-  it("calculates the exact published base, audio, and output prices in micro-USD", () => {
+  it("calculates the exact published grade and audio prices in micro-USD", () => {
     expect(
-      calculateAiRetailMicrousd({ baseUnits: 1, durationSeconds: 0, outputTokens: 0 }),
+      calculateAiRetailMicrousd({ baseUnits: 1, durationSeconds: 0 }),
+    ).toBe(50_000);
+    expect(
+      calculateAiRetailMicrousd({ baseUnits: 0, durationSeconds: 60 }),
     ).toBe(10_000);
     expect(
-      calculateAiRetailMicrousd({ baseUnits: 0, durationSeconds: 60, outputTokens: 0 }),
-    ).toBe(10_000);
-    expect(
-      calculateAiRetailMicrousd({ baseUnits: 0, durationSeconds: 0, outputTokens: 1_000 }),
-    ).toBe(5_000);
-    expect(
-      calculateAiRetailMicrousd({ baseUnits: 2, durationSeconds: 90, outputTokens: 1_500 }),
-    ).toBe(42_500);
+      calculateAiRetailMicrousd({ baseUnits: 2, durationSeconds: 90 }),
+    ).toBe(115_000);
   });
 
   it("builds named whole-quantity events with stable per-dimension identifiers", () => {
     expect(STRIPE_AI_METER_EVENTS).toEqual({
       base: "habla_ai_successful_grade",
       audio: "habla_ai_audio_seconds",
-      output: "habla_ai_feedback_tokens",
     });
 
     for (const [dimension, quantity] of [
       ["base", 1],
       ["audio", 13],
-      ["output", 345],
     ] as const) {
       expect(
         buildStripeMeterEvent({
@@ -334,7 +327,7 @@ describe("Stripe AI usage metering", () => {
     expect(context.spies.createMeterEvent).not.toHaveBeenCalled();
   });
 
-  it("creates one usage row and reports all three integer dimensions for an active subscription", async () => {
+  it("creates one usage row and reports both customer billing dimensions", async () => {
     const context = statefulDependencies();
 
     const result = await recordDeliveredAiUsage(deliveredInput, {
@@ -351,10 +344,10 @@ describe("Stripe AI usage metering", () => {
       submissionId: "submission-1",
       baseUnits: 1,
       durationSeconds: 13,
-      outputTokens: 345,
+      outputTokens: 0,
     });
-    expect(context.spies.createMeterEvent).toHaveBeenCalledTimes(3);
-    expect(context.spies.claimDelivery).toHaveBeenCalledTimes(3);
+    expect(context.spies.createMeterEvent).toHaveBeenCalledTimes(2);
+    expect(context.spies.claimDelivery).toHaveBeenCalledTimes(2);
     expect(context.spies.createMeterEvent.mock.calls.map(([event]) => event)).toEqual([
       buildStripeMeterEvent({
         usage: usage(),
@@ -368,24 +361,16 @@ describe("Stripe AI usage metering", () => {
         dimension: "audio",
         quantity: 13,
       }),
-      buildStripeMeterEvent({
-        usage: usage(),
-        customerId: "cus_teacher",
-        dimension: "output",
-        quantity: 345,
-      }),
     ]);
     expect(
       context.spies.createMeterEvent.mock.calls.map(([, options]) => options.idempotencyKey),
     ).toEqual([
       `aiu-stable-id:base:${TEACHER_AI_PRICE_BOOK.id}`,
       `aiu-stable-id:audio:${TEACHER_AI_PRICE_BOOK.id}`,
-      `aiu-stable-id:output:${TEACHER_AI_PRICE_BOOK.id}`,
     ]);
     expect(context.spies.markReported.mock.calls.map(([call]) => call.dimension)).toEqual([
       "base",
       "audio",
-      "output",
     ]);
     expect(result).toMatchObject({ status: "reported", usage: { status: "reported" } });
   });
@@ -414,11 +399,8 @@ describe("Stripe AI usage metering", () => {
       dependencies: context.dependencies,
     });
 
-    expect(context.spies.createMeterEvent).toHaveBeenCalledTimes(3);
-    expect(context.spies.markReported.mock.calls.map(([call]) => call.dimension)).toEqual([
-      "base",
-      "output",
-    ]);
+    expect(context.spies.createMeterEvent).toHaveBeenCalledTimes(2);
+    expect(context.spies.markReported.mock.calls.map(([call]) => call.dimension)).toEqual(["base"]);
     expect(context.spies.markFailed).toHaveBeenCalledWith({
       usageId: "aiu-stable-id",
       dimension: "audio",
@@ -428,7 +410,6 @@ describe("Stripe AI usage metering", () => {
       status: "failed",
       baseReportedAt: TEST_NOW + 1,
       audioReportedAt: null,
-      outputReportedAt: TEST_NOW + 1,
       lastErrorDimension: "audio",
     });
   });
@@ -438,7 +419,6 @@ describe("Stripe AI usage metering", () => {
       baseReportedAt: TEST_NOW - 20,
       audioAttemptedAt: TEST_NOW - 6,
       audioReportedAt: null,
-      outputReportedAt: TEST_NOW - 10,
       status: "failed",
       lastErrorDimension: "audio",
       lastError: "previous audio failure",
@@ -460,7 +440,6 @@ describe("Stripe AI usage metering", () => {
       baseReportedAt: TEST_NOW - 20,
       audioAttemptedAt: TEST_NOW - 6,
       audioReportedAt: null,
-      outputReportedAt: TEST_NOW - 10,
       lastErrorDimension: "audio",
       lastError: "previous audio failure",
     });

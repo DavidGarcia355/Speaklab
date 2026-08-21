@@ -563,7 +563,7 @@ export default function TeacherPage() {
             aria-hidden="true"
           />
           <p>
-            <strong>Help my mom&apos;s fight against cancer.</strong>
+            <strong>Help my mom&apos;s fight against endometrial cancer.</strong>
             <span> Thank you for supporting my family.</span>
           </p>
         </div>
@@ -577,7 +577,7 @@ export default function TeacherPage() {
             target="_blank"
             rel="noreferrer"
           >
-            Help my mom&apos;s fight against cancer
+            Help my mom&apos;s fight against endometrial cancer
           </a>
         </div>
       </section>

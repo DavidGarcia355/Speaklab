@@ -22,8 +22,9 @@ import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 export const STRIPE_AI_METER_EVENTS = Object.freeze({
   base: "habla_ai_successful_grade",
   audio: "habla_ai_audio_seconds",
-  output: "habla_ai_feedback_tokens",
 } as const);
+
+type StripeBillableDimension = Exclude<AiBillingUsageDimension, "output">;
 
 type MeteringDependencies = {
   getAccount: typeof getStripeBillingAccountByTeacherEmail;
@@ -56,17 +57,15 @@ function defaultDependencies(config: StripeBillingConfig): MeteringDependencies 
 export function calculateAiRetailMicrousd(input: {
   baseUnits: number;
   durationSeconds: number;
-  outputTokens: number;
 }) {
   const amountUsd =
     input.baseUnits * TEACHER_AI_PRICE_BOOK.baseSuccessfulGradeUsd +
-    (input.durationSeconds / 60) * TEACHER_AI_PRICE_BOOK.audioMinuteUsd +
-    (input.outputTokens / 1_000) * TEACHER_AI_PRICE_BOOK.outputThousandTokensUsd;
+    (input.durationSeconds / 60) * TEACHER_AI_PRICE_BOOK.audioMinuteUsd;
   return Math.round(amountUsd * 1_000_000);
 }
 
 function pendingDimensions(usage: AiBillingUsageRow) {
-  const items: Array<{ dimension: AiBillingUsageDimension; quantity: number }> = [];
+  const items: Array<{ dimension: StripeBillableDimension; quantity: number }> = [];
   if (
     usage.baseUnits > 0 &&
     usage.baseReportedAt === null &&
@@ -81,20 +80,13 @@ function pendingDimensions(usage: AiBillingUsageRow) {
   ) {
     items.push({ dimension: "audio", quantity: usage.durationSeconds });
   }
-  if (
-    usage.outputTokens > 0 &&
-    usage.outputReportedAt === null &&
-    usage.outputAttemptedAt === null
-  ) {
-    items.push({ dimension: "output", quantity: usage.outputTokens });
-  }
   return items;
 }
 
 export function buildStripeMeterEvent(input: {
   usage: AiBillingUsageRow;
   customerId: string;
-  dimension: AiBillingUsageDimension;
+  dimension: StripeBillableDimension;
   quantity: number;
 }): Stripe.Billing.MeterEventCreateParams {
   if (!Number.isSafeInteger(input.quantity) || input.quantity <= 0) {
@@ -178,7 +170,6 @@ export type RecordDeliveredAiUsageInput = {
   attemptId: string;
   submissionId: string;
   durationSeconds: number;
-  outputTokens: number;
 };
 
 export type RecordDeliveredAiUsageResult =
@@ -216,7 +207,7 @@ export async function recordDeliveredAiUsage(
     submissionId: input.submissionId,
     baseUnits: 1,
     durationSeconds: Math.max(0, Math.ceil(input.durationSeconds)),
-    outputTokens: Math.max(0, Math.trunc(input.outputTokens)),
+    outputTokens: 0,
   });
   if (!usage) return { status: "not_subscribed", usage: null };
   if (usage.freeCreditApplied || usage.status === "credited") {
@@ -253,7 +244,6 @@ export async function flushPendingAiBillingUsage(limit = 100) {
         attemptId: attempt.attemptId,
         submissionId: attempt.submissionId,
         durationSeconds: attempt.durationSeconds,
-        outputTokens: attempt.outputTokens,
       },
       { config, dependencies },
     );

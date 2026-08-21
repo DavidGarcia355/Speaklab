@@ -11,10 +11,7 @@ import {
 
 export const STRIPE_API_VERSION = "2026-07-29.dahlia" as const;
 
-export type StripeCatalogDimensionKey =
-  | "successful_grade"
-  | "audio_second"
-  | "feedback_token";
+export type StripeCatalogDimensionKey = "successful_grade" | "audio_second";
 
 type CatalogMetadata = Readonly<Record<string, string>>;
 
@@ -22,7 +19,7 @@ export type StripeCatalogDimension = {
   key: StripeCatalogDimensionKey;
   meterDisplayName: string;
   meterEventName: string;
-  billingUnit: "grade" | "second" | "token";
+  billingUnit: "grade" | "second";
   productId: string;
   productName: string;
   productDescription: string;
@@ -141,7 +138,6 @@ export class StripeCatalogDriftError extends Error {
 
 const HUNDRED = Stripe.Decimal.from("100");
 const SIXTY = Stripe.Decimal.from("60");
-const THOUSAND = Stripe.Decimal.from("1000");
 
 function usdToCents(value: number, label: string) {
   if (!Number.isFinite(value) || value < 0) {
@@ -170,7 +166,7 @@ function catalogFingerprint(
       effectiveAt: priceBook.effectiveAt,
       baseSuccessfulGradeUsd: priceBook.baseSuccessfulGradeUsd,
       audioMinuteUsd: priceBook.audioMinuteUsd,
-      outputThousandTokensUsd: priceBook.outputThousandTokensUsd,
+      feedbackIncluded: priceBook.feedbackIncluded,
       freeCreditPolicy: priceBook.freeCreditPolicy,
     },
     dimensions: dimensions.map((dimension) => ({
@@ -203,11 +199,6 @@ export function createStripeCatalogManifest(
     12,
     "half-up",
   );
-  const feedbackTokenCents = usdToCents(
-    priceBook.outputThousandTokensUsd,
-    "outputThousandTokensUsd",
-  ).div(THOUSAND, 12, "half-up");
-
   const dimensionsWithoutMetadata: readonly Omit<StripeCatalogDimension, "metadata">[] = [
     {
       key: "successful_grade",
@@ -237,21 +228,6 @@ export function createStripeCatalogManifest(
       priceNickname: `${priceBook.id}: audio second`,
       priceEnvironmentVariable: "STRIPE_AI_AUDIO_SECONDS_PRICE_ID",
       unitAmountDecimalCents: audioSecondCents.toString(),
-    },
-    {
-      key: "feedback_token",
-      meterDisplayName: "Habla AI feedback tokens",
-      meterEventName: "habla_ai_feedback_tokens",
-      billingUnit: "token",
-      productId: `${token}_feedback_token`,
-      productName: "Habla AI feedback tokens",
-      productDescription:
-        "Final feedback output tokens for Habla AI grading, published per 1,000 tokens.",
-      productUnitLabel: "token",
-      priceLookupKey: `${token}_feedback_token_monthly`,
-      priceNickname: `${priceBook.id}: feedback token`,
-      priceEnvironmentVariable: "STRIPE_AI_FEEDBACK_TOKENS_PRICE_ID",
-      unitAmountDecimalCents: feedbackTokenCents.toString(),
     },
   ];
 

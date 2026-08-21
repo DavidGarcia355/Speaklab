@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
   return {
     applyAiGradeToSubmission: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
     createAiGradingAttempt: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+    markAiGradingAttemptBillingRequired: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     hasAudioTooLongFailure: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     fetchAuthorizedAudioBuffer: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
     toPublicAiError: vi.fn<(...args: unknown[]) => unknown>(),
@@ -36,6 +37,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({
   applyAiGradeToSubmission: mocks.applyAiGradeToSubmission,
   createAiGradingAttempt: mocks.createAiGradingAttempt,
+  markAiGradingAttemptBillingRequired: mocks.markAiGradingAttemptBillingRequired,
   hasAudioTooLongFailure: mocks.hasAudioTooLongFailure,
 }));
 vi.mock("@/lib/billing", () => ({
@@ -190,6 +192,7 @@ function directResult(result = providerResult()): DirectAudioPipelineResult {
     provider: "google",
     model: "gemini-audio",
     billableUsage: { inputTokens: 100, cachedInputTokens: 0, outputTokens: 25 },
+    billableAudioInputTokens: 960,
     usage: { inputTokens: 100, cachedInputTokens: 0, outputTokens: 25 },
     audioInputTokens: 80,
     estimatedCostMicrousd: 20,
@@ -280,6 +283,7 @@ describe("automatic AI grade persistence", () => {
       costKnown: true,
     });
     mocks.applyAiGradeToSubmission.mockResolvedValue({ id: "submission-1" });
+    mocks.markAiGradingAttemptBillingRequired.mockResolvedValue(true);
     mocks.recordDeliveredAiUsageSafely.mockResolvedValue({ status: "disabled", usage: null });
     mocks.createAiGradingAttempt.mockImplementation(async (input) => ({
       id: "attempt-1",
@@ -337,13 +341,20 @@ describe("automatic AI grade persistence", () => {
     expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
     expectAppliedWholePointGrade();
     expect(mocks.transcribeAudio).not.toHaveBeenCalled();
+    expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ billingRequired: false, durationSeconds: 30 }),
+    );
+    expect(mocks.markAiGradingAttemptBillingRequired).toHaveBeenCalledWith({
+      attemptId: "attempt-1",
+      ownerEmail: "teacher@example.com",
+      priceBookId: "habla-teacher-ai-usd-v2",
+    });
     expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith({
       teacherEmail: "teacher@example.com",
       cacheKey: "direct-cache-key",
       attemptId: "attempt-1",
       submissionId: "submission-1",
       durationSeconds: 30,
-      outputTokens: 25,
     });
   });
 
@@ -367,8 +378,75 @@ describe("automatic AI grade persistence", () => {
     expect(mocks.transcribeAudio).toHaveBeenCalledOnce();
     expect(mocks.runGradingPipeline).toHaveBeenCalledOnce();
     expectAppliedWholePointGrade();
+    expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ billingRequired: false }),
+    );
+    expect(mocks.markAiGradingAttemptBillingRequired).toHaveBeenCalledWith({
+      attemptId: "attempt-1",
+      ownerEmail: "teacher@example.com",
+      priceBookId: "habla-teacher-ai-usd-v2",
+    });
     expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith(
-      expect.objectContaining({ cacheKey: "text-cache-key", outputTokens: 20 }),
+      expect.objectContaining({ cacheKey: "text-cache-key" }),
+    );
+  });
+
+  it("bills direct audio from final-call AUDIO tokens instead of model-reported duration", async () => {
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "gemini_direct",
+      model: gradingConfig.audioModel,
+      upload: "inline",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.runDirectAudioGradingPipeline.mockResolvedValue({
+      ...directResult(),
+      durationSeconds: 200,
+      billableAudioInputTokens: 320,
+    });
+
+    const outcome = await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission(),
+    });
+
+    expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
+    expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ billingRequired: false, durationSeconds: 10 }),
+    );
+    expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith(
+      expect.objectContaining({ durationSeconds: 10 }),
+    );
+  });
+
+  it("bills only the base result when final-call AUDIO usage metadata is missing", async () => {
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "gemini_direct",
+      model: gradingConfig.audioModel,
+      upload: "inline",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.runDirectAudioGradingPipeline.mockResolvedValue({
+      ...directResult(),
+      durationSeconds: 200,
+      billableAudioInputTokens: 0,
+    });
+
+    const outcome = await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission(),
+    });
+
+    expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
+    expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ billingRequired: false, durationSeconds: 0 }),
+    );
+    expect(mocks.markAiGradingAttemptBillingRequired).toHaveBeenCalledOnce();
+    expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith(
+      expect.objectContaining({ durationSeconds: 0 }),
     );
   });
 
@@ -563,6 +641,33 @@ describe("automatic AI grade persistence", () => {
 
     expect(outcome).toMatchObject({ status: "completed", gradeApplied: false });
     expect(mocks.applyAiGradeToSubmission).not.toHaveBeenCalled();
-    expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledOnce();
+    expect(mocks.markAiGradingAttemptBillingRequired).not.toHaveBeenCalled();
+    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+  });
+
+  it("does not bill when a teacher grade wins the atomic apply race", async () => {
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "gemini_direct",
+      model: gradingConfig.audioModel,
+      upload: "inline",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.runDirectAudioGradingPipeline.mockResolvedValue(directResult());
+    mocks.applyAiGradeToSubmission.mockResolvedValue(null);
+
+    const outcome = await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission(),
+    });
+
+    expect(outcome).toMatchObject({ status: "completed", gradeApplied: false });
+    expect(mocks.applyAiGradeToSubmission).toHaveBeenCalledOnce();
+    expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ billingRequired: false }),
+    );
+    expect(mocks.markAiGradingAttemptBillingRequired).not.toHaveBeenCalled();
+    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
   });
 });

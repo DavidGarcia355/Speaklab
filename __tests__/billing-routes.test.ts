@@ -73,7 +73,6 @@ const config = {
   priceIds: {
     aiGrade: "price_ai_grade",
     audioMinute: "price_audio_minute",
-    feedbackTokens: "price_feedback_tokens",
   },
   automaticTaxEnabled: false,
 };
@@ -101,7 +100,7 @@ const account = {
   stripeCustomerId: "cus_teacher",
   stripeSubscriptionId: "sub_teacher",
   subscriptionStatus: "active",
-  priceBookId: "habla-teacher-ai-usd-v1",
+  priceBookId: "habla-teacher-ai-usd-v2",
   stripeEventCreated: 100,
   createdAt: 1_000,
   updatedAt: 1_000,
@@ -185,7 +184,7 @@ describe("billing status route", () => {
       checkoutUnavailableReason: null,
       mode: "test",
       priceBook: {
-        id: "habla-teacher-ai-usd-v1",
+        id: "habla-teacher-ai-usd-v2",
         effectiveAt: "2026-08-21",
       },
       access: "active",
@@ -194,11 +193,10 @@ describe("billing status route", () => {
       usage: {
         successfulGrades: 5,
         audioSeconds: 120,
-        outputTokens: 1_000,
         qualifyingClasses: 3,
         monthlyFreeCredits: 2,
         freeCreditsUsed: 1,
-        estimatedChargeUsd: 0.065,
+        estimatedChargeUsd: 0.22,
       },
     });
   });
@@ -266,12 +264,11 @@ describe("billing Checkout and Portal routes", () => {
       cancel_url: "https://tryhabla.com/billing?checkout=cancelled",
       metadata: {
         teacher_email: "teacher@example.com",
-        price_book_id: "habla-teacher-ai-usd-v1",
+        price_book_id: "habla-teacher-ai-usd-v2",
       },
       line_items: [
         { price: "price_ai_grade" },
         { price: "price_audio_minute" },
-        { price: "price_feedback_tokens" },
       ],
     });
     expect(params.line_items.every((item: object) => !("quantity" in item))).toBe(true);
@@ -352,7 +349,7 @@ describe("Stripe webhook route", () => {
           client_reference_id: "teacher@example.com",
           metadata: {
             teacher_email: "teacher@example.com",
-            price_book_id: "habla-teacher-ai-usd-v1",
+            price_book_id: "habla-teacher-ai-usd-v2",
           },
         },
       },
@@ -361,12 +358,11 @@ describe("Stripe webhook route", () => {
       id: "sub_teacher",
       customer: "cus_teacher",
       status: "active",
-      metadata: { price_book_id: "habla-teacher-ai-usd-v1" },
+      metadata: { price_book_id: "habla-teacher-ai-usd-v2" },
       items: {
         data: [
           { price: { id: "price_ai_grade" } },
           { price: { id: "price_audio_minute" } },
-          { price: { id: "price_feedback_tokens" } },
         ],
       },
     });
@@ -388,7 +384,7 @@ describe("Stripe webhook route", () => {
         stripeCustomerId: "cus_teacher",
         stripeSubscriptionId: "sub_teacher",
         subscriptionStatus: "active",
-        priceBookId: "habla-teacher-ai-usd-v1",
+        priceBookId: "habla-teacher-ai-usd-v2",
         stripeEventCreated: 700,
       }),
     );
@@ -429,12 +425,11 @@ describe("Stripe webhook route", () => {
       id: "sub_unknown",
       customer: "cus_unknown",
       status: "active",
-      metadata: { price_book_id: "habla-teacher-ai-usd-v1" },
+      metadata: { price_book_id: "habla-teacher-ai-usd-v2" },
       items: {
         data: [
           { price: { id: "price_ai_grade" } },
           { price: { id: "price_audio_minute" } },
-          { price: { id: "price_feedback_tokens" } },
         ],
       },
     };
@@ -472,12 +467,11 @@ describe("Stripe webhook route", () => {
       id: "sub_teacher",
       customer: "cus_teacher",
       status: "canceled",
-      metadata: { price_book_id: "habla-teacher-ai-usd-v1" },
+      metadata: { price_book_id: "habla-teacher-ai-usd-v2" },
       items: {
         data: [
           { price: { id: "price_ai_grade" } },
           { price: { id: "price_audio_minute" } },
-          { price: { id: "price_feedback_tokens" } },
         ],
       },
     });

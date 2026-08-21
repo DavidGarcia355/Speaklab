@@ -73,7 +73,6 @@ export function buildCheckoutSessionParams(
     line_items: [
       { price: input.config.priceIds.aiGrade },
       { price: input.config.priceIds.audioMinute },
-      { price: input.config.priceIds.feedbackTokens },
     ],
     metadata,
     subscription_data: { metadata },

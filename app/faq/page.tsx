@@ -144,7 +144,7 @@ const FAQ_SECTIONS = [
       {
         question: "How does optional AI pricing work?",
         answer:
-          "AI usage combines a successful grade, processed audio duration, and the final feedback output. Each UTC month includes one fewer free AI grade than the number of qualifying active classes. A qualifying class has a rostered student and a real assignment. Failed requests, compatible cache hits, internal retries, and model escalation are not charged as additional teacher uses. Sign in to the AI billing page to check self-serve availability.",
+          "AI pricing is 5 cents per successful grade plus 1 cent per audio minute, with feedback included. Each UTC month includes one fewer free AI grade than the number of qualifying active classes. A qualifying class has a rostered student and a real assignment. Failed attempts and duplicate delivery of the same result are not charged again. Sign in to the AI billing page to check self-serve availability.",
       },
       {
         question: "Does AI save the grade automatically?",

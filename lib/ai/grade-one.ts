@@ -4,6 +4,7 @@ import {
   applyAiGradeToSubmission,
   createAiGradingAttempt,
   hasAudioTooLongFailure,
+  markAiGradingAttemptBillingRequired,
   type AiGradingAttemptRow,
   type SubmissionForAiGradeRow,
 } from "@/lib/db";
@@ -24,6 +25,8 @@ import { routeAudioGrading } from "@/lib/grading/routing";
 import { createDatabaseGradingStore } from "@/lib/grading/store";
 import { recordDeliveredAiUsageSafely } from "@/lib/billing";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
+
+const GEMINI_AUDIO_TOKENS_PER_SECOND = 32;
 
 export type GradeOneOutcome =
   | {
@@ -150,6 +153,24 @@ async function applyCompletedAiGrade(input: {
   }
 }
 
+function geminiAudioDurationSeconds(audioInputTokens: number) {
+  if (!Number.isSafeInteger(audioInputTokens) || audioInputTokens <= 0) return 0;
+  return audioInputTokens / GEMINI_AUDIO_TOKENS_PER_SECOND;
+}
+
+async function markAttemptBillableAfterApply(attemptId: string, teacherEmail: string) {
+  try {
+    return await markAiGradingAttemptBillingRequired({
+      attemptId,
+      ownerEmail: teacherEmail,
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+    });
+  } catch (error) {
+    console.error("AI grade was applied but its billing marker could not be saved", error);
+    return false;
+  }
+}
+
 /**
  * Produces one auditable AI result and applies its whole-number score to an
  * ungraded submission. Teachers can still review and edit the saved grade.
@@ -215,14 +236,21 @@ export async function gradeOneSubmission(input: {
           routingReasons: audioRoute.reasons,
           store,
         });
+        const providerMeasuredDurationSeconds = geminiAudioDurationSeconds(
+          direct.billableAudioInputTokens,
+        );
+        const durationForLimit =
+          providerMeasuredDurationSeconds > 0
+            ? providerMeasuredDurationSeconds
+            : direct.durationSeconds;
         const transcript: CachedTranscript = {
           kind: "transcript-v1",
           transcript: direct.transcript,
           detectedLanguage: direct.detectedLanguage,
           quality: direct.transcriptQuality,
-          durationSeconds: direct.durationSeconds,
+          durationSeconds: durationForLimit,
         };
-        if (direct.durationSeconds > config.maxAudioSeconds) {
+        if (durationForLimit > config.maxAudioSeconds) {
           await saveTooLongAttempt({
             data,
             teacherEmail,
@@ -247,6 +275,9 @@ export async function gradeOneSubmission(input: {
           suggestion.suggestedScore !== null &&
           suggestion.teacherAttention !== "unable_to_grade" &&
           Boolean(direct.cacheKey);
+        const attemptDurationSeconds = billingRequired
+          ? providerMeasuredDurationSeconds
+          : durationForLimit;
         const attempt = await createAiGradingAttempt({
           submissionId,
           teacherEmail,
@@ -254,7 +285,7 @@ export async function gradeOneSubmission(input: {
           transcript: direct.transcript,
           detectedLanguage: direct.detectedLanguage,
           transcriptQuality: direct.transcriptQuality,
-          durationSeconds: direct.durationSeconds,
+          durationSeconds: attemptDurationSeconds,
           ...suggestion,
           transcriptionProvider: direct.provider,
           gradingProvider: direct.provider,
@@ -272,22 +303,22 @@ export async function gradeOneSubmission(input: {
           estimatedCostMicrousd: direct.estimatedCostMicrousd,
           promptVersion: gradingConfig.promptVersion,
           resultSource: direct.source,
-          billingRequired,
+          billingRequired: false,
           billingPriceBookId: TEACHER_AI_PRICE_BOOK.id,
-          billableOutputTokens: direct.billableUsage.outputTokens,
+          billableOutputTokens: 0,
         });
         const gradeApplied = await applyCompletedAiGrade({ data, teacherEmail, suggestion });
-        if (
-          billingRequired &&
-          direct.cacheKey
-        ) {
+        const billingMarked =
+          billingRequired && gradeApplied && direct.cacheKey
+            ? await markAttemptBillableAfterApply(attempt.id, teacherEmail)
+            : false;
+        if (billingMarked) {
           await recordDeliveredAiUsageSafely({
             teacherEmail,
             cacheKey: direct.cacheKey,
             attemptId: attempt.id,
             submissionId,
-            durationSeconds: direct.durationSeconds,
-            outputTokens: direct.billableUsage.outputTokens,
+            durationSeconds: providerMeasuredDurationSeconds,
           });
         }
         return {
@@ -441,22 +472,22 @@ export async function gradeOneSubmission(input: {
       estimatedCostMicrousd: transcriptionCostMicrousd + pipeline.estimatedCostMicrousd,
       promptVersion: pipeline.promptVersion,
       resultSource: pipeline.source,
-      billingRequired,
+      billingRequired: false,
       billingPriceBookId: TEACHER_AI_PRICE_BOOK.id,
-      billableOutputTokens: pipeline.billableUsage.outputTokens,
+      billableOutputTokens: 0,
     });
     const gradeApplied = await applyCompletedAiGrade({ data, teacherEmail, suggestion });
-    if (
-      billingRequired &&
-      pipeline.cacheKey
-    ) {
+    const billingMarked =
+      billingRequired && gradeApplied && pipeline.cacheKey
+        ? await markAttemptBillableAfterApply(attempt.id, teacherEmail)
+        : false;
+    if (billingMarked) {
       await recordDeliveredAiUsageSafely({
         teacherEmail,
         cacheKey: pipeline.cacheKey,
         attemptId: attempt.id,
         submissionId,
         durationSeconds: transcript.durationSeconds,
-        outputTokens: pipeline.billableUsage.outputTokens,
       });
     }
 

@@ -19,7 +19,6 @@ const TEST_ENV: StripeBillingEnv = {
   STRIPE_WEBHOOK_SECRET: "whsec_habla",
   STRIPE_AI_GRADE_PRICE_ID: "price_ai_grade",
   STRIPE_AI_AUDIO_SECONDS_PRICE_ID: "price_audio_minute",
-  STRIPE_AI_FEEDBACK_TOKENS_PRICE_ID: "price_feedback_tokens",
 };
 
 describe("Stripe billing runtime", () => {
@@ -44,7 +43,6 @@ describe("Stripe billing runtime", () => {
         expect.stringContaining("STRIPE_WEBHOOK_SECRET"),
         expect.stringContaining("STRIPE_AI_GRADE_PRICE_ID"),
         expect.stringContaining("STRIPE_AI_AUDIO_SECONDS_PRICE_ID"),
-        expect.stringContaining("STRIPE_AI_FEEDBACK_TOKENS_PRICE_ID"),
       ]),
     );
     expect(() => requireStripeBillingConfig({})).toThrow(StripeBillingConfigurationError);
@@ -74,12 +72,12 @@ describe("Stripe billing runtime", () => {
     ).toMatchObject({ available: true, keyMode: "live" });
   });
 
-  it("builds three quantity-free metered Checkout items with server metadata", () => {
+  it("builds two quantity-free metered Checkout items with server metadata", () => {
     const config = requireStripeBillingConfig(TEST_ENV);
     const params = buildCheckoutSessionParams({
       config,
       teacherEmail: " Teacher@Example.COM ",
-      priceBookId: "habla-teacher-ai-usd-v1",
+      priceBookId: "habla-teacher-ai-usd-v2",
       successUrl: "https://tryhabla.com/teacher?checkout=success",
       cancelUrl: "https://tryhabla.com/pricing?checkout=cancelled",
     });
@@ -89,13 +87,12 @@ describe("Stripe billing runtime", () => {
     expect(params.line_items).toEqual([
       { price: "price_ai_grade" },
       { price: "price_audio_minute" },
-      { price: "price_feedback_tokens" },
     ]);
     expect(params.line_items?.every((item) => !("quantity" in item))).toBe(true);
     expect(params.customer_email).toBe("teacher@example.com");
     expect(params.customer).toBeUndefined();
     expect(params.metadata).toEqual({
-      price_book_id: "habla-teacher-ai-usd-v1",
+      price_book_id: "habla-teacher-ai-usd-v2",
       teacher_email: "teacher@example.com",
     });
     expect(params.subscription_data?.metadata).toEqual(params.metadata);
@@ -110,7 +107,7 @@ describe("Stripe billing runtime", () => {
     const checkout = buildCheckoutSessionParams({
       config,
       teacherEmail: "teacher@example.com",
-      priceBookId: "habla-teacher-ai-usd-v1",
+      priceBookId: "habla-teacher-ai-usd-v2",
       successUrl: "https://tryhabla.com/teacher?checkout=success",
       cancelUrl: "https://tryhabla.com/pricing",
       customerId: "cus_existing",
