@@ -68,11 +68,27 @@ function defaultModelFor(provider: GradingProviderName, escalation: boolean) {
   if (provider === "google") return "gemini-2.5-flash-lite";
   if (provider === "openrouter") {
     return escalation
-      ? process.env.OPENROUTER_ESCALATION_MODEL?.trim() || "openai/gpt-5-mini"
-      : process.env.OPENROUTER_DEFAULT_MODEL?.trim() || "openai/gpt-5-nano";
+      ? process.env.OPENROUTER_ESCALATION_MODEL?.trim() || "openai/gpt-5.4"
+      : process.env.OPENROUTER_DEFAULT_MODEL?.trim() || "openai/gpt-5.4-mini";
   }
   if (provider === "ollama") return process.env.OLLAMA_MODEL?.trim() || "llama3.2";
-  return escalation ? "gpt-5-mini" : "gpt-5-nano";
+  return escalation ? "gpt-5.4" : "gpt-5.4-mini";
+}
+
+function launchReliableModel(
+  provider: GradingProviderName,
+  configuredModel: string,
+  escalation: boolean,
+  isDev: boolean
+) {
+  if (isDev) return configuredModel;
+  const normalized = configuredModel.trim().toLowerCase().replace(/^openai\//, "");
+  const staleLaunchModels = new Set(["gpt-4o-mini", "gpt-5-nano", "gpt-5-mini"]);
+  if ((provider === "openai" || provider === "openrouter") && staleLaunchModels.has(normalized)) {
+    const replacement = escalation ? "gpt-5.4" : "gpt-5.4-mini";
+    return provider === "openrouter" ? `openai/${replacement}` : replacement;
+  }
+  return configuredModel;
 }
 
 /**
@@ -90,22 +106,24 @@ export function getGradingConfig(): GradingConfig {
     "GRADING_ESCALATION_PROVIDER",
     defaultProvider === "mock" || defaultProvider === "ollama" ? defaultProvider : "openai"
   );
+  const configuredDefaultModel =
+    process.env.GRADING_DEFAULT_MODEL?.trim() ||
+    process.env.AI_GRADING_MODEL?.trim() ||
+    defaultModelFor(defaultProvider, false);
+  const configuredEscalationModel =
+    process.env.GRADING_ESCALATION_MODEL?.trim() ||
+    defaultModelFor(escalationProvider, true);
 
   return {
     enabled: process.env.AI_GRADING_ENABLED === "true",
     isDev,
     defaultModel: {
       provider: defaultProvider,
-      model:
-        process.env.GRADING_DEFAULT_MODEL?.trim() ||
-        process.env.AI_GRADING_MODEL?.trim() ||
-        defaultModelFor(defaultProvider, false),
+      model: launchReliableModel(defaultProvider, configuredDefaultModel, false, isDev),
     },
     escalationModel: {
       provider: escalationProvider,
-      model:
-        process.env.GRADING_ESCALATION_MODEL?.trim() ||
-        defaultModelFor(escalationProvider, true),
+      model: launchReliableModel(escalationProvider, configuredEscalationModel, true, isDev),
     },
     confidenceThreshold: numberFromEnv("GRADING_CONFIDENCE_THRESHOLD", 0.85, {
       min: 0,
@@ -124,8 +142,8 @@ export function getGradingConfig(): GradingConfig {
     }),
     maxOutputTokens: integerFromEnv(
       "GRADING_MAX_OUTPUT_TOKENS",
-      integerFromEnv("AI_GRADING_MAX_OUTPUT_TOKENS", 1_200, { min: 800, max: 4_000 }),
-      { min: 800, max: 4_000 }
+      integerFromEnv("AI_GRADING_MAX_OUTPUT_TOKENS", 2_400, { min: 1_600, max: 8_000 }),
+      { min: 1_600, max: 8_000 }
     ),
     formattingRetries: integerFromEnv("GRADING_FORMAT_RETRIES", 1, { min: 0, max: 1 }),
     providerTimeoutMs: integerFromEnv(

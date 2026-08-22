@@ -115,6 +115,7 @@ class OpenAiGradingProvider implements GradingProvider {
         model: gateway(modelId),
         system: SYSTEM_PROMPT,
         prompt,
+        reasoning: modelId.includes("gpt-5.4") ? "none" : "minimal",
         output: Output.object({
           schema: gradingResultSchema,
           name: "grading_result",
@@ -152,8 +153,10 @@ class OpenAiGradingProvider implements GradingProvider {
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: prompt },
       ],
-      ...(request.model.model.startsWith("gpt-5")
-        ? { reasoning_effort: "minimal" as const }
+      ...(request.model.model.startsWith("gpt-5.4")
+        ? { reasoning_effort: "none" as const }
+        : request.model.model.startsWith("gpt-5")
+          ? { reasoning_effort: "minimal" as const }
         : {}),
     });
     const message = response.choices[0]?.message;

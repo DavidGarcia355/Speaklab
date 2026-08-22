@@ -621,7 +621,10 @@ export async function runGradingPipeline(
     ];
     escalationReason = [...new Set(reasons)].join(",");
     let allowed = true;
-    if (store && input.teacherEmail) {
+    // Provider failures are reliability incidents, not optional quality sampling.
+    // Always try the configured fallback; usage and cost ceilings are still
+    // enforced by assertProviderCallAllowed before the call is made.
+    if (first.ok && store && input.teacherEmail) {
       allowed = (await store.canEscalate?.({
         teacherEmail: input.teacherEmail,
         config,

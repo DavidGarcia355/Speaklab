@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertAiProviderConfig,
   getAiConfig,
@@ -20,6 +20,8 @@ const KEYS = [
   "AI_GATEWAY_API_KEY",
   "AI_GATEWAY_ENABLED",
   "VERCEL_OIDC_TOKEN",
+  "AI_TRANSCRIPTION_PROVIDER",
+  "AI_TRANSCRIPTION_MODEL",
 ] as const;
 
 const original = Object.fromEntries(KEYS.map((key) => [key, process.env[key]]));
@@ -33,6 +35,7 @@ afterEach(() => {
   }
   if (typeof originalVercel === "undefined") delete process.env.VERCEL;
   else process.env.VERCEL = originalVercel;
+  vi.unstubAllEnvs();
 });
 
 describe("AI launch configuration", () => {
@@ -58,6 +61,14 @@ describe("AI launch configuration", () => {
     expect(config.accessMode).toBe("all");
     expect(isAiTeacherDenied("BLOCKED@example.com", config)).toBe(true);
     expect(isAiTeacherDenied("allowed@example.com", config)).toBe(false);
+  });
+
+  it("upgrades the stale mini transcription model in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.AI_TRANSCRIPTION_PROVIDER = "openai";
+    process.env.AI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
+
+    expect(getAiConfig().transcriptionModel).toBe("gpt-4o-transcribe");
   });
 
   it("fails closed when production student-data approval has not been recorded", () => {

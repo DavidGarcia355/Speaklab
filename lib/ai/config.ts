@@ -76,6 +76,19 @@ export function getAiConfig(): AiConfig {
     "openai",
     "ollama",
   ] as const);
+  const configuredTranscriptionModel =
+    process.env.AI_TRANSCRIPTION_MODEL?.trim() ||
+    (transcriptionProvider === "mock"
+      ? "mock-transcriber"
+      : isDev
+        ? "whisper-1"
+        : "gpt-4o-transcribe");
+  const transcriptionModel =
+    !isDev &&
+    transcriptionProvider === "openai" &&
+    configuredTranscriptionModel.replace(/^openai\//, "") === "gpt-4o-mini-transcribe"
+      ? "gpt-4o-transcribe"
+      : configuredTranscriptionModel;
 
   return {
     enabled: process.env.AI_GRADING_ENABLED === "true",
@@ -83,9 +96,7 @@ export function getAiConfig(): AiConfig {
     isDev,
     transcriptionProvider,
     gradingProvider,
-    transcriptionModel:
-      process.env.AI_TRANSCRIPTION_MODEL?.trim() ||
-      (transcriptionProvider === "mock" ? "mock-transcriber" : "whisper-1"),
+    transcriptionModel,
     gradingModel:
       process.env.AI_GRADING_MODEL?.trim() ||
       (gradingProvider === "mock"

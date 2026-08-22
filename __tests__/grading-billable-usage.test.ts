@@ -220,6 +220,39 @@ describe("grading billable usage", () => {
     expect(outcome.escalated).toBe(true);
   });
 
+  it("always reaches the reliability fallback when the primary provider fails", async () => {
+    const failedUsage = { inputTokens: 30, cachedInputTokens: 0, outputTokens: 0 };
+    const escalationUsage = { inputTokens: 40, cachedInputTokens: 4, outputTokens: 7 };
+    const providers = new Map<string, GradingProvider>([
+      ["mock", queuedProvider("mock", [response("invalid", failedUsage)])],
+      ["openai", queuedProvider("openai", [response(result(), escalationUsage)])],
+    ]);
+    const store: GradingPipelineStore = {
+      async findCached() {
+        return null;
+      },
+      async saveCached() {},
+      async recordRequest() {},
+      async assertProviderCallAllowed() {},
+      async canEscalate() {
+        throw new Error("Reliability fallback must not be blocked by sampling.");
+      },
+    };
+
+    const outcome = await runGradingPipeline(gradingInput, {
+      config: { ...testConfig(), formattingRetries: 0 },
+      providers,
+      store,
+      forceAi: true,
+    });
+
+    expect(outcome.failureCode).toBeUndefined();
+    expect(outcome.source).toBe("escalation");
+    expect(outcome.escalated).toBe(true);
+    expect(outcome.result.score).toBe(8);
+    expect(outcome.billableUsage).toEqual(escalationUsage);
+  });
+
   it("returns empty billable usage for cache, deterministic, and terminal failure results", async () => {
     const selectedUsage = { inputTokens: 25, cachedInputTokens: 0, outputTokens: 6 };
     const store = memoryStore();

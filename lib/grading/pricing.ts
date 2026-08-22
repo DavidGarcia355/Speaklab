@@ -39,6 +39,16 @@ export const BUILT_IN_MODEL_PRICING: Readonly<ModelPricingTable> = Object.freeze
     cachedInputUsdPerMillionTokens: 0.025,
     outputUsdPerMillionTokens: 2,
   },
+  "openai/gpt-5.4-mini": {
+    inputUsdPerMillionTokens: 0.75,
+    cachedInputUsdPerMillionTokens: 0.075,
+    outputUsdPerMillionTokens: 4.5,
+  },
+  "openai/gpt-5.4": {
+    inputUsdPerMillionTokens: 2.5,
+    cachedInputUsdPerMillionTokens: 0.25,
+    outputUsdPerMillionTokens: 15,
+  },
   "google/gemini-2.5-flash-lite": {
     inputUsdPerMillionTokens: 0.1,
     cachedInputUsdPerMillionTokens: 0.01,

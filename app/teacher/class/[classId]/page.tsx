@@ -1556,7 +1556,9 @@ export default function ClassDetailPage() {
                                 {aiSuggestion.evidence.length > 0 ? <p className="meta">Evidence: {aiSuggestion.evidence.join("; ")}</p> : null}
                               </details>
                               <div className="actions" style={{ marginTop: "0.5rem" }}>
-                                {!aiSuggestion.gradeApplied ? (
+                                {!aiSuggestion.gradeApplied &&
+                                aiSuggestion.suggestedScore !== null &&
+                                aiSuggestion.teacherAttention !== "unable_to_grade" ? (
                                   <button type="button" className="btn btn-ghost" onClick={() => applyAiSuggestion(submission.id, aiSuggestion)}>
                                     Use this grade
                                   </button>
