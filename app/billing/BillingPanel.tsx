@@ -27,6 +27,14 @@ type BillingStatus = {
 
 type ActionResponse = { url?: string; error?: string };
 
+export function canStartStripeCheckout(subscriptionStatus: string | null) {
+  return (
+    !subscriptionStatus ||
+    subscriptionStatus === "canceled" ||
+    subscriptionStatus === "incomplete_expired"
+  );
+}
+
 const usd = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -113,10 +121,7 @@ export default function BillingPanel() {
 
   const subscribed = status.access === "active" || status.access === "trialing";
   const hasPortal = subscribed || Boolean(status.subscriptionStatus);
-  const canCheckout =
-    !status.subscriptionStatus ||
-    status.subscriptionStatus === "canceled" ||
-    status.subscriptionStatus === "incomplete_expired";
+  const canCheckout = canStartStripeCheckout(status.subscriptionStatus);
 
   return (
     <section className="billing-panel" aria-labelledby="billing-status-heading">
@@ -169,7 +174,11 @@ export default function BillingPanel() {
               disabled={!status.checkoutAvailable || Boolean(action)}
               onClick={() => void openStripe("checkout")}
             >
-              {action === "checkout" ? "Opening checkout…" : "Activate AI billing"}
+              {action === "checkout"
+                ? "Opening checkout…"
+                : status.access === "pilot"
+                  ? "Activate Stripe billing"
+                  : "Activate AI billing"}
               <ArrowRight size={17} aria-hidden="true" />
             </button>
           ) : null}
