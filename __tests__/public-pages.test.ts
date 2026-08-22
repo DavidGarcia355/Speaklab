@@ -123,14 +123,17 @@ describe("about page", () => {
     expect(markup).toContain("Hi, I&#x27;m David.");
     expect(markup).toContain("college student who built Habla for my mom");
     expect(markup).toContain("My mom is fighting recurrent endometrial cancer.");
-    expect(markup).toContain("without power or air conditioning");
+    expect(markup).toContain("historic storm struck Northwest Indiana");
+    expect(markup).not.toContain("our home");
+    expect(markup).not.toContain("air conditioning");
     expect(markup).toContain("Help my mom&#x27;s fight against endometrial cancer");
     expect(markup).toContain('data-awareness-ribbon="peach"');
     expect(markup).toContain("https://paypal.me/DavidGarcia355");
     expect(homeMarkup).toContain("href=\"/about\"");
     expect(homeMarkup).toContain("About me");
     expect(homeMarkup).toContain("Built for my mom. Supporting her fight now.");
-    expect(homeMarkup).toContain("Portage, Indiana home without power or air conditioning");
+    expect(homeMarkup).not.toContain("our home");
+    expect(homeMarkup).not.toContain("air conditioning");
   });
 });
 
