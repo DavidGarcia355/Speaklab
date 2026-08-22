@@ -137,6 +137,13 @@ export function toPublicAiError(error: unknown): PublicAiError {
   const status = metadata.status;
   const providerCode = metadata.code ?? "";
 
+  if (name === "AI_NoTranscriptGeneratedError") {
+    return {
+      code: "no_speech_detected",
+      message: "No clear speech was detected. Record a longer response and try again.",
+    };
+  }
+
   if (name.includes("Timeout") || name === "AbortError" || status === 408) {
     return { code: "provider_timeout", message: "AI grading timed out. Please try again." };
   }

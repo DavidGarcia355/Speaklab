@@ -18,6 +18,13 @@ describe("AI provider error messages", () => {
     });
   });
 
+  it("explains when a recording contains no transcribable speech", () => {
+    expect(toPublicAiError({ name: "AI_NoTranscriptGeneratedError" })).toEqual({
+      code: "no_speech_detected",
+      message: "No clear speech was detected. Record a longer response and try again.",
+    });
+  });
+
   it("never returns an unknown raw provider message", () => {
     const secretDetail = "upstream body with internal-token-123";
     const result = toPublicAiError(new Error(secretDetail));

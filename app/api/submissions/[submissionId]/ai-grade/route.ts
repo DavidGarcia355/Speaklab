@@ -168,7 +168,7 @@ export async function POST(
           attempt: attempts[0] ? publicAttempt(attempts[0]) : null,
           error: outcome.message,
         },
-        { status: 502 }
+        { status: outcome.code === "no_speech_detected" ? 422 : 502 }
       );
     }
     return NextResponse.json({

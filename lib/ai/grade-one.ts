@@ -38,7 +38,7 @@ export type GradeOneOutcome =
       gradeApplied: boolean;
     }
   | { status: "skipped"; reason: "audio_too_long" | "no_audio" }
-  | { status: "failed"; message: string };
+  | { status: "failed"; code: string; message: string };
 
 type CachedTranscript = {
   kind: "transcript-v1";
@@ -524,6 +524,6 @@ export async function gradeOneSubmission(input: {
       promptVersion: gradingConfig.promptVersion,
       resultSource: "failed",
     });
-    return { status: "failed", message: publicError.message };
+    return { status: "failed", code: publicError.code, message: publicError.message };
   }
 }
