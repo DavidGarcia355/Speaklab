@@ -122,6 +122,10 @@ export type TeacherFunnelRow = {
   submissionCount: number;
   latestActivityAt: number | null;
   isPaid: boolean;
+  aiGradingCount: number;
+  aiGradingFailedCount: number;
+  latestAiGradingAt: number | null;
+  estimatedAiCostMicrousd: number;
 };
 
 export type TrackingSummaryRow = {
@@ -252,6 +256,13 @@ export type GradingUsageAggregate = {
   latencyMs: number;
   retries: number;
   escalations: number;
+  estimatedCostMicrousd: number;
+};
+
+export type PlatformAiGradingSummary = {
+  successfulGrades: number;
+  failedGrades: number;
+  providerRequests: number;
   estimatedCostMicrousd: number;
 };
 
@@ -1828,7 +1839,11 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
       COALESCE(assignment_counts.assignmentCount, 0) as assignmentCount,
       COALESCE(submission_counts.submissionCount, 0) as submissionCount,
       activity.latestActivityAt as latestActivityAt,
-      u.is_paid as isPaid
+      u.is_paid as isPaid,
+      COALESCE(ai_attempt_counts.aiGradingCount, 0) as aiGradingCount,
+      COALESCE(ai_attempt_counts.aiGradingFailedCount, 0) as aiGradingFailedCount,
+      ai_attempt_counts.latestAiGradingAt as latestAiGradingAt,
+      COALESCE(ai_cost_counts.estimatedAiCostMicrousd, 0) as estimatedAiCostMicrousd
     FROM users u
     LEFT JOIN (
       SELECT LOWER(owner_email) as email, COUNT(*) as classCount
@@ -1859,6 +1874,22 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
       FROM activity_events
       GROUP BY LOWER(email)
     ) activity ON activity.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT
+        LOWER(teacher_email) as email,
+        COUNT(*) as aiGradingCount,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as aiGradingFailedCount,
+        MAX(created_at) as latestAiGradingAt
+      FROM ai_grading_attempts
+      GROUP BY LOWER(teacher_email)
+    ) ai_attempt_counts ON ai_attempt_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT
+        LOWER(teacher_email) as email,
+        SUM(estimated_cost_microusd) as estimatedAiCostMicrousd
+      FROM grading_provider_requests
+      GROUP BY LOWER(teacher_email)
+    ) ai_cost_counts ON ai_cost_counts.email = LOWER(u.email)
     WHERE u.role = 'teacher'
     ORDER BY joinedAt DESC`
   );
@@ -1871,6 +1902,11 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
     submissionCount: toNumber(row.submissionCount),
     latestActivityAt: row.latestActivityAt === null ? null : toNumber(row.latestActivityAt),
     isPaid: toNumber(row.isPaid) === 1,
+    aiGradingCount: toNumber(row.aiGradingCount),
+    aiGradingFailedCount: toNumber(row.aiGradingFailedCount),
+    latestAiGradingAt:
+      row.latestAiGradingAt === null ? null : toNumber(row.latestAiGradingAt),
+    estimatedAiCostMicrousd: toNumber(row.estimatedAiCostMicrousd),
   }));
 }
 
@@ -1886,7 +1922,11 @@ export async function findTeacherFunnelRowByEmail(
       COALESCE(assignment_counts.assignmentCount, 0) as assignmentCount,
       COALESCE(submission_counts.submissionCount, 0) as submissionCount,
       activity.latestActivityAt as latestActivityAt,
-      u.is_paid as isPaid
+      u.is_paid as isPaid,
+      COALESCE(ai_attempt_counts.aiGradingCount, 0) as aiGradingCount,
+      COALESCE(ai_attempt_counts.aiGradingFailedCount, 0) as aiGradingFailedCount,
+      ai_attempt_counts.latestAiGradingAt as latestAiGradingAt,
+      COALESCE(ai_cost_counts.estimatedAiCostMicrousd, 0) as estimatedAiCostMicrousd
     FROM users u
     LEFT JOIN (
       SELECT LOWER(owner_email) as email, COUNT(*) as classCount
@@ -1917,6 +1957,22 @@ export async function findTeacherFunnelRowByEmail(
       FROM activity_events
       GROUP BY LOWER(email)
     ) activity ON activity.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT
+        LOWER(teacher_email) as email,
+        COUNT(*) as aiGradingCount,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as aiGradingFailedCount,
+        MAX(created_at) as latestAiGradingAt
+      FROM ai_grading_attempts
+      GROUP BY LOWER(teacher_email)
+    ) ai_attempt_counts ON ai_attempt_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT
+        LOWER(teacher_email) as email,
+        SUM(estimated_cost_microusd) as estimatedAiCostMicrousd
+      FROM grading_provider_requests
+      GROUP BY LOWER(teacher_email)
+    ) ai_cost_counts ON ai_cost_counts.email = LOWER(u.email)
     WHERE u.role = 'teacher'
       AND LOWER(u.email) = LOWER(?)
     LIMIT 1`,
@@ -1933,6 +1989,11 @@ export async function findTeacherFunnelRowByEmail(
     submissionCount: toNumber(row.submissionCount),
     latestActivityAt: row.latestActivityAt === null ? null : toNumber(row.latestActivityAt),
     isPaid: toNumber(row.isPaid) === 1,
+    aiGradingCount: toNumber(row.aiGradingCount),
+    aiGradingFailedCount: toNumber(row.aiGradingFailedCount),
+    latestAiGradingAt:
+      row.latestAiGradingAt === null ? null : toNumber(row.latestAiGradingAt),
+    estimatedAiCostMicrousd: toNumber(row.estimatedAiCostMicrousd),
   };
 }
 
@@ -3656,6 +3717,43 @@ export async function getTeacherGradingUsageSince(
   since: number
 ): Promise<GradingUsageAggregate> {
   return getTeacherGradingUsageBetween(teacherEmail, since, null);
+}
+
+export async function getPlatformAiGradingSummarySince(
+  since: number
+): Promise<PlatformAiGradingSummary> {
+  const safeSince = Math.max(0, Math.floor(since));
+  const result = await query(
+    `SELECT
+      (
+        SELECT COUNT(*)
+        FROM ai_grading_attempts
+        WHERE status = 'completed' AND created_at >= ?
+      ) as successfulGrades,
+      (
+        SELECT COUNT(*)
+        FROM ai_grading_attempts
+        WHERE status = 'failed' AND created_at >= ?
+      ) as failedGrades,
+      (
+        SELECT COUNT(*)
+        FROM grading_provider_requests
+        WHERE created_at >= ?
+      ) as providerRequests,
+      (
+        SELECT COALESCE(SUM(estimated_cost_microusd), 0)
+        FROM grading_provider_requests
+        WHERE created_at >= ?
+      ) as estimatedCostMicrousd`,
+    [safeSince, safeSince, safeSince, safeSince]
+  );
+  const row = result.rows[0];
+  return {
+    successfulGrades: toNumber(row?.successfulGrades),
+    failedGrades: toNumber(row?.failedGrades),
+    providerRequests: toNumber(row?.providerRequests),
+    estimatedCostMicrousd: toNumber(row?.estimatedCostMicrousd),
+  };
 }
 
 export async function getTeacherGradingUsageForUtcMonth(
