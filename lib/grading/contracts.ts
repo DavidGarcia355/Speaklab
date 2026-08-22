@@ -119,6 +119,7 @@ export type GradingAssignment = {
   type: string;
   question: string;
   instructions: string;
+  targetLanguage?: string;
   maximumScore: number;
   version: string;
   rubric: GradingRubric | null;

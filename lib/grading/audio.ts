@@ -95,6 +95,7 @@ function audioPrompt(assignment: GradingAssignment, promptVersion: string) {
     `Assignment type: ${assignment.type}`,
     `Question: ${assignment.question || "(not supplied)"}`,
     `Instructions: ${assignment.instructions || "(not supplied)"}`,
+    `Target language: ${assignment.targetLanguage || "Spanish"}`,
     `Maximum score: ${assignment.maximumScore}`,
     `Assignment version: ${assignment.version}`,
     `Rubric version: ${assignment.rubric?.version || "none"}`,

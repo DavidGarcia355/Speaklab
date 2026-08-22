@@ -109,6 +109,8 @@ export const assignmentCreateSchema = z.object({
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true).default(""),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
+  targetLanguage: cleanTextSchema("Assignment language", 1, 80).default("Spanish"),
+  setAsDefaultLanguage: z.boolean().optional().default(false),
   maxPoints: z
     .number()
     .int("Points possible must be a whole number.")
@@ -156,6 +158,8 @@ export const assignmentUpdateSchema = z.object({
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
+  targetLanguage: cleanTextSchema("Assignment language", 1, 80).optional(),
+  setAsDefaultLanguage: z.boolean().optional().default(false),
   maxPoints: z
     .number()
     .int("Points possible must be a whole number.")

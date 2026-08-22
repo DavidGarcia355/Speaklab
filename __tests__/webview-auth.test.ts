@@ -92,7 +92,7 @@ describe("next auth sign-in guard", () => {
       },
     });
 
-    const response = await GET(request, { params: { nextauth: ["signin"] } });
+    const response = await GET(request, { params: Promise.resolve({ nextauth: ["signin"] }) });
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(
@@ -111,7 +111,9 @@ describe("next auth sign-in guard", () => {
       },
     });
 
-    const response = await GET(request, { params: { nextauth: ["signin", "google"] } });
+    const response = await GET(request, {
+      params: Promise.resolve({ nextauth: ["signin", "google"] }),
+    });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
@@ -129,7 +131,7 @@ describe("next auth sign-in guard", () => {
       },
     });
 
-    const response = await GET(request, { params: { nextauth: ["signin"] } });
+    const response = await GET(request, { params: Promise.resolve({ nextauth: ["signin"] }) });
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("http://10.10.10.3:3000/teacher");

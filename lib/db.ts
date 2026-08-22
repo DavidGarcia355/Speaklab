@@ -25,6 +25,7 @@ export type AssignmentRow = {
   title: string;
   description: string;
   instructions: string;
+  targetLanguage: string;
   maxPoints: number;
   maxSubmissions: number;
   maxRecordingSeconds: number;
@@ -450,6 +451,7 @@ async function ensureInitialized() {
           title TEXT NOT NULL,
           description TEXT NOT NULL DEFAULT '',
           instructions TEXT NOT NULL DEFAULT '',
+          target_language TEXT NOT NULL DEFAULT 'Spanish',
           created_at INTEGER NOT NULL,
           deleted_at INTEGER,
           FOREIGN KEY(class_id) REFERENCES classes(id) ON DELETE CASCADE
@@ -480,6 +482,7 @@ async function ensureInitialized() {
         `CREATE TABLE IF NOT EXISTS users (
           email TEXT PRIMARY KEY,
           role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('teacher', 'student')),
+          default_language TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL
         )`,
         `CREATE TABLE IF NOT EXISTS activity_events (
@@ -690,12 +693,14 @@ async function ensureInitialized() {
       await ensureColumn("assignments", "attachment_content_type", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "max_submissions", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("assignments", "max_recording_seconds", "INTEGER NOT NULL DEFAULT 180");
+      await ensureColumn("assignments", "target_language", "TEXT NOT NULL DEFAULT 'Spanish'");
       await ensureColumn("submissions", "student_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
       await ensureColumn("submissions", "rubric_scores", "TEXT");
       await ensureColumn("submissions", "grade_source", "TEXT NOT NULL DEFAULT 'teacher'");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
       await ensureColumn("users", "is_paid", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("users", "default_language", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("ai_grading_attempts", "cache_key", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("ai_grading_attempts", "cache_hit", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("ai_grading_attempts", "input_tokens", "INTEGER NOT NULL DEFAULT 0");
@@ -998,6 +1003,7 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
       a.title as title,
       a.description as description,
       a.instructions as instructions,
+      COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as targetLanguage,
       COALESCE(a.max_points, 100) as maxPoints,
       COALESCE(a.max_submissions, 0) as maxSubmissions,
       COALESCE(a.max_recording_seconds, 180) as maxRecordingSeconds,
@@ -1024,6 +1030,7 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
     title: toStringValue(row.title),
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
+    targetLanguage: toStringValue(row.targetLanguage) || "Spanish",
     maxPoints: toNumber(row.maxPoints),
     maxSubmissions: toNumber(row.maxSubmissions),
     maxRecordingSeconds: toNumber(row.maxRecordingSeconds),
@@ -1043,6 +1050,7 @@ export async function createAssignment(input: {
   title: string;
   description: string;
   instructions: string;
+  targetLanguage?: string;
   maxPoints: number;
   maxSubmissions: number;
   maxRecordingSeconds: number;
@@ -1059,6 +1067,7 @@ export async function createAssignment(input: {
     title: input.title,
     description: input.description,
     instructions: input.instructions,
+    targetLanguage: input.targetLanguage?.trim() || "Spanish",
     maxPoints: input.maxPoints,
     maxSubmissions: input.maxSubmissions,
     maxRecordingSeconds: input.maxRecordingSeconds,
@@ -1070,9 +1079,9 @@ export async function createAssignment(input: {
   };
   await query(
     `INSERT INTO assignments (
-      id, class_id, title, description, instructions, max_points, max_submissions, max_recording_seconds, rubric, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at
+      id, class_id, title, description, instructions, target_language, max_points, max_submissions, max_recording_seconds, rubric, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
     WHERE EXISTS (
       SELECT 1 FROM classes c
       WHERE c.id = ?
@@ -1085,6 +1094,7 @@ export async function createAssignment(input: {
       item.title,
       item.description,
       item.instructions,
+      item.targetLanguage,
       item.maxPoints,
       item.maxSubmissions,
       item.maxRecordingSeconds,
@@ -1110,6 +1120,7 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
       a.title as title,
       a.description as description,
       a.instructions as instructions,
+      COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as targetLanguage,
       COALESCE(a.max_points, 100) as maxPoints,
       COALESCE(a.max_submissions, 0) as maxSubmissions,
       COALESCE(a.max_recording_seconds, 180) as maxRecordingSeconds,
@@ -1137,6 +1148,7 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
     title: toStringValue(row.title),
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
+    targetLanguage: toStringValue(row.targetLanguage) || "Spanish",
     maxPoints: toNumber(row.maxPoints),
     maxSubmissions: toNumber(row.maxSubmissions),
     maxRecordingSeconds: toNumber(row.maxRecordingSeconds),
@@ -1155,6 +1167,7 @@ export async function updateAssignment(
     title: string;
     description: string;
     instructions: string;
+    targetLanguage?: string;
     maxPoints: number;
     maxSubmissions: number;
     maxRecordingSeconds: number;
@@ -1171,7 +1184,7 @@ export async function updateAssignment(
 
   const result = await query(
     `UPDATE assignments
-    SET title = ?, description = ?, instructions = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
+    SET title = ?, description = ?, instructions = ?, target_language = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
     WHERE id = ?
       AND deleted_at IS NULL
       AND id IN (
@@ -1186,6 +1199,7 @@ export async function updateAssignment(
       input.title,
       input.description,
       input.instructions,
+      input.targetLanguage?.trim() || current.targetLanguage,
       input.maxPoints,
       input.maxSubmissions,
       input.maxRecordingSeconds,
@@ -2018,6 +2032,30 @@ export async function setUserRoleTeacher(email: string): Promise<void> {
   );
 }
 
+export async function getUserDefaultLanguage(email: string): Promise<string | null> {
+  const normalized = email.trim().toLowerCase();
+  const result = await query(
+    `SELECT default_language as defaultLanguage
+    FROM users
+    WHERE LOWER(email) = LOWER(?)
+    LIMIT 1`,
+    [normalized]
+  );
+  const language = toStringValue(result.rows[0]?.defaultLanguage).trim();
+  return language || null;
+}
+
+export async function setUserDefaultLanguage(email: string, language: string): Promise<boolean> {
+  const normalized = email.trim().toLowerCase();
+  const cleanLanguage = language.trim();
+  if (!cleanLanguage) return false;
+  const result = await query(
+    `UPDATE users SET default_language = ? WHERE LOWER(email) = LOWER(?)`,
+    [cleanLanguage, normalized]
+  );
+  return result.rowsAffected > 0;
+}
+
 export async function getUserIsPaid(email: string): Promise<boolean> {
   const normalized = email.trim().toLowerCase();
   const result = await query(
@@ -2816,6 +2854,7 @@ export type SubmissionForAiGradeRow = {
   audioBlobUrl: string;
   description: string;
   instructions: string;
+  targetLanguage?: string;
   rubric: Rubric | null;
   maxPoints: number;
   finalGrade: number | null;
@@ -2840,6 +2879,7 @@ export async function listUngradedSubmissionsForAiGrade(
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl,
       COALESCE(a.description, '') as description,
       a.instructions as instructions,
+      COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as targetLanguage,
       a.rubric as rubric,
       a.max_points as maxPoints,
       s.grade as finalGrade,
@@ -2865,6 +2905,7 @@ export async function listUngradedSubmissionsForAiGrade(
     audioBlobUrl: toStringValue(row.audioBlobUrl),
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
+    targetLanguage: toStringValue(row.targetLanguage) || "Spanish",
     rubric: parseJsonValue<Rubric>(row.rubric),
     maxPoints: toNumber(row.maxPoints),
     finalGrade: toNullableNumber(row.finalGrade),
@@ -2884,6 +2925,7 @@ export async function findSubmissionForAiGrade(
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl,
       COALESCE(a.description, '') as description,
       a.instructions as instructions,
+      COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as targetLanguage,
       a.rubric as rubric,
       a.max_points as maxPoints,
       s.grade as finalGrade,
@@ -2908,6 +2950,7 @@ export async function findSubmissionForAiGrade(
     audioBlobUrl: toStringValue(row.audioBlobUrl),
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
+    targetLanguage: toStringValue(row.targetLanguage) || "Spanish",
     rubric: parseJsonValue<Rubric>(row.rubric),
     maxPoints: toNumber(row.maxPoints),
     finalGrade: toNullableNumber(row.finalGrade),

@@ -3,6 +3,7 @@ import { requireTeacherEmail } from "@/lib/authz";
 import {
   deleteClassCascade,
   findClassById,
+  getUserDefaultLanguage,
   listAssignmentsByClassId,
   listSubmissionsByClassId,
   updateClassName,
@@ -24,14 +25,18 @@ export async function GET(
       return NextResponse.json({ error: "Class not found." }, { status: 404 });
     }
 
-    const assignments = await listAssignmentsByClassId(classId, teacherEmail);
-    const submissions = await listSubmissionsByClassId(classId, teacherEmail);
+    const [assignments, submissions, teacherDefaultLanguage] = await Promise.all([
+      listAssignmentsByClassId(classId, teacherEmail),
+      listSubmissionsByClassId(classId, teacherEmail),
+      getUserDefaultLanguage(teacherEmail),
+    ]);
     const submissionCount = assignments.reduce((sum, item) => sum + item.submissionCount, 0);
 
     return NextResponse.json({
       item: found,
       assignments,
       submissions,
+      teacherDefaultLanguage,
       stats: {
         assignmentCount: assignments.length,
         submissionCount,

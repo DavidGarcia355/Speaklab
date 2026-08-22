@@ -4882,6 +4882,43 @@ html.dark .teacher-class-section .class-link-neutral {
 
 .home-cause-band {
   margin-top: 0.35rem;
+  position: relative;
+}
+
+.home-cause-dismiss {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(23, 34, 56, 0.35);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  z-index: 1;
+}
+
+.home-cause-dismiss:hover,
+.home-cause-dismiss:focus-visible {
+  background: rgba(245, 173, 150, 0.3);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--ink);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--blue);
 }
 
 .home-cause-actions {

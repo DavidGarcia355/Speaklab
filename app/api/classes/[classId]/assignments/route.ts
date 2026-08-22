@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { buildTeacherEventMetadata, trackActivity } from "@/lib/activity";
 import { requireTeacherEmail } from "@/lib/authz";
 import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
-import { createAssignment, findClassById } from "@/lib/db";
+import { createAssignment, findClassById, setUserDefaultLanguage } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 import {
   assignmentCreateSchema,
@@ -61,6 +61,7 @@ export async function POST(
         title,
         description,
         instructions,
+        targetLanguage: body.targetLanguage,
         maxPoints,
         maxSubmissions: body.maxSubmissions ?? 0,
         maxRecordingSeconds: body.maxRecordingSeconds ?? 180,
@@ -74,6 +75,13 @@ export async function POST(
         throw new HttpError(409, error.message);
       }
       throw error;
+    }
+    if (body.setAsDefaultLanguage) {
+      try {
+        await setUserDefaultLanguage(teacherEmail, body.targetLanguage);
+      } catch (error) {
+        console.warn("Failed to save teacher default language", error);
+      }
     }
     let isFirstAssignment = false;
     try {

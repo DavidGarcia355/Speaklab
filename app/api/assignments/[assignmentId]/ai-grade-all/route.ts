@@ -32,7 +32,7 @@ async function remainingQuota(teacherEmail: string, dailyTeacherLimit: number, d
 /** How many ungraded submissions there are and whether a run would fit. */
 export async function GET(
   request: Request,
-  context: { params: Promise<{ assignmentId: string }> | { assignmentId: string } }
+  context: { params: Promise<{ assignmentId: string }> }
 ) {
   return withApiHandler(request, async () => {
     const config = getAiConfig();
@@ -55,7 +55,7 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  context: { params: Promise<{ assignmentId: string }> | { assignmentId: string } }
+  context: { params: Promise<{ assignmentId: string }> }
 ) {
   return withApiHandler(request, async () => {
     const config = getAiConfig();

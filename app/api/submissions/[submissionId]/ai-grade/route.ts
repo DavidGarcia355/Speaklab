@@ -88,7 +88,7 @@ async function assertAttemptLimits(input: {
 
 export async function GET(
   request: Request,
-  context: { params: Promise<{ submissionId: string }> | { submissionId: string } }
+  context: { params: Promise<{ submissionId: string }> }
 ) {
   return withApiHandler(request, async () => {
     const config = getAiConfig();
@@ -102,7 +102,7 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  context: { params: Promise<{ submissionId: string }> | { submissionId: string } }
+  context: { params: Promise<{ submissionId: string }> }
 ) {
   return withApiHandler(request, async () => {
     const config = getAiConfig();

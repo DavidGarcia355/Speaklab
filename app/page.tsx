@@ -3,17 +3,16 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
-  ArrowUpRight,
   BrainCircuit,
   Building2,
   GraduationCap,
   Mic2,
-  Ribbon,
   ShieldCheck,
   Sparkles,
   UsersRound,
 } from "lucide-react";
 import ExternalBrowserNotice from "@/app/components/ExternalBrowserNotice";
+import DismissibleCauseBand from "@/app/components/DismissibleCauseBand";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
 import ThemeToggle from "@/app/components/ThemeToggle";
@@ -94,36 +93,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="pricing-cause-band home-cause-band" aria-labelledby="home-cause-heading">
-        <div className="pricing-cause-icon" aria-hidden="true">
-          <Ribbon className="cancer-ribbon-icon" data-awareness-ribbon="peach" size={34} />
-        </div>
-        <div>
-          <p className="pill pill-subtle">Why Habla matters to me</p>
-          <h2 id="home-cause-heading">Built for my mom. Supporting her fight.</h2>
-          <p>
-            My mom is a Spanish teacher fighting recurrent endometrial cancer. She is the reason
-            Habla exists. I built it to make her classroom easier, and now I&apos;m building it into
-            something that can help me support her as much as possible. The core stays free, and all
-            proceeds from optional AI go toward her fight.
-          </p>
-        </div>
-        <div className="actions home-cause-actions">
-          <Link className="btn btn-primary" href="/about">
-            Read our story
-            <ArrowRight size={17} aria-hidden="true" />
-          </Link>
-          <a
-            className="btn btn-ghost"
-            href="https://paypal.me/DavidGarcia355"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Support my mom
-            <ArrowUpRight size={17} aria-hidden="true" />
-          </a>
-        </div>
-      </section>
+      <DismissibleCauseBand />
 
       <section className="home-audience-grid" aria-label="Choose your Habla role">
         {audienceCards.map((card) => {

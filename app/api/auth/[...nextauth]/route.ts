@@ -60,7 +60,7 @@ function redirectToExternalBrowser(request: Request) {
 }
 
 type AuthContext = {
-  params: Promise<{ nextauth: string[] }> | { nextauth: string[] };
+  params: Promise<{ nextauth: string[] }>;
 };
 
 export async function GET(request: Request, context: AuthContext) {

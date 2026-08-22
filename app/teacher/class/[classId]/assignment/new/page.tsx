@@ -13,7 +13,26 @@ type ClassLookup = {
     name: string;
     createdAt: number;
   };
+  teacherDefaultLanguage: string | null;
 };
+
+const LANGUAGE_OPTIONS = [
+  "Spanish",
+  "English",
+  "French",
+  "German",
+  "Italian",
+  "Portuguese",
+  "Mandarin Chinese",
+  "Cantonese",
+  "Japanese",
+  "Korean",
+  "Arabic",
+  "Hindi",
+  "Russian",
+  "Ukrainian",
+  "Vietnamese",
+];
 
 type AttachmentDraft = {
   fileName: string;
@@ -57,6 +76,8 @@ export default function NewAssignmentPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [targetLanguage, setTargetLanguage] = useState("Spanish");
+  const [setAsDefaultLanguage, setSetAsDefaultLanguage] = useState(true);
   const [maxPoints, setMaxPoints] = useState("100");
   const [rubricEnabled, setRubricEnabled] = useState(false);
   const [rubricTitle, setRubricTitle] = useState("");
@@ -85,6 +106,9 @@ export default function NewAssignmentPage() {
         }
         const data = (await response.json()) as ClassLookup;
         setClassData(data);
+        const savedLanguage = data.teacherDefaultLanguage?.trim();
+        setTargetLanguage(savedLanguage || "Spanish");
+        setSetAsDefaultLanguage(!savedLanguage);
         setErrorMsg("");
       } catch (error) {
         const message = error instanceof Error ? error.message : "Class not found.";
@@ -134,6 +158,11 @@ export default function NewAssignmentPage() {
     }
     if (!instructions.trim()) {
       setErrorMsg("Instructions are required so students know exactly what to do.");
+      return;
+    }
+    const cleanTargetLanguage = targetLanguage.trim();
+    if (!cleanTargetLanguage) {
+      setErrorMsg("Choose the language students should use.");
       return;
     }
     const parsedMaxPoints = Number(maxPoints);
@@ -192,6 +221,8 @@ export default function NewAssignmentPage() {
           title: cleanTitle,
           description,
           instructions,
+          targetLanguage: cleanTargetLanguage,
+          setAsDefaultLanguage,
           maxPoints: rubricEnabled ? rubricTotal : parsedMaxPoints,
           maxSubmissions: parsedMaxSubmissions,
           maxRecordingSeconds: parsedMaxRecordingSeconds,
@@ -298,6 +329,46 @@ export default function NewAssignmentPage() {
             maxLength={500}
           />
           <p className="meta field-meta">{instructions.length}/500</p>
+
+          <label className="label form-label-top" htmlFor="assignment-language">
+            Student response language
+          </label>
+          <input
+            id="assignment-language"
+            className="input"
+            list="assignment-language-options"
+            value={targetLanguage}
+            onChange={(event) => {
+              setTargetLanguage(event.target.value);
+              setSetAsDefaultLanguage(!classData.teacherDefaultLanguage);
+            }}
+            placeholder="Spanish"
+            maxLength={80}
+          />
+          <datalist id="assignment-language-options">
+            {LANGUAGE_OPTIONS.map((language) => (
+              <option key={language} value={language} />
+            ))}
+          </datalist>
+          <p className="meta field-meta">
+            AI grading will evaluate the response in this language.
+          </p>
+          {classData.teacherDefaultLanguage &&
+          targetLanguage.trim().toLocaleLowerCase() !==
+            classData.teacherDefaultLanguage.trim().toLocaleLowerCase() ? (
+            <label className="checkbox-row form-label-top">
+              <input
+                type="checkbox"
+                checked={setAsDefaultLanguage}
+                onChange={(event) => setSetAsDefaultLanguage(event.target.checked)}
+              />
+              Make {targetLanguage.trim() || "this language"} my default for future assignments
+            </label>
+          ) : !classData.teacherDefaultLanguage ? (
+            <p className="notice info">
+              {targetLanguage.trim() || "This language"} will become your default for future assignments.
+            </p>
+          ) : null}
 
           <label className="label form-label-top" htmlFor="assignment-max-points">
             {rubricEnabled ? "Points (from rubric)" : "Points possible"}
@@ -420,6 +491,7 @@ export default function NewAssignmentPage() {
                 saving ||
                 title.trim().length === 0 ||
                 instructions.trim().length === 0 ||
+                targetLanguage.trim().length === 0 ||
                 (!rubricEnabled && maxPoints.trim().length === 0)
               }
             >

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireTeacherEmail } from "@/lib/authz";
 import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
-import { deleteAssignmentCascade, findAssignmentById, updateAssignment } from "@/lib/db";
+import {
+  deleteAssignmentCascade,
+  findAssignmentById,
+  setUserDefaultLanguage,
+  updateAssignment,
+} from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 import {
   assignmentUpdateSchema,
@@ -72,6 +77,7 @@ export async function PATCH(
         title,
         description,
         instructions,
+        targetLanguage: body.targetLanguage ?? found.targetLanguage,
         maxPoints,
         maxSubmissions: body.maxSubmissions ?? found.maxSubmissions,
         maxRecordingSeconds: body.maxRecordingSeconds ?? found.maxRecordingSeconds,
@@ -88,6 +94,13 @@ export async function PATCH(
     }
     if (!updated) {
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
+    }
+    if (body.setAsDefaultLanguage && body.targetLanguage) {
+      try {
+        await setUserDefaultLanguage(teacherEmail, body.targetLanguage);
+      } catch (error) {
+        console.warn("Failed to save teacher default language", error);
+      }
     }
     return NextResponse.json({ item: updated });
   });
