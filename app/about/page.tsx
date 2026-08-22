@@ -43,16 +43,17 @@ export default function AboutPage() {
             size={28}
             aria-hidden="true"
           />
-          <h2 className="surface-title">My mom is fighting recurrent endometrial cancer.</h2>
+          <h2 className="surface-title">My mom is why Habla exists.</h2>
           <p className="meta">
-            On August 11, 2026, a historic storm struck Northwest Indiana with winds reported up to
-            99 mph. Portage declared a state of emergency, and widespread damage and prolonged power
-            outages affected the region.
+            She is a Spanish teacher fighting recurrent endometrial cancer. I originally built Habla
+            to solve a real problem in her classroom. Today, every part of this company is tied to
+            the same goal: build something genuinely useful for teachers and use its success to
+            support her as much as I can.
           </p>
           <p className="meta">
-            This is my why: Habla should genuinely help teachers, and if it succeeds, it can help me
-            care for the teacher who inspired it. The core classroom remains free. All proceeds from
-            optional AI go toward my mom&apos;s fight.
+            The core classroom remains free. All proceeds from optional AI go toward my mom&apos;s fight.
+            If Habla helps your classroom, using its AI tools or supporting her directly helps me
+            keep building while standing beside her.
           </p>
           <div className="actions">
             <a
