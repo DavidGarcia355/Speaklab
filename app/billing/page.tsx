@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft, AudioLines, ShieldCheck } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
+import AutoCheckout from "@/app/billing/AutoCheckout";
 import BillingPanel from "@/app/billing/BillingPanel";
 
 export const metadata: Metadata = {
@@ -12,6 +13,7 @@ export const metadata: Metadata = {
 export default function BillingPage() {
   return (
     <main className="page-wrap billing-page">
+      <AutoCheckout />
       <BrandBar label="AI billing" />
 
       <section className="billing-hero">
