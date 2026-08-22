@@ -295,7 +295,7 @@ export default async function AdminPage() {
               Open PayPal
             </a>
           </div>
-          <div className="callout callout-warning">
+          <div className="notice warning">
             <strong>Manual tonight.</strong> PayPal transactions are not connected to this dashboard,
             so revenue is intentionally not shown. Stripe automation is the next billing update.
           </div>
