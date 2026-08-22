@@ -3,10 +3,12 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
+  ArrowUpRight,
   BrainCircuit,
   Building2,
   GraduationCap,
   Mic2,
+  Ribbon,
   ShieldCheck,
   Sparkles,
   UsersRound,
@@ -89,6 +91,37 @@ export default function Home() {
             height={516}
             priority
           />
+        </div>
+      </section>
+
+      <section className="pricing-cause-band home-cause-band" aria-labelledby="home-cause-heading">
+        <div className="pricing-cause-icon" aria-hidden="true">
+          <Ribbon className="cancer-ribbon-icon" data-awareness-ribbon="peach" size={34} />
+        </div>
+        <div>
+          <p className="pill pill-subtle">Why Habla matters to me</p>
+          <h2 id="home-cause-heading">Built for my mom. Supporting her fight now.</h2>
+          <p>
+            My mom is a Spanish teacher fighting recurrent endometrial cancer. After the August
+            storms left our Portage, Indiana home without power or air conditioning, that purpose
+            became even more urgent. Habla&apos;s core stays free, and all proceeds from optional AI
+            help support her care and our family.
+          </p>
+        </div>
+        <div className="actions home-cause-actions">
+          <Link className="btn btn-primary" href="/about">
+            Read our story
+            <ArrowRight size={17} aria-hidden="true" />
+          </Link>
+          <a
+            className="btn btn-ghost"
+            href="https://paypal.me/DavidGarcia355"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Support my mom
+            <ArrowUpRight size={17} aria-hidden="true" />
+          </a>
         </div>
       </section>
 

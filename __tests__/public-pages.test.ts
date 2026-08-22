@@ -121,13 +121,16 @@ describe("about page", () => {
     const homeMarkup = renderToStaticMarkup(await HomePage());
 
     expect(markup).toContain("Hi, I&#x27;m David.");
-    expect(markup).toContain("college student building Habla");
-    expect(markup).toContain("My mom is fighting endometrial cancer.");
+    expect(markup).toContain("college student who built Habla for my mom");
+    expect(markup).toContain("My mom is fighting recurrent endometrial cancer.");
+    expect(markup).toContain("without power or air conditioning");
     expect(markup).toContain("Help my mom&#x27;s fight against endometrial cancer");
     expect(markup).toContain('data-awareness-ribbon="peach"');
     expect(markup).toContain("https://paypal.me/DavidGarcia355");
     expect(homeMarkup).toContain("href=\"/about\"");
     expect(homeMarkup).toContain("About me");
+    expect(homeMarkup).toContain("Built for my mom. Supporting her fight now.");
+    expect(homeMarkup).toContain("Portage, Indiana home without power or air conditioning");
   });
 });
 

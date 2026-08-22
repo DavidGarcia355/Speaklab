@@ -5,7 +5,7 @@ import BrandBar from "@/app/components/BrandBar";
 
 export const metadata: Metadata = {
   title: "About David - Habla",
-  description: "Meet David, the college student building and maintaining Habla.",
+  description: "Why David built Habla for his mom, a Spanish teacher fighting recurrent endometrial cancer.",
 };
 
 export default function AboutPage() {
@@ -20,8 +20,8 @@ export default function AboutPage() {
         </p>
         <h1>Hi, I&apos;m David.</h1>
         <p>
-          I&apos;m a college student building Habla to make speaking assignments simpler for teachers
-          and give every student more chances to use their voice.
+          I&apos;m a college student who built Habla for my mom, a Spanish teacher who needed a simple
+          way to run speaking assignments. Now I&apos;m building it for teachers everywhere—and for her.
         </p>
       </section>
 
@@ -30,8 +30,9 @@ export default function AboutPage() {
           <p className="pill pill-subtle">Why I built it</p>
           <h2 className="surface-title">A small project with a human purpose.</h2>
           <p className="meta">
-            I build and maintain Habla myself. Its core audio classroom will stay free because useful
-            speaking practice should be accessible without adding another burden for teachers.
+            Habla started as a practical answer to a problem my mom faced in her own classroom. I
+            build and maintain it myself, and its core audio classroom will stay free because useful
+            speaking practice should not become another burden for teachers.
           </p>
         </article>
 
@@ -42,10 +43,16 @@ export default function AboutPage() {
             size={28}
             aria-hidden="true"
           />
-          <h2 className="surface-title">My mom is fighting endometrial cancer.</h2>
+          <h2 className="surface-title">My mom is fighting recurrent endometrial cancer.</h2>
           <p className="meta">
-            While I keep Habla running, my family is standing beside her. If Habla has helped you and
-            you would like to support us, I&apos;m deeply grateful.
+            In August 2026, severe storms devastated Northwest Indiana and left our home in Portage
+            without power or air conditioning while she was seriously ill at home. We are trying to
+            keep her safe, comfortable, and supported while she continues treatment.
+          </p>
+          <p className="meta">
+            This is my why: Habla should genuinely help teachers, and if it succeeds, it can help me
+            care for the teacher who inspired it. The core classroom remains free. All proceeds from
+            optional AI go toward my mom&apos;s fight and our family&apos;s immediate needs.
           </p>
           <div className="actions">
             <a
