@@ -105,9 +105,11 @@ export default function PricingPage() {
             <h2 id="support-habla-heading">Support Habla now</h2>
           </div>
           <p>
-            Pay securely with PayPal now. For teacher AI access, include the email you use for
-            Habla in your PayPal note so access can be activated manually. Stripe billing is coming
-            in the next update. Contributions support Habla and my family and are not tax-deductible.
+            Pay any amount with PayPal and include the exact email you use to sign in to Try Habla.
+            Your full payment becomes prepaid AI credit at the published rates, and access is
+            activated within 24 hours. This temporary PayPal flow does not auto-renew or transfer
+            automatically to Stripe. Payments support Try Habla and my family and are not
+            tax-deductible.
           </p>
         </div>
         <StripeSupportButton />
