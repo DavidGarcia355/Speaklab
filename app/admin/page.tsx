@@ -139,11 +139,8 @@ export default async function AdminPage() {
   const now = getCurrentTimestamp();
   const oneDayAgo = now - 24 * 60 * 60 * 1000;
   const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-  const monthStart = new Date(
-    new Date(now).getFullYear(),
-    new Date(now).getMonth(),
-    1
-  ).getTime();
+  const currentDate = new Date(now);
+  const monthStart = Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth(), 1);
 
   const [
     summary,
@@ -168,6 +165,7 @@ export default async function AdminPage() {
   const totalSubmissions = allClasses.reduce((sum, c) => sum + c.submissionCount, 0);
   const totalAssignments = allClasses.reduce((sum, c) => sum + c.assignmentCount, 0);
   const paidTeachers = funnelRows.filter((teacher) => teacher.isPaid).length;
+  const paymentReviewCount = funnelRows.filter((teacher) => !teacher.isPaid).length;
   const paymentReviewRows = funnelRows
     .filter((teacher) => !teacher.isPaid)
     .sort(
@@ -262,8 +260,8 @@ export default async function AdminPage() {
         </article>
         <article className="card kpi-card kpi-warning">
           <p className="meta stat-label">Payment review</p>
-          <p className="stat-value">{paymentReviewRows.length}</p>
-          <p className="meta kpi-note">Recent free accounts to check</p>
+          <p className="stat-value">{paymentReviewCount}</p>
+          <p className="meta kpi-note">Free accounts to check</p>
         </article>
         <article className="card kpi-card">
           <p className="meta stat-label">AI grades today</p>
