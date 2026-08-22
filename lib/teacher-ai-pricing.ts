@@ -116,6 +116,32 @@ function microsToDollars(amount: number) {
   return amount / MICRO_USD_PER_USD;
 }
 
+export function calculatePrepaidAiUsageMicrousd(
+  input: { successfulGrades: number; audioSeconds: number },
+  priceBook: TeacherAiPriceBook = TEACHER_AI_PRICE_BOOK,
+) {
+  validatePriceBook(priceBook);
+  if (!Number.isSafeInteger(input.successfulGrades) || input.successfulGrades < 0) {
+    throw new RangeError("successfulGrades must be a non-negative safe integer.");
+  }
+  if (!Number.isSafeInteger(input.audioSeconds) || input.audioSeconds < 0) {
+    throw new RangeError("audioSeconds must be a non-negative safe integer.");
+  }
+
+  const gradeMicrousd = dollarsToMicros(
+    input.successfulGrades * priceBook.baseSuccessfulGradeUsd,
+  );
+  const audioMicrousd = dollarsToMicros(
+    (input.audioSeconds / 60) * priceBook.audioMinuteUsd,
+  );
+  return {
+    priceBookId: priceBook.id,
+    gradeMicrousd,
+    audioMicrousd,
+    totalMicrousd: gradeMicrousd + audioMicrousd,
+  };
+}
+
 export function estimateTeacherAiPricing(
   input: TeacherAiPricingInputs,
   priceBook: TeacherAiPriceBook = TEACHER_AI_PRICE_BOOK,
