@@ -122,8 +122,10 @@ describe("about page", () => {
 
     expect(markup).toContain("Hi, I&#x27;m David.");
     expect(markup).toContain("college student who built Habla for my mom");
-    expect(markup).toContain("My mom is fighting recurrent endometrial cancer.");
-    expect(markup).toContain("historic storm struck Northwest Indiana");
+    expect(markup).toContain("My mom is why Habla exists.");
+    expect(markup).toContain("She is a Spanish teacher fighting recurrent endometrial cancer.");
+    expect(markup).not.toContain("storm");
+    expect(markup).not.toContain("Portage");
     expect(markup).not.toContain("our home");
     expect(markup).not.toContain("air conditioning");
     expect(markup).toContain("Help my mom&#x27;s fight against endometrial cancer");
@@ -131,7 +133,10 @@ describe("about page", () => {
     expect(markup).toContain("https://paypal.me/DavidGarcia355");
     expect(homeMarkup).toContain("href=\"/about\"");
     expect(homeMarkup).toContain("About me");
-    expect(homeMarkup).toContain("Built for my mom. Supporting her fight now.");
+    expect(homeMarkup).toContain("Built for my mom. Supporting her fight.");
+    expect(homeMarkup).toContain("She is the reason");
+    expect(homeMarkup).not.toContain("storm");
+    expect(homeMarkup).not.toContain("Portage");
     expect(homeMarkup).not.toContain("our home");
     expect(homeMarkup).not.toContain("air conditioning");
   });
