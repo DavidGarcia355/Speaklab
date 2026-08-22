@@ -45,14 +45,14 @@ export default function AboutPage() {
           />
           <h2 className="surface-title">My mom is fighting recurrent endometrial cancer.</h2>
           <p className="meta">
-            In August 2026, severe storms devastated Northwest Indiana and left our home in Portage
-            without power or air conditioning while she was seriously ill at home. We are trying to
-            keep her safe, comfortable, and supported while she continues treatment.
+            On August 11, 2026, a historic storm struck Northwest Indiana with winds reported up to
+            99 mph. Portage declared a state of emergency, and widespread damage and prolonged power
+            outages affected the region.
           </p>
           <p className="meta">
             This is my why: Habla should genuinely help teachers, and if it succeeds, it can help me
             care for the teacher who inspired it. The core classroom remains free. All proceeds from
-            optional AI go toward my mom&apos;s fight and our family&apos;s immediate needs.
+            optional AI go toward my mom&apos;s fight.
           </p>
           <div className="actions">
             <a
