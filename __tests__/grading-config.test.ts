@@ -26,4 +26,11 @@ describe("grading launch configuration", () => {
 
     expect(getGradingConfig().maxOutputTokens).toBe(1_400);
   });
+
+  it("rejects stale launch overrides that are too small for the grading schema", () => {
+    process.env.AI_GRADING_MAX_OUTPUT_TOKENS = "300";
+    delete process.env.GRADING_MAX_OUTPUT_TOKENS;
+
+    expect(getGradingConfig().maxOutputTokens).toBe(1_200);
+  });
 });

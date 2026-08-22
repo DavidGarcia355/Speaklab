@@ -124,8 +124,8 @@ export function getGradingConfig(): GradingConfig {
     }),
     maxOutputTokens: integerFromEnv(
       "GRADING_MAX_OUTPUT_TOKENS",
-      integerFromEnv("AI_GRADING_MAX_OUTPUT_TOKENS", 1_200, { min: 32, max: 4_000 }),
-      { min: 32, max: 4_000 }
+      integerFromEnv("AI_GRADING_MAX_OUTPUT_TOKENS", 1_200, { min: 800, max: 4_000 }),
+      { min: 800, max: 4_000 }
     ),
     formattingRetries: integerFromEnv("GRADING_FORMAT_RETRIES", 1, { min: 0, max: 1 }),
     providerTimeoutMs: integerFromEnv(
