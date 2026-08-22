@@ -102,10 +102,9 @@ export default function Home() {
           <p className="pill pill-subtle">Why Habla matters to me</p>
           <h2 id="home-cause-heading">Built for my mom. Supporting her fight now.</h2>
           <p>
-            My mom is a Spanish teacher fighting recurrent endometrial cancer. After the August
-            storms left our Portage, Indiana home without power or air conditioning, that purpose
-            became even more urgent. Habla&apos;s core stays free, and all proceeds from optional AI
-            help support her care and our family.
+            My mom is a Spanish teacher fighting recurrent endometrial cancer. Habla began as a
+            tool for her classroom. Its core stays free, and all proceeds from optional AI help
+            support her fight.
           </p>
         </div>
         <div className="actions home-cause-actions">
