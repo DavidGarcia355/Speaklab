@@ -162,7 +162,7 @@ export default function BillingPanel() {
         {error ? <p className="form-error billing-action-error">{error}</p> : null}
 
         <div className="billing-actions">
-          {!subscribed && status.access !== "pilot" && canCheckout ? (
+          {!subscribed && canCheckout ? (
             <button
               className="btn btn-primary"
               type="button"
