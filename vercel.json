@@ -1,4 +1,9 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "env": {
+    "STRIPE_ALLOW_LIVE": "true",
+    "STRIPE_BILLING_ENABLED": "true"
+  },
   "crons": [
     {
       "path": "/api/cron/cleanup",
@@ -6,4 +11,3 @@
     }
   ]
 }
-
