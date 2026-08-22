@@ -101,12 +101,13 @@ export default function PricingPage() {
       >
         <div className="pricing-section-heading">
           <div>
-            <p className="pill pill-subtle">Secure Stripe checkout</p>
+            <p className="pill pill-subtle">PayPal available now</p>
             <h2 id="support-habla-heading">Support Habla now</h2>
           </div>
           <p>
-            Choose your amount and pay securely through Stripe. Contributions support Habla and my
-            family and are not tax-deductible.
+            Pay securely with PayPal now. For teacher AI access, include the email you use for
+            Habla in your PayPal note so access can be activated manually. Stripe billing is coming
+            in the next update. Contributions support Habla and my family and are not tax-deductible.
           </p>
         </div>
         <StripeSupportButton />
