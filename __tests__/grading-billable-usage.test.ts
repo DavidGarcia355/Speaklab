@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NoObjectGeneratedError } from "ai";
 import { DirectAudioOutputError, type DirectAudioGrade } from "@/lib/grading/audio";
 import {
   runDirectAudioGradingPipeline,
@@ -154,6 +155,49 @@ describe("grading billable usage", () => {
     expect(outcome.billableUsage).toEqual(selectedUsage);
     expect(outcome.usage).toEqual(addUsage(failedUsage, selectedUsage));
     expect(outcome.retries).toBe(1);
+  });
+
+  it("retries a structured result cut off by the provider token limit", async () => {
+    const selectedUsage = { inputTokens: 20, cachedInputTokens: 3, outputTokens: 4 };
+    let calls = 0;
+    const provider: GradingProvider = {
+      id: "mock",
+      async grade() {
+        calls += 1;
+        if (calls === 1) {
+          throw new NoObjectGeneratedError({
+            response: { id: "cut-off-response", timestamp: new Date(), modelId: "cheap-model" },
+            usage: {
+              inputTokens: 100,
+              inputTokenDetails: {
+                noCacheTokens: 100,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+              },
+              outputTokens: 200,
+              outputTokenDetails: { textTokens: 100, reasoningTokens: 100 },
+              totalTokens: 300,
+            },
+            finishReason: "length",
+            text: '{"score":8',
+          });
+        }
+        return response(result(), selectedUsage);
+      },
+    };
+
+    const outcome = await runGradingPipeline(gradingInput, {
+      config: testConfig(),
+      providers: new Map([["mock", provider]]),
+      bypassPersistence: true,
+      forceAi: true,
+    });
+
+    expect(calls).toBe(2);
+    expect(outcome.retries).toBe(1);
+    expect(outcome.result.score).toBe(8);
+    expect(outcome.billableUsage).toEqual(selectedUsage);
+    expect(outcome.usage).toEqual({ inputTokens: 120, cachedInputTokens: 3, outputTokens: 204 });
   });
 
   it("bills only the selected escalation call", async () => {

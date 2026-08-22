@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NoObjectGeneratedError, NoOutputGeneratedError } from "ai";
 import type { GradingConfig, GradingModelConfig } from "@/lib/grading/config";
 import { getGradingConfig } from "@/lib/grading/config";
 import type {
@@ -260,6 +261,59 @@ function safeUsage(response: ProviderGradeResponse | undefined) {
   return response?.usage ?? EMPTY_USAGE;
 }
 
+function structuredOutputFailureResponse(
+  error: unknown,
+  latencyMs: number
+): ProviderGradeResponse | undefined {
+  if (!NoObjectGeneratedError.isInstance(error)) return undefined;
+  return {
+    output: error.text ?? "",
+    usage: {
+      inputTokens: error.usage?.inputTokens ?? 0,
+      cachedInputTokens: error.usage?.inputTokenDetails.cacheReadTokens ?? 0,
+      outputTokens: error.usage?.outputTokens ?? 0,
+    },
+    latencyMs,
+    providerRequestId: error.response?.id,
+  };
+}
+
+function isFormattingFailure(error: unknown, response: ProviderGradeResponse | undefined) {
+  return (
+    Boolean(response) ||
+    error instanceof z.ZodError ||
+    NoObjectGeneratedError.isInstance(error) ||
+    NoOutputGeneratedError.isInstance(error)
+  );
+}
+
+function providerFailureDiagnostic(error: unknown) {
+  if (NoObjectGeneratedError.isInstance(error)) {
+    return {
+      errorName: error.name,
+      finishReason: error.finishReason,
+      causeName: error.cause instanceof Error ? error.cause.name : undefined,
+    };
+  }
+  if (NoOutputGeneratedError.isInstance(error)) {
+    return { errorName: error.name };
+  }
+  if (error instanceof z.ZodError) {
+    return {
+      errorName: error.name,
+      issues: error.issues.slice(0, 6).map((issue) => ({
+        path: issue.path.join("."),
+        code: issue.code,
+        message: issue.message,
+      })),
+    };
+  }
+  return {
+    errorName: error instanceof Error ? error.name : "UnknownError",
+    message: error instanceof Error ? error.message.slice(0, 300) : undefined,
+  };
+}
+
 async function invokeProvider(input: {
   provider: GradingProvider;
   model: GradingModelConfig;
@@ -316,8 +370,16 @@ async function invokeProvider(input: {
       input.sourceInput
     );
   } catch (error) {
-    formattingFailure = error instanceof z.ZodError || Boolean(response);
+    response ??= structuredOutputFailureResponse(error, Date.now() - startedAt);
+    formattingFailure = isFormattingFailure(error, response);
     errorCode = formattingFailure ? "invalid_provider_output" : "provider_error";
+    console.warn("AI grading provider result rejected", {
+      stage: input.stage,
+      provider: input.model.provider,
+      model: input.model.model,
+      formattingFailure,
+      ...providerFailureDiagnostic(error),
+    });
   }
 
   const usage = safeUsage(response);
