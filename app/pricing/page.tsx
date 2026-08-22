@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
 import PricingCalculator from "@/app/pricing/PricingCalculator";
+import StripeSupportButton from "@/app/pricing/StripeSupportButton";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 
 export const metadata: Metadata = {
@@ -49,13 +50,13 @@ export default function PricingPage() {
             estimate before turning AI on.
           </p>
           <div className="actions hero-actions">
-            <Link className="btn btn-primary" href="/teacher/register">
-              Get teacher access
+            <a className="btn btn-primary" href="#support-habla">
+              Support Habla now
               <ArrowRight size={17} aria-hidden="true" />
-            </Link>
-            <a className="btn btn-ghost" href="#ai-calculator">
-              Estimate my monthly price
             </a>
+            <Link className="btn btn-ghost" href="/teacher/register">
+              Get teacher access
+            </Link>
           </div>
         </div>
         <div className="pricing-hero-signal" aria-hidden="true">
@@ -92,6 +93,23 @@ export default function PricingPage() {
           Read my story
           <ArrowRight size={17} aria-hidden="true" />
         </Link>
+      </section>
+
+      <section
+        className="pricing-calculator-section section-gap"
+        aria-labelledby="support-habla-heading"
+      >
+        <div className="pricing-section-heading">
+          <div>
+            <p className="pill pill-subtle">Secure Stripe checkout</p>
+            <h2 id="support-habla-heading">Support Habla now</h2>
+          </div>
+          <p>
+            Choose your amount and pay securely through Stripe. Contributions support Habla and my
+            family and are not tax-deductible.
+          </p>
+        </div>
+        <StripeSupportButton />
       </section>
 
       <section className="pricing-value-grid section-gap" aria-labelledby="pricing-model-heading">
