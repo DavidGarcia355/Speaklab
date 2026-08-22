@@ -27,6 +27,8 @@ type BillingStatus = {
 
 type ActionResponse = { url?: string; error?: string };
 
+const PAYPAL_URL = "https://paypal.me/DavidGarcia355";
+
 const usd = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -138,14 +140,14 @@ export default function BillingPanel() {
           </div>
           <div>
             <p className="pill pill-subtle">
-              {status.mode === "test" ? "Stripe test mode" : "Teacher account"}
+              {status.mode === "test" ? "Stripe test mode" : "Habla teacher billing"}
             </p>
             <h2 id="billing-status-heading">
               {subscribed
                 ? "AI billing is active"
                 : status.access === "pilot"
                   ? "AI pilot access is active"
-                  : "AI billing is off"}
+                  : "Activate AI grading"}
             </h2>
             <p>
               {subscribed
@@ -154,7 +156,7 @@ export default function BillingPanel() {
                   }`
                 : status.access === "pilot"
                   ? "Your manual pilot access remains separate from Stripe billing."
-                  : "You are never charged until you complete Stripe Checkout."}
+                  : "Pay with PayPal now and include the email you use for Habla so access can be activated."}
             </p>
           </div>
         </div>
@@ -163,15 +165,27 @@ export default function BillingPanel() {
 
         <div className="billing-actions">
           {!subscribed && canCheckout ? (
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={!status.checkoutAvailable || Boolean(action)}
-              onClick={() => void openStripe("checkout")}
-            >
-              {action === "checkout" ? "Opening checkout…" : "Activate AI billing"}
-              <ArrowRight size={17} aria-hidden="true" />
-            </button>
+            status.checkoutAvailable ? (
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={Boolean(action)}
+                onClick={() => void openStripe("checkout")}
+              >
+                {action === "checkout" ? "Opening checkout…" : "Activate AI billing"}
+                <ArrowRight size={17} aria-hidden="true" />
+              </button>
+            ) : (
+              <a
+                className="btn btn-primary"
+                href={PAYPAL_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Pay with PayPal
+                <ArrowRight size={17} aria-hidden="true" />
+              </a>
+            )
           ) : null}
           {hasPortal ? (
             <button
@@ -185,15 +199,10 @@ export default function BillingPanel() {
           ) : null}
         </div>
 
-        {!status.configured ? (
+        {!status.checkoutAvailable && !subscribed ? (
           <p className="billing-availability-note">
-            Self-serve checkout is not enabled for this deployment yet. Core Habla remains available.
-          </p>
-        ) : null}
-        {status.configured && !status.checkoutAvailable && !subscribed ? (
-          <p className="billing-availability-note">
-            {status.checkoutUnavailableReason ?? "AI Checkout is not available yet."} Core Habla
-            remains available.
+            PayPal is available now. Include your Habla account email with the payment so access can
+            be activated manually. Stripe self-serve billing is coming in the next update.
           </p>
         ) : null}
       </div>
