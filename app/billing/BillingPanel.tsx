@@ -156,7 +156,7 @@ export default function BillingPanel() {
                   }`
                 : status.access === "pilot"
                   ? "Your manual pilot access remains separate from Stripe billing."
-                  : "Pay with PayPal now and include the email you use for Habla so access can be activated."}
+                  : "Pay any amount with PayPal and include your exact Try Habla login email. The full payment becomes prepaid AI credit, activated within 24 hours."}
             </p>
           </div>
         </div>
@@ -201,8 +201,9 @@ export default function BillingPanel() {
 
         {!status.checkoutAvailable && !subscribed ? (
           <p className="billing-availability-note">
-            PayPal is available now. Include your Habla account email with the payment so access can
-            be activated manually. Stripe self-serve billing is coming in the next update.
+            PayPal is available now. Include your exact Try Habla login email with the payment. Your
+            full payment becomes prepaid AI credit at the published rates, activated within 24 hours.
+            This temporary flow does not auto-renew or transfer automatically to Stripe.
           </p>
         ) : null}
       </div>
