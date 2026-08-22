@@ -126,6 +126,11 @@ export type TeacherFunnelRow = {
   aiGradingFailedCount: number;
   latestAiGradingAt: number | null;
   estimatedAiCostMicrousd: number;
+  manualCreditMicrousd: number;
+  manualCreditStartedAt: number | null;
+  manualPayerEmail: string;
+  manualSuccessfulAiGrades: number;
+  manualAiAudioSeconds: number;
 };
 
 export type TrackingSummaryRow = {
@@ -712,6 +717,9 @@ async function ensureInitialized() {
       await ensureColumn("submissions", "deleted_at", "INTEGER");
       await ensureColumn("users", "is_paid", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("users", "default_language", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn("users", "manual_ai_credit_microusd", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("users", "manual_credit_started_at", "INTEGER");
+      await ensureColumn("users", "manual_payer_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("ai_grading_attempts", "cache_key", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("ai_grading_attempts", "cache_hit", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("ai_grading_attempts", "input_tokens", "INTEGER NOT NULL DEFAULT 0");
@@ -1843,7 +1851,26 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
       COALESCE(ai_attempt_counts.aiGradingCount, 0) as aiGradingCount,
       COALESCE(ai_attempt_counts.aiGradingFailedCount, 0) as aiGradingFailedCount,
       ai_attempt_counts.latestAiGradingAt as latestAiGradingAt,
-      COALESCE(ai_cost_counts.estimatedAiCostMicrousd, 0) as estimatedAiCostMicrousd
+      COALESCE(ai_cost_counts.estimatedAiCostMicrousd, 0) as estimatedAiCostMicrousd,
+      u.manual_ai_credit_microusd as manualCreditMicrousd,
+      u.manual_credit_started_at as manualCreditStartedAt,
+      u.manual_payer_email as manualPayerEmail,
+      COALESCE((
+        SELECT COUNT(*)
+        FROM ai_grading_attempts manual_attempts
+        WHERE LOWER(manual_attempts.teacher_email) = LOWER(u.email)
+          AND manual_attempts.status = 'completed'
+          AND u.manual_credit_started_at IS NOT NULL
+          AND manual_attempts.created_at >= u.manual_credit_started_at
+      ), 0) as manualSuccessfulAiGrades,
+      COALESCE((
+        SELECT SUM(manual_attempts.duration_seconds)
+        FROM ai_grading_attempts manual_attempts
+        WHERE LOWER(manual_attempts.teacher_email) = LOWER(u.email)
+          AND manual_attempts.status = 'completed'
+          AND u.manual_credit_started_at IS NOT NULL
+          AND manual_attempts.created_at >= u.manual_credit_started_at
+      ), 0) as manualAiAudioSeconds
     FROM users u
     LEFT JOIN (
       SELECT LOWER(owner_email) as email, COUNT(*) as classCount
@@ -1907,6 +1934,12 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
     latestAiGradingAt:
       row.latestAiGradingAt === null ? null : toNumber(row.latestAiGradingAt),
     estimatedAiCostMicrousd: toNumber(row.estimatedAiCostMicrousd),
+    manualCreditMicrousd: toNumber(row.manualCreditMicrousd),
+    manualCreditStartedAt:
+      row.manualCreditStartedAt === null ? null : toNumber(row.manualCreditStartedAt),
+    manualPayerEmail: toStringValue(row.manualPayerEmail),
+    manualSuccessfulAiGrades: toNumber(row.manualSuccessfulAiGrades),
+    manualAiAudioSeconds: toNumber(row.manualAiAudioSeconds),
   }));
 }
 
@@ -1926,7 +1959,26 @@ export async function findTeacherFunnelRowByEmail(
       COALESCE(ai_attempt_counts.aiGradingCount, 0) as aiGradingCount,
       COALESCE(ai_attempt_counts.aiGradingFailedCount, 0) as aiGradingFailedCount,
       ai_attempt_counts.latestAiGradingAt as latestAiGradingAt,
-      COALESCE(ai_cost_counts.estimatedAiCostMicrousd, 0) as estimatedAiCostMicrousd
+      COALESCE(ai_cost_counts.estimatedAiCostMicrousd, 0) as estimatedAiCostMicrousd,
+      u.manual_ai_credit_microusd as manualCreditMicrousd,
+      u.manual_credit_started_at as manualCreditStartedAt,
+      u.manual_payer_email as manualPayerEmail,
+      COALESCE((
+        SELECT COUNT(*)
+        FROM ai_grading_attempts manual_attempts
+        WHERE LOWER(manual_attempts.teacher_email) = LOWER(u.email)
+          AND manual_attempts.status = 'completed'
+          AND u.manual_credit_started_at IS NOT NULL
+          AND manual_attempts.created_at >= u.manual_credit_started_at
+      ), 0) as manualSuccessfulAiGrades,
+      COALESCE((
+        SELECT SUM(manual_attempts.duration_seconds)
+        FROM ai_grading_attempts manual_attempts
+        WHERE LOWER(manual_attempts.teacher_email) = LOWER(u.email)
+          AND manual_attempts.status = 'completed'
+          AND u.manual_credit_started_at IS NOT NULL
+          AND manual_attempts.created_at >= u.manual_credit_started_at
+      ), 0) as manualAiAudioSeconds
     FROM users u
     LEFT JOIN (
       SELECT LOWER(owner_email) as email, COUNT(*) as classCount
@@ -1994,6 +2046,12 @@ export async function findTeacherFunnelRowByEmail(
     latestAiGradingAt:
       row.latestAiGradingAt === null ? null : toNumber(row.latestAiGradingAt),
     estimatedAiCostMicrousd: toNumber(row.estimatedAiCostMicrousd),
+    manualCreditMicrousd: toNumber(row.manualCreditMicrousd),
+    manualCreditStartedAt:
+      row.manualCreditStartedAt === null ? null : toNumber(row.manualCreditStartedAt),
+    manualPayerEmail: toStringValue(row.manualPayerEmail),
+    manualSuccessfulAiGrades: toNumber(row.manualSuccessfulAiGrades),
+    manualAiAudioSeconds: toNumber(row.manualAiAudioSeconds),
   };
 }
 
@@ -2131,6 +2189,29 @@ export async function setUserPaid(email: string, isPaid: boolean): Promise<boole
   const result = await query(
     `UPDATE users SET is_paid = ? WHERE LOWER(email) = LOWER(?)`,
     [isPaid ? 1 : 0, normalized]
+  );
+  return result.rowsAffected > 0;
+}
+
+export async function activateManualAiCredit(input: {
+  teacherEmail: string;
+  payerEmail: string;
+  creditMicrousd: number;
+  activatedAt?: number;
+}): Promise<boolean> {
+  const teacherEmail = requireTrimmedValue("teacherEmail", input.teacherEmail).toLowerCase();
+  const payerEmail = requireTrimmedValue("payerEmail", input.payerEmail).toLowerCase();
+  const creditMicrousd = requireNonNegativeInteger("creditMicrousd", input.creditMicrousd);
+  if (creditMicrousd === 0) throw new RangeError("creditMicrousd must be greater than zero.");
+  const activatedAt = requireNonNegativeInteger("activatedAt", input.activatedAt ?? Date.now());
+  const result = await query(
+    `UPDATE users
+     SET is_paid = 1,
+         manual_ai_credit_microusd = ?,
+         manual_credit_started_at = ?,
+         manual_payer_email = ?
+     WHERE LOWER(email) = LOWER(?) AND role = 'teacher'`,
+    [creditMicrousd, activatedAt, payerEmail, teacherEmail]
   );
   return result.rowsAffected > 0;
 }
