@@ -100,11 +100,12 @@ export default function Home() {
         </div>
         <div>
           <p className="pill pill-subtle">Why Habla matters to me</p>
-          <h2 id="home-cause-heading">Built for my mom. Supporting her fight now.</h2>
+          <h2 id="home-cause-heading">Built for my mom. Supporting her fight.</h2>
           <p>
-            My mom is a Spanish teacher fighting recurrent endometrial cancer. Habla began as a
-            tool for her classroom. Its core stays free, and all proceeds from optional AI help
-            support her fight.
+            My mom is a Spanish teacher fighting recurrent endometrial cancer. She is the reason
+            Habla exists. I built it to make her classroom easier, and now I&apos;m building it into
+            something that can help me support her as much as possible. The core stays free, and all
+            proceeds from optional AI go toward her fight.
           </p>
         </div>
         <div className="actions home-cause-actions">
