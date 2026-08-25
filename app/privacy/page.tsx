@@ -1,6 +1,6 @@
 import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
-import { CONTACT_LINKS } from "@/app/constants";
+import { CONTACT_LINKS, OPERATOR_NAME } from "@/app/constants";
 import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
@@ -34,6 +34,7 @@ export default function PrivacyPage() {
             Habla is designed for teacher-directed speaking assignments. It is not offered to
             children for independent personal use.
           </p>
+          <p>Habla is operated by {OPERATOR_NAME}.</p>
         </section>
 
         <section className="legal-section" aria-labelledby="privacy-data">
@@ -182,6 +183,7 @@ export default function PrivacyPage() {
           <h2 id="privacy-contact">Contact</h2>
           <p>
             Questions about this notice or a data request can be sent to{" "}
+            {OPERATOR_NAME} at{" "}
             <a href={CONTACT_LINKS.email}>davidsgarcia325@gmail.com</a> or through the{" "}
             <Link href="/feedback">Habla contact form</Link>.
           </p>

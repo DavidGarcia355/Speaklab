@@ -9,6 +9,7 @@ describe("pilot legal surface", () => {
     const lower = markup.toLowerCase();
 
     expect(markup).toContain("Pilot notice");
+    expect(markup).toContain("Habla is operated by David Garcia.");
     expect(markup).toContain("Last updated: August 25, 2026");
     expect(markup).toContain("Information Habla handles");
     expect(markup).toContain("Optional AI grading");
@@ -34,6 +35,7 @@ describe("pilot legal surface", () => {
     const lower = markup.toLowerCase();
 
     expect(markup).toContain("Pilot terms");
+    expect(markup).toContain("Habla is operated by David Garcia.");
     expect(markup).toContain("Optional AI results");
     expect(markup).toContain("Paid functionality is available only when it is enabled");
     expect(markup).toContain("does not purchase AI access, create a prepaid balance");

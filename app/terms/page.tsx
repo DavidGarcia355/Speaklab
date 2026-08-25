@@ -1,6 +1,6 @@
 import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
-import { CONTACT_LINKS } from "@/app/constants";
+import { CONTACT_LINKS, OPERATOR_NAME } from "@/app/constants";
 import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
@@ -34,6 +34,7 @@ export default function TermsPage() {
             you have authority to use the pilot for that school and to give the instructions you
             provide to Habla.
           </p>
+          <p>Habla is operated by {OPERATOR_NAME}.</p>
           <p>
             Do not use Habla with student information unless the responsible teacher or school has
             decided the use is appropriate and obtained any authorization or consent required by

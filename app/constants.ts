@@ -1,5 +1,7 @@
 export const APP_NAME = "Habla";
 
+export const OPERATOR_NAME = "David Garcia";
+
 export const SITE_URL = "https://tryhabla.com";
 
 export const SITE_TITLE = "Habla | Speaking practice made simple";
