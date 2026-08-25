@@ -3,6 +3,8 @@ import "server-only";
 export type AiProvider = "mock" | "openai" | "ollama";
 export type AiAccessMode = "paid" | "all";
 
+export const AI_STUDENT_DATA_APPROVAL_VALUE = "reviewed-2026-08-25";
+
 export type AiConfig = {
   enabled: boolean;
   bulkEnabled: boolean;
@@ -76,19 +78,13 @@ export function getAiConfig(): AiConfig {
     "openai",
     "ollama",
   ] as const);
-  const configuredTranscriptionModel =
+  const transcriptionModel =
     process.env.AI_TRANSCRIPTION_MODEL?.trim() ||
     (transcriptionProvider === "mock"
       ? "mock-transcriber"
       : isDev
         ? "whisper-1"
         : "gpt-4o-transcribe");
-  const transcriptionModel =
-    !isDev &&
-    transcriptionProvider === "openai" &&
-    configuredTranscriptionModel.replace(/^openai\//, "") === "gpt-4o-mini-transcribe"
-      ? "gpt-4o-transcribe"
-      : configuredTranscriptionModel;
 
   return {
     enabled: process.env.AI_GRADING_ENABLED === "true",
@@ -105,7 +101,8 @@ export function getAiConfig(): AiConfig {
           ? "gpt-4o-mini"
           : process.env.OLLAMA_MODEL?.trim() || "llama3.2"),
     accessMode: providerFromEnv("AI_ACCESS_MODE", "paid", ["paid", "all"] as const),
-    studentDataApproved: process.env.AI_STUDENT_DATA_APPROVED === "true",
+    studentDataApproved:
+      process.env.AI_STUDENT_DATA_APPROVED === AI_STUDENT_DATA_APPROVAL_VALUE,
     teacherDenylist: new Set(
       (process.env.AI_TEACHER_DENYLIST ?? "")
         .split(",")
@@ -132,7 +129,7 @@ export function assertAiProviderConfig(config: AiConfig) {
   if (!config.enabled) return;
   if (!config.isDev && !config.studentDataApproved) {
     throw new Error(
-      "AI_STUDENT_DATA_APPROVED=true is required after student-data, privacy, and OpenAI retention review."
+      `AI_STUDENT_DATA_APPROVED=${AI_STUDENT_DATA_APPROVAL_VALUE} is required after the current student-data, privacy, provider, model, and retention review.`
     );
   }
   if (config.transcriptionProvider === "openai" && !hasHostedAiCredentials()) {

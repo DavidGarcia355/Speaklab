@@ -13,6 +13,10 @@ import {
   type StripeBillingConfig,
 } from "@/lib/billing";
 import { getEnv } from "@/lib/env";
+import {
+  assertGradingProviderConfiguration,
+  getGradingConfig,
+} from "@/lib/grading/config";
 import { HttpError } from "@/lib/http";
 
 export function requireBillingConfigForApi(): StripeBillingConfig {
@@ -42,6 +46,7 @@ export function getAiCheckoutAvailability(teacherEmail?: string) {
   }
   try {
     assertAiProviderConfig(config);
+    assertGradingProviderConfiguration(getGradingConfig());
     return { available: true as const, reason: null };
   } catch {
     return {

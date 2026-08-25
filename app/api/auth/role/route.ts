@@ -26,7 +26,11 @@ export async function GET(request: Request) {
   return withApiHandler(request, async () => {
     const email = await requireAuthenticatedEmail();
     const role = await getUserRoleByEmail(email);
-    return NextResponse.json({ email, role });
+    return NextResponse.json({
+      email,
+      role,
+      teacherRegistrationAvailable: role === "teacher" || canSelfRegisterTeacher(email),
+    });
   });
 }
 

@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -11,11 +10,13 @@ import {
 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
+import { createPublicMetadata } from "@/lib/public-metadata";
 
-export const metadata: Metadata = {
-  title: "Students - Habla",
+export const metadata = createPublicMetadata({
+  title: "For Students",
   description: "A clear speaking-practice workspace for Habla students.",
-};
+  path: "/students",
+});
 
 const studentFeatures = [
   {

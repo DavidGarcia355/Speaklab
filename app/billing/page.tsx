@@ -2,18 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft, AudioLines, ShieldCheck } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
-import AutoCheckout from "@/app/billing/AutoCheckout";
 import BillingPanel from "@/app/billing/BillingPanel";
 
 export const metadata: Metadata = {
-  title: "AI Billing - Habla",
-  description: "Activate or manage optional usage-based AI grading for your Habla teacher account.",
+  title: "AI Billing",
+  description: "Check the payment and access options available for optional Habla AI grading.",
+  robots: { index: false, follow: false },
 };
 
 export default function BillingPage() {
   return (
     <main className="page-wrap billing-page">
-      <AutoCheckout />
       <BrandBar label="AI billing" />
 
       <section className="billing-hero">
@@ -21,8 +20,8 @@ export default function BillingPage() {
           <p className="pill">Optional AI</p>
           <h1>Keep the classroom free. Turn on AI when it helps.</h1>
           <p>
-            Habla&apos;s audio classroom does not require a subscription. This page only manages
-            metered AI grading for an individual teacher account.
+            Habla&apos;s audio classroom does not require a subscription. This page shows your AI access
+            status and any self-service billing option currently available to your teacher account.
           </p>
         </div>
         <div className="billing-hero-mark" aria-hidden="true">
@@ -36,8 +35,10 @@ export default function BillingPage() {
       <section className="billing-trust-row" aria-label="Billing safeguards">
         <ShieldCheck size={21} aria-hidden="true" />
         <p>
-          Checkout and payment details are handled by Stripe. Habla stores billing identifiers and
-          usage totals, never full card details.
+          Voluntary PayPal support is completed on PayPal and does not activate AI. If this page
+          explicitly offers Stripe self-service, Stripe handles checkout and card details. Habla
+          stores only the identifiers and usage totals needed to provide the selected option, never
+          full card details.
         </p>
       </section>
 

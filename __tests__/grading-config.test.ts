@@ -44,7 +44,7 @@ describe("grading launch configuration", () => {
     expect(getGradingConfig().maxOutputTokens).toBe(2_400);
   });
 
-  it("promotes stale launch models to reliable production graders", () => {
+  it("honors explicit production models without silently changing cost or behavior", () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.GRADING_DEFAULT_PROVIDER = "openai";
     process.env.GRADING_DEFAULT_MODEL = "gpt-5-nano";
@@ -53,7 +53,7 @@ describe("grading launch configuration", () => {
 
     const config = getGradingConfig();
 
-    expect(config.defaultModel).toEqual({ provider: "openai", model: "gpt-5.4-mini" });
-    expect(config.escalationModel).toEqual({ provider: "openai", model: "gpt-5.4" });
+    expect(config.defaultModel).toEqual({ provider: "openai", model: "gpt-5-nano" });
+    expect(config.escalationModel).toEqual({ provider: "openai", model: "gpt-5-mini" });
   });
 });

@@ -21,7 +21,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "typecheck": "next typegen && tsc --noEmit",
-    "check": "npm run lint && npm run test && npm run typecheck && npm run build"
+    "check": "npm run lint && npm run test && npm run typecheck && npm run build",
+    "release:check": "node scripts/predeploy-check.mjs && npm run check",
+    "release:check:worktree": "node scripts/predeploy-check.mjs --allow-dirty && npm run check"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^4.0.56",
@@ -31,6 +33,7 @@
     "@vercel/blob": "^2.8.0",
     "ai": "^7.0.70",
     "lucide-react": "^0.577.0",
+    "mediabunny": "1.55.2",
     "next": "16.3.1",
     "next-auth": "^4.24.15",
     "openai": "6.44.0",

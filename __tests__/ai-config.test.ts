@@ -63,12 +63,12 @@ describe("AI launch configuration", () => {
     expect(isAiTeacherDenied("allowed@example.com", config)).toBe(false);
   });
 
-  it("upgrades the stale mini transcription model in production", () => {
+  it("honors the explicitly reviewed transcription model without silent substitution", () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.AI_TRANSCRIPTION_PROVIDER = "openai";
     process.env.AI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 
-    expect(getAiConfig().transcriptionModel).toBe("gpt-4o-transcribe");
+    expect(getAiConfig().transcriptionModel).toBe("gpt-4o-mini-transcribe");
   });
 
   it("fails closed when production student-data approval has not been recorded", () => {

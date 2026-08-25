@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireTeacherEmail } from "@/lib/authz";
 import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
+import { deleteBlobObjects } from "@/lib/blob-deletion";
 import {
   deleteAssignmentCascade,
   findAssignmentById,
+  isAssignmentAttachmentReferenced,
   setUserDefaultLanguage,
   updateAssignment,
 } from "@/lib/db";
@@ -54,6 +56,7 @@ export async function PATCH(
     let attachmentName = found.attachmentName;
     let attachmentUrl = found.attachmentUrl;
     let attachmentContentType = found.attachmentContentType;
+    let newlyUploadedAttachment = "";
 
     if (body.attachment === null) {
       attachmentName = "";
@@ -69,6 +72,7 @@ export async function PATCH(
         mimeType: parsedAttachment.mimeType,
         buffer: parsedAttachment.buffer,
       });
+      newlyUploadedAttachment = attachmentUrl;
     }
 
     let updated;
@@ -87,13 +91,31 @@ export async function PATCH(
         attachmentContentType,
       });
     } catch (error) {
+      if (newlyUploadedAttachment) {
+        await deleteBlobObjects([newlyUploadedAttachment], { objectClass: "attachment" });
+      }
       if (error instanceof Error && error.message.toLowerCase().includes("already exists")) {
         throw new HttpError(409, error.message);
       }
       throw error;
     }
     if (!updated) {
+      if (newlyUploadedAttachment) {
+        await deleteBlobObjects([newlyUploadedAttachment], { objectClass: "attachment" });
+      }
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
+    }
+    if (found.attachmentUrl && found.attachmentUrl !== updated.attachmentUrl) {
+      try {
+        const stillReferenced = await isAssignmentAttachmentReferenced(found.attachmentUrl);
+        if (!stillReferenced) {
+          await deleteBlobObjects([found.attachmentUrl], { objectClass: "attachment" });
+        }
+      } catch (error) {
+        console.warn("Replaced worksheet cleanup failed", {
+          errorName: error instanceof Error ? error.name : "unknown",
+        });
+      }
     }
     if (body.setAsDefaultLanguage && body.targetLanguage) {
       try {

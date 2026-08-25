@@ -24,9 +24,16 @@ export default function BrandBar({ label }: BrandBarProps) {
           if (!cancelled) setShowTeacherPrompt(false);
           return;
         }
-        const data = (await response.json()) as { role?: string };
+        const data = (await response.json()) as {
+          role?: string;
+          teacherRegistrationAvailable?: boolean;
+        };
         if (!cancelled) {
-          setShowTeacherPrompt(data.role === "student" && pathname !== "/teacher/register");
+          setShowTeacherPrompt(
+            data.role === "student" &&
+              data.teacherRegistrationAvailable === true &&
+              pathname !== "/teacher/register"
+          );
         }
       } catch {
         if (!cancelled) setShowTeacherPrompt(false);
@@ -57,7 +64,7 @@ export default function BrandBar({ label }: BrandBarProps) {
         <div className="notice info teacher-access-notice">
           Are you a teacher?{" "}
           <Link className="teacher-access-link" href="/teacher/register">
-            Get full access
+            Activate approved access
           </Link>
         </div>
       ) : null}

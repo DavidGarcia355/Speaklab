@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -17,11 +16,15 @@ import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
 import ThemeToggle from "@/app/components/ThemeToggle";
 import { APP_NAME } from "@/app/constants";
+import { createPublicMetadata } from "@/lib/public-metadata";
 
-export const metadata: Metadata = {
-  title: "Habla",
-  description: "AI-assisted speaking assignments for language teachers, students, and schools.",
-};
+export const metadata = createPublicMetadata({
+  title: "Speaking practice made simple",
+  description:
+    "AI-assisted speaking assignments for language teachers, students, and schools.",
+  path: "/",
+  home: true,
+});
 
 const audienceCards = [
   {
@@ -119,17 +122,17 @@ export default function Home() {
         <div>
           <p className="pill pill-subtle">
             <ShieldCheck size={14} aria-hidden="true" />
-            Open for teacher pilots while district review continues
+            Teacher pilot requests open while district review continues
           </p>
           <h2>Start with one class. Prove the workflow before a wider rollout.</h2>
           <p className="meta">
-            Habla&apos;s core audio classroom is free forever. Optional AI is usage-based, while district
-            rollout and purchasing remain a separate review process.
+            Habla&apos;s core audio classroom is free during the current teacher pilot. Optional AI,
+            district rollout, and purchasing remain separate reviewed paths.
           </p>
         </div>
         <div className="actions home-district-actions">
           <Link className="btn btn-primary" href="/teachers">
-            Start a teacher pilot
+            Request a teacher pilot
             <ArrowRight size={17} aria-hidden="true" />
           </Link>
           <Link className="btn btn-ghost" href="/district">
@@ -144,14 +147,15 @@ export default function Home() {
       <section className="home-quick-preview section-gap">
         <article>
           <UsersRound size={20} aria-hidden="true" />
-          <h2>Already moving through real classrooms</h2>
+          <h2>Already learning from real classroom pilots</h2>
           <p className="meta">
-            Aggregate Habla activity as of August 2026. No student names or classroom details are shown.
+            Habla is being shaped by actual speaking assignments while wider school and district
+            review remains intentionally separate.
           </p>
           <div className="home-proof-grid" aria-label="Habla pilot activity">
-            <span className="home-proof-stat"><strong>37</strong><span>teachers publishing</span></span>
-            <span className="home-proof-stat"><strong>141</strong><span>classes created</span></span>
-            <span className="home-proof-stat"><strong>585</strong><span>recordings submitted</span></span>
+            <span className="home-proof-stat"><strong>Real</strong><span>teacher pilots</span></span>
+            <span className="home-proof-stat"><strong>Live</strong><span>classroom workflows</span></span>
+            <span className="home-proof-stat"><strong>Careful</strong><span>review before scale</span></span>
           </div>
         </article>
         <article>

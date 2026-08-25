@@ -1,11 +1,7 @@
 import "server-only";
 
-/**
- * Student recordings live in a dedicated private store. Requiring its ID on
- * every command prevents the Blob SDK from falling back to the public
- * assignment-attachment store.
- */
-export function getAudioBlobCommandOptions() {
+/** Private media storage used for student recordings and teacher worksheets. */
+export function getPrivateBlobCommandOptions() {
   const storeId = process.env.AUDIO_BLOB_STORE_ID?.trim();
   if (!storeId) {
     throw new Error("AUDIO_BLOB_STORE_ID is required for private audio storage.");
@@ -21,3 +17,6 @@ export function getAudioBlobCommandOptions() {
     ...(localToken ? { token: localToken } : {}),
   };
 }
+
+/** Backward-compatible name retained for the existing audio call sites. */
+export const getAudioBlobCommandOptions = getPrivateBlobCommandOptions;

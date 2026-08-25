@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { DM_Sans, Space_Mono } from "next/font/google";
-import { APP_NAME } from "@/app/constants";
+import {
+  APP_NAME,
+  SITE_DESCRIPTION,
+  SITE_TITLE,
+  SITE_URL,
+} from "@/app/constants";
+import SiteFooter from "@/app/components/SiteFooter";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -15,8 +21,37 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: APP_NAME,
-  description: `${APP_NAME} helps language teachers run speaking assignments and audio submissions.`,
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: SITE_TITLE,
+    template: `%s | ${APP_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  applicationName: APP_NAME,
+  category: "education",
+  creator: "Habla",
+  publisher: "Habla",
+  keywords: [
+    "language teaching",
+    "speaking assignments",
+    "student audio",
+    "classroom feedback",
+  ],
+  formatDetection: {
+    telephone: false,
+  },
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    siteName: APP_NAME,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
 };
 
 export default function RootLayout({
@@ -38,7 +73,10 @@ export default function RootLayout({
       <body
         className={`${dmSans.variable} ${spaceMono.variable} antialiased`}
       >
-        {children}
+        <div className="site-shell">
+          {children}
+          <SiteFooter />
+        </div>
       </body>
     </html>
   );

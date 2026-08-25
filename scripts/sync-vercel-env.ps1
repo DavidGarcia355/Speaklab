@@ -18,15 +18,21 @@ $requiredKeys = @(
   "AUTH_GOOGLE_ID",
   "AUTH_GOOGLE_SECRET",
   "AUTH_SECRET",
-  "SCHOOL_GOOGLE_DOMAIN",
-  "TEACHER_EMAILS",
   "TURSO_DATABASE_URL",
   "TURSO_AUTH_TOKEN",
   "UPSTASH_REDIS_REST_URL",
   "UPSTASH_REDIS_REST_TOKEN",
-  "BLOB_READ_WRITE_TOKEN",
+  "AUDIO_BLOB_STORE_ID",
   "CRON_SECRET",
   "NEXTAUTH_URL"
+)
+
+# These controls are safe when absent: registration stays closed and no email is
+# allowlisted. They are still managed so an omitted local value clears any stale
+# Vercel value instead of silently preserving broader production access.
+$managedOptionalServerKeys = @(
+  "TEACHER_ALLOWLIST",
+  "ALLOW_TEACHER_SELF_REGISTRATION"
 )
 
 $optionalClientKeys = @(
@@ -34,7 +40,7 @@ $optionalClientKeys = @(
   "NEXT_PUBLIC_SUPABASE_ANON_KEY"
 )
 
-$selectedKeys = @($requiredKeys)
+$selectedKeys = @($requiredKeys) + @($managedOptionalServerKeys)
 if ($IncludeOptionalClientEnv) {
   $selectedKeys += $optionalClientKeys
 }
@@ -62,21 +68,39 @@ if ($missing.Count -gt 0) {
 
 foreach ($target in $Targets) {
   Write-Host "Syncing envs to Vercel target: $target"
-  foreach ($key in $selectedKeys) {
-    if (-not $values.ContainsKey($key)) { continue }
-    $value = $values[$key]
-    if ([string]::IsNullOrWhiteSpace($value)) { continue }
+  $listingJson = & vercel.cmd env ls $target --format json 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not list existing Vercel environment variables for target '$target'."
+  }
+  try {
+    $listing = ($listingJson -join [Environment]::NewLine) | ConvertFrom-Json
+    $existingKeys = @($listing.envs | ForEach-Object { $_.key })
+  } catch {
+    throw "Vercel returned an unreadable environment-variable inventory for target '$target'."
+  }
 
-    # Remove existing key if present (ignore failures)
-    try {
-      vercel.cmd env rm $key $target -y | Out-Null
-    } catch {
-      # no-op
+  foreach ($key in $selectedKeys) {
+    if (-not $values.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($values[$key])) {
+      if ($existingKeys -contains $key) {
+        & vercel.cmd env rm $key $target -y | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+          throw "Could not clear optional Vercel environment variable '$key' for target '$target'."
+        }
+        Write-Host "  cleared optional $key"
+      } else {
+        Write-Host "  optional $key already absent"
+      }
+      continue
     }
 
-    $value | vercel.cmd env add $key $target | Out-Null
+    $value = $values[$key]
+    $value | & vercel.cmd env add $key $target --force -y | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      throw "Could not set Vercel environment variable '$key' for target '$target'."
+    }
     Write-Host "  set $key"
   }
 }
 
+Write-Host "Migration-only BLOB_READ_WRITE_TOKEN and AUDIO_READ_WRITE_TOKEN were intentionally not synced."
 Write-Host "Vercel env sync complete."

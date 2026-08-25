@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   getAiConfig: vi.fn(),
   assertAiProviderConfig: vi.fn(),
   isAiTeacherDenied: vi.fn(),
+  getGradingConfig: vi.fn(),
+  assertGradingProviderConfiguration: vi.fn(),
 }));
 
 vi.mock("@/lib/authz", () => ({
@@ -46,6 +48,11 @@ vi.mock("@/lib/ai/config", () => ({
   getAiConfig: mocks.getAiConfig,
   assertAiProviderConfig: mocks.assertAiProviderConfig,
   isAiTeacherDenied: mocks.isAiTeacherDenied,
+}));
+
+vi.mock("@/lib/grading/config", () => ({
+  getGradingConfig: mocks.getGradingConfig,
+  assertGradingProviderConfiguration: mocks.assertGradingProviderConfiguration,
 }));
 
 vi.mock("@/lib/billing", async (importOriginal) => {
@@ -128,6 +135,8 @@ beforeEach(() => {
     accessMode: "paid",
   });
   mocks.assertAiProviderConfig.mockImplementation(() => undefined);
+  mocks.getGradingConfig.mockReturnValue({});
+  mocks.assertGradingProviderConfiguration.mockImplementation(() => undefined);
   mocks.isAiTeacherDenied.mockReturnValue(false);
   mocks.requireTeacherEmail.mockResolvedValue("teacher@example.com");
   mocks.getStripeBillingAvailability.mockReturnValue({
@@ -233,6 +242,20 @@ describe("billing status route", () => {
       configured: true,
       checkoutAvailable: false,
       checkoutUnavailableReason: "AI grading is not enabled for this deployment.",
+    });
+  });
+
+  it("disables Checkout when the provider-neutral grading configuration is not ready", async () => {
+    mocks.assertGradingProviderConfiguration.mockImplementation(() => {
+      throw new Error("missing grading provider credential");
+    });
+    const { GET } = await import("@/app/api/billing/status/route");
+    const response = await GET(jsonRequest("/api/billing/status"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      checkoutAvailable: false,
+      checkoutUnavailableReason: "AI provider and student-data prerequisites are not ready.",
     });
   });
 });

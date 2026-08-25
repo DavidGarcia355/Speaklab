@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/assignments/[assignmentId]/submissions/route";
+import { HttpError } from "@/lib/http";
 
 const mocks = vi.hoisted(() => ({
   mockRequireSchoolStudentEmail: vi.fn(),
+  mockAssertRecordingDuration: vi.fn(),
   mockUploadSubmissionAudio: vi.fn(),
   mockDeleteSubmissionAudio: vi.fn(),
   mockCountStudentSubmissions: vi.fn(),
@@ -18,6 +20,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/authz", () => ({
   requireSchoolStudentEmail: mocks.mockRequireSchoolStudentEmail,
+}));
+
+vi.mock("@/lib/audio-duration", () => ({
+  assertRecordingDuration: mocks.mockAssertRecordingDuration,
 }));
 
 vi.mock("@/lib/audio-storage", () => ({
@@ -99,6 +105,7 @@ describe("submission route domain enforcement", () => {
     delete process.env.STUDENT_DOMAIN;
 
     mocks.mockRequireSchoolStudentEmail.mockReset();
+    mocks.mockAssertRecordingDuration.mockReset();
     mocks.mockUploadSubmissionAudio.mockReset();
     mocks.mockDeleteSubmissionAudio.mockReset();
     mocks.mockCountStudentSubmissions.mockReset();
@@ -112,11 +119,13 @@ describe("submission route domain enforcement", () => {
     mocks.mockGetEnv.mockReset();
 
     mocks.mockRequireSchoolStudentEmail.mockResolvedValue("student@gmail.com");
+    mocks.mockAssertRecordingDuration.mockResolvedValue(59.9);
     mocks.mockFindAssignmentById.mockResolvedValue({
       id: "asg_1",
       classId: "class_1",
       ownerEmail: "teacher@school.edu",
       maxSubmissions: 0,
+      maxRecordingSeconds: 60,
     });
     mocks.mockCountStudentSubmissions.mockResolvedValue(0);
     mocks.mockIsStudentOnRoster.mockResolvedValue(true);
@@ -171,7 +180,46 @@ describe("submission route domain enforcement", () => {
     });
 
     expect(response.status).toBe(201);
+    expect(mocks.mockAssertRecordingDuration).toHaveBeenCalledWith({
+      buffer: Buffer.from("audio"),
+      mimeType: "audio/webm",
+      maxRecordingSeconds: 60,
+    });
     expect(mocks.mockCreateSubmission).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an over-limit low-bitrate recording before upload", async () => {
+    mocks.mockAssertRecordingDuration.mockRejectedValue(
+      new HttpError(400, "Validation failed.", {
+        audioData: ["Recording must be 60 seconds or shorter."],
+      })
+    );
+
+    const response = await POST(makeRequest(), {
+      params: Promise.resolve({ assignmentId: "asg_1" }),
+    });
+    const data = (await response.json()) as { fieldErrors: { audioData: string[] } };
+
+    expect(response.status).toBe(400);
+    expect(data.fieldErrors.audioData).toContain("Recording must be 60 seconds or shorter.");
+    expect(mocks.mockUploadSubmissionAudio).not.toHaveBeenCalled();
+    expect(mocks.mockCreateSubmission).not.toHaveBeenCalled();
+  });
+
+  it("rejects unreadable duration metadata before upload", async () => {
+    mocks.mockAssertRecordingDuration.mockRejectedValue(
+      new HttpError(400, "Validation failed.", {
+        audioData: ["We couldn't verify this recording's length."],
+      })
+    );
+
+    const response = await POST(makeRequest(), {
+      params: Promise.resolve({ assignmentId: "asg_1" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(mocks.mockUploadSubmissionAudio).not.toHaveBeenCalled();
+    expect(mocks.mockCreateSubmission).not.toHaveBeenCalled();
   });
 
   it("blocks non-matching domains when ENFORCE_STUDENT_DOMAIN=true", async () => {

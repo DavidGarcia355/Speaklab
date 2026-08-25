@@ -20,6 +20,16 @@ const nextConfig: NextConfig = {
   // traced output and should not receive this setting.
   output: process.env.VERCEL ? undefined : "standalone",
   poweredByHeader: false,
+  async redirects() {
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "www.tryhabla.com" }],
+        destination: "https://tryhabla.com/:path*",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

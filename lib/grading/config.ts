@@ -1,3 +1,5 @@
+import { AI_STUDENT_DATA_APPROVAL_VALUE } from "@/lib/ai/config";
+
 export const GRADING_PROVIDERS = ["mock", "openai", "google", "openrouter", "ollama"] as const;
 
 export type GradingProviderName = (typeof GRADING_PROVIDERS)[number];
@@ -75,22 +77,6 @@ function defaultModelFor(provider: GradingProviderName, escalation: boolean) {
   return escalation ? "gpt-5.4" : "gpt-5.4-mini";
 }
 
-function launchReliableModel(
-  provider: GradingProviderName,
-  configuredModel: string,
-  escalation: boolean,
-  isDev: boolean
-) {
-  if (isDev) return configuredModel;
-  const normalized = configuredModel.trim().toLowerCase().replace(/^openai\//, "");
-  const staleLaunchModels = new Set(["gpt-4o-mini", "gpt-5-nano", "gpt-5-mini"]);
-  if ((provider === "openai" || provider === "openrouter") && staleLaunchModels.has(normalized)) {
-    const replacement = escalation ? "gpt-5.4" : "gpt-5.4-mini";
-    return provider === "openrouter" ? `openai/${replacement}` : replacement;
-  }
-  return configuredModel;
-}
-
 /**
  * Reads the new provider-neutral grading settings while retaining the existing
  * AI_* variables as fallbacks so a deployment can migrate without downtime.
@@ -119,11 +105,11 @@ export function getGradingConfig(): GradingConfig {
     isDev,
     defaultModel: {
       provider: defaultProvider,
-      model: launchReliableModel(defaultProvider, configuredDefaultModel, false, isDev),
+      model: configuredDefaultModel,
     },
     escalationModel: {
       provider: escalationProvider,
-      model: launchReliableModel(escalationProvider, configuredEscalationModel, true, isDev),
+      model: configuredEscalationModel,
     },
     confidenceThreshold: numberFromEnv("GRADING_CONFIDENCE_THRESHOLD", 0.85, {
       min: 0,
@@ -178,8 +164,8 @@ export function getGradingConfig(): GradingConfig {
       : null,
     pricingJson: process.env.GRADING_PROVIDER_PRICES_JSON?.trim() || "",
     studentDataApproved:
-      process.env.GRADING_STUDENT_DATA_APPROVED === "true" ||
-      process.env.AI_STUDENT_DATA_APPROVED === "true",
+      process.env.GRADING_STUDENT_DATA_APPROVED === AI_STUDENT_DATA_APPROVAL_VALUE ||
+      process.env.AI_STUDENT_DATA_APPROVED === AI_STUDENT_DATA_APPROVAL_VALUE,
     audioStrategy: audioStrategyFromEnv(),
     audioModel: {
       provider: "google",
@@ -226,7 +212,7 @@ export function requiredCredentialForProvider(provider: GradingProviderName) {
 export function assertGradingProviderConfiguration(config = getGradingConfig()) {
   if (!config.isDev && !config.studentDataApproved) {
     throw new Error(
-      "GRADING_STUDENT_DATA_APPROVED=true is required after privacy, retention, and provider data-use review."
+      `GRADING_STUDENT_DATA_APPROVED=${AI_STUDENT_DATA_APPROVAL_VALUE} (or the matching AI gate) is required after the current privacy, retention, provider, and model review.`
     );
   }
   for (const modelConfig of [config.defaultModel, config.escalationModel]) {

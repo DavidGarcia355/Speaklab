@@ -1,11 +1,12 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
+import { createPublicMetadata } from "@/lib/public-metadata";
 
-export const metadata: Metadata = {
-  title: "FAQ - Habla",
+export const metadata = createPublicMetadata({
+  title: "FAQ",
   description: "Common questions about Habla, classroom workflows, access, and privacy review.",
-};
+  path: "/faq",
+});
 
 const FAQ_SECTIONS = [
   {
@@ -139,17 +140,17 @@ const FAQ_SECTIONS = [
       {
         question: "Is Habla free?",
         answer:
-          "Yes. Habla's core audio classroom is free forever, including classes, rosters, speaking assignments, student recordings, teacher grading, feedback, and CSV export. Optional AI is usage-based. District-wide use and purchasing remain a separate review process.",
+          "Habla's core audio classroom is free during the current teacher pilot, including classes, rosters, speaking assignments, student recordings, teacher grading, feedback, and CSV export. Optional AI, district-wide use, and purchasing remain separate reviewed paths. Any future change will be shown before it applies.",
       },
       {
         question: "How does optional AI pricing work?",
         answer:
-          "AI pricing is 5 cents per successful grade plus 1 cent per audio minute, with feedback included. Each UTC month includes one fewer free AI grade than the number of qualifying active classes. A qualifying class has a rostered student and a real assignment. Failed attempts and duplicate delivery of the same result are not charged again. Sign in to the AI billing page to check self-serve availability.",
+          "Habla publishes an illustrative rate of 5 cents per successful grade plus 1 cent per audio minute, with feedback included. Under that model, the monthly allowance is one fewer AI grade than the number of qualifying active classes; failed attempts and duplicate delivery are excluded. This does not mean billing or AI access is currently available. Sign in to the billing page to see whether your account is explicitly offered a Stripe plan.",
       },
       {
         question: "Does AI save the grade automatically?",
         answer:
-          "Yes. A successful AI run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, Habla saves no score.",
+          "When AI is enabled for an approved account, a successful run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, Habla saves no score.",
       },
       {
         question: "What does the current workflow include?",

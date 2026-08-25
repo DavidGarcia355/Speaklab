@@ -116,7 +116,8 @@ STRIPE_BILLING_ENABLED=true
 For local testing, set `NEXTAUTH_URL=http://localhost:3000`. In production, replace it with the exact
 canonical HTTPS deployment origin; Checkout and Portal return URLs are built from this value. Before
 enabling Checkout, also verify `AI_GRADING_ENABLED=true`, `AI_ACCESS_MODE=paid`, a working
-transcription/grading provider, and (in production) `AI_STUDENT_DATA_APPROVED=true`. The status API
+transcription/grading provider, and (in production) the current versioned
+`AI_STUDENT_DATA_APPROVED` attestation documented in `docs/environment-variables.md`. The status API
 keeps Checkout disabled until both Stripe and these AI prerequisites are ready.
 
 With the flag false or with incomplete configuration, status remains available but Checkout and

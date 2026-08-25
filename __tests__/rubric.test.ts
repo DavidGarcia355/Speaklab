@@ -23,6 +23,8 @@ const mocks = vi.hoisted(() => ({
   deleteSubmission: vi.fn(),
   listGradebookRowsByClassId: vi.fn(),
   enforceGradebookRateLimit: vi.fn(),
+  deleteBlobObjects: vi.fn(),
+  isAssignmentAttachmentReferenced: vi.fn(),
 }));
 
 vi.mock("@/lib/authz", () => ({
@@ -31,6 +33,10 @@ vi.mock("@/lib/authz", () => ({
 
 vi.mock("@/lib/attachment-storage", () => ({
   uploadAssignmentAttachment: mocks.uploadAssignmentAttachment,
+}));
+
+vi.mock("@/lib/blob-deletion", () => ({
+  deleteBlobObjects: mocks.deleteBlobObjects,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -43,6 +49,7 @@ vi.mock("@/lib/db", () => ({
   deleteAssignmentCascade: mocks.deleteAssignmentCascade,
   deleteSubmission: mocks.deleteSubmission,
   listGradebookRowsByClassId: mocks.listGradebookRowsByClassId,
+  isAssignmentAttachmentReferenced: mocks.isAssignmentAttachmentReferenced,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -195,8 +202,12 @@ describe("rubric routes", () => {
     mocks.updateSubmission.mockReset();
     mocks.listGradebookRowsByClassId.mockReset();
     mocks.enforceGradebookRateLimit.mockReset();
+    mocks.deleteBlobObjects.mockReset();
+    mocks.isAssignmentAttachmentReferenced.mockReset();
 
     mocks.requireTeacherEmail.mockResolvedValue("teacher@example.com");
+    mocks.deleteBlobObjects.mockResolvedValue({ failed: 0 });
+    mocks.isAssignmentAttachmentReferenced.mockResolvedValue(false);
     mocks.findClassById.mockResolvedValue({ id: "class_1", name: "Spanish 1" });
     mocks.findAssignmentById.mockResolvedValue({
       id: "asg_1",
@@ -291,7 +302,14 @@ describe("rubric routes", () => {
     );
   });
 
-  it("allows pasted assignments to reuse an existing attachment reference", async () => {
+  it("allows pasted assignments to reuse a server-authorized source attachment", async () => {
+    mocks.findAssignmentById.mockResolvedValue({
+      id: "asg_source",
+      ownerEmail: "teacher@example.com",
+      attachmentName: "directions.pdf",
+      attachmentUrl: "assignment-attachments/asg_source/directions.pdf",
+      attachmentContentType: "application/pdf",
+    });
     mocks.createAssignment.mockImplementation(async (input) => ({
       id: "asg_3",
       classId: "class_1",
@@ -315,11 +333,7 @@ describe("rubric routes", () => {
           description: "Reused assignment",
           instructions: "Respond again.",
           maxPoints: 25,
-          existingAttachment: {
-            fileName: "directions.pdf",
-            url: "https://blob.example/directions.pdf",
-            contentType: "application/pdf",
-          },
+          sourceAssignmentId: "asg_source",
         }),
       }),
       { params: Promise.resolve({ classId: "class_1" }) }
@@ -330,10 +344,58 @@ describe("rubric routes", () => {
     expect(mocks.createAssignment).toHaveBeenCalledWith(
       expect.objectContaining({
         attachmentName: "directions.pdf",
-        attachmentUrl: "https://blob.example/directions.pdf",
+        attachmentUrl: "assignment-attachments/asg_source/directions.pdf",
         attachmentContentType: "application/pdf",
       })
     );
+    expect(mocks.findAssignmentById).toHaveBeenCalledWith(
+      "asg_source",
+      "teacher@example.com"
+    );
+  });
+
+  it("removes a newly uploaded worksheet when assignment creation fails", async () => {
+    const uploadedPath = "assignment-attachments/asg_pending/worksheet.pdf";
+    mocks.uploadAssignmentAttachment.mockResolvedValue(uploadedPath);
+    mocks.createAssignment.mockRejectedValue(new Error("database unavailable"));
+    const dataUrl = `data:application/pdf;base64,${Buffer.from("%PDF-1.7\n%%EOF").toString("base64")}`;
+
+    await expect(
+      createAssignmentRoute(
+        new Request("http://localhost/api/classes/class_1/assignments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: "Worksheet assignment",
+            description: "",
+            instructions: "Complete the worksheet.",
+            maxPoints: 10,
+            attachment: { fileName: "worksheet.pdf", dataUrl },
+          }),
+        }),
+        { params: Promise.resolve({ classId: "class_1" }) }
+      )
+    ).rejects.toThrow("database unavailable");
+
+    expect(mocks.deleteBlobObjects).toHaveBeenCalledWith([uploadedPath], {
+      objectClass: "attachment",
+    });
+  });
+
+  it("rejects the former client-supplied attachment URL shape", () => {
+    expect(
+      assignmentCreateSchema.safeParse({
+        title: "Copied oral quiz",
+        description: "",
+        instructions: "Respond.",
+        maxPoints: 10,
+        existingAttachment: {
+          fileName: "directions.pdf",
+          url: "https://attacker.example/file.pdf",
+          contentType: "application/pdf",
+        },
+      }).success
+    ).toBe(false);
   });
 
   it("updates an assignment rubric and recomputes max points", async () => {
@@ -385,6 +447,86 @@ describe("rubric routes", () => {
         rubric: expect.objectContaining({ title: "Updated rubric" }),
       })
     );
+  });
+
+  it("removes a replacement worksheet if the assignment update fails", async () => {
+    const uploadedPath = "assignment-attachments/asg_1/replacement.pdf";
+    mocks.uploadAssignmentAttachment.mockResolvedValue(uploadedPath);
+    mocks.updateAssignment.mockRejectedValue(new Error("database unavailable"));
+    const dataUrl = `data:application/pdf;base64,${Buffer.from("%PDF-1.7\n%%EOF").toString("base64")}`;
+
+    await expect(
+      updateAssignmentRoute(
+        new Request("http://localhost/api/assignments/asg_1", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: "Updated assignment",
+            instructions: "Complete the replacement worksheet.",
+            maxPoints: 20,
+            attachment: { fileName: "replacement.pdf", dataUrl },
+          }),
+        }),
+        { params: Promise.resolve({ assignmentId: "asg_1" }) }
+      )
+    ).rejects.toThrow("database unavailable");
+
+    expect(mocks.deleteBlobObjects).toHaveBeenCalledWith([uploadedPath], {
+      objectClass: "attachment",
+    });
+  });
+
+  it("deletes an unreferenced worksheet only after a successful replacement", async () => {
+    const oldPath = "assignment-attachments/asg_1/original.pdf";
+    const replacementPath = "assignment-attachments/asg_1/replacement.pdf";
+    mocks.findAssignmentById.mockResolvedValue({
+      id: "asg_1",
+      classId: "class_1",
+      className: "Spanish 1",
+      ownerEmail: "teacher@example.com",
+      title: "Assignment",
+      description: "Keep this student-facing overview.",
+      instructions: "Speak",
+      targetLanguage: "Spanish",
+      maxPoints: 20,
+      maxSubmissions: 2,
+      maxRecordingSeconds: 90,
+      rubric: null,
+      attachmentName: "original.pdf",
+      attachmentUrl: oldPath,
+      attachmentContentType: "application/pdf",
+      createdAt: Date.now(),
+    });
+    mocks.uploadAssignmentAttachment.mockResolvedValue(replacementPath);
+    mocks.updateAssignment.mockImplementation(async (_assignmentId, _teacherEmail, input) => ({
+      id: "asg_1",
+      classId: "class_1",
+      ownerEmail: "teacher@example.com",
+      className: "Spanish 1",
+      createdAt: Date.now(),
+      ...input,
+    }));
+    const dataUrl = `data:application/pdf;base64,${Buffer.from("%PDF-1.7\n%%EOF").toString("base64")}`;
+
+    const response = await updateAssignmentRoute(
+      new Request("http://localhost/api/assignments/asg_1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Updated assignment",
+          instructions: "Complete the replacement worksheet.",
+          maxPoints: 20,
+          attachment: { fileName: "replacement.pdf", dataUrl },
+        }),
+      }),
+      { params: Promise.resolve({ assignmentId: "asg_1" }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.isAssignmentAttachmentReferenced).toHaveBeenCalledWith(oldPath);
+    expect(mocks.deleteBlobObjects).toHaveBeenCalledWith([oldPath], {
+      objectClass: "attachment",
+    });
   });
 
   it("returns 409 when updating an assignment to a duplicate title", async () => {

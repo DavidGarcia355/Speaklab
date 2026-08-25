@@ -1,12 +1,13 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, Mic2, Ribbon } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
+import { createPublicMetadata } from "@/lib/public-metadata";
 
-export const metadata: Metadata = {
-  title: "About David - Habla",
+export const metadata = createPublicMetadata({
+  title: "About David",
   description: "Why David built Habla for his mom, a Spanish teacher fighting recurrent endometrial cancer.",
-};
+  path: "/about",
+});
 
 export default function AboutPage() {
   return (
@@ -31,8 +32,8 @@ export default function AboutPage() {
           <h2 className="surface-title">A small project with a human purpose.</h2>
           <p className="meta">
             Habla started as a practical answer to a problem my mom faced in her own classroom. I
-            build and maintain it myself, and its core audio classroom will stay free because useful
-            speaking practice should not become another burden for teachers.
+            build and maintain it myself, and the core audio classroom is free during the current
+            teacher pilot so useful speaking practice does not begin with another burden.
           </p>
         </article>
 
@@ -51,9 +52,9 @@ export default function AboutPage() {
             support her as much as I can.
           </p>
           <p className="meta">
-            The core classroom remains free. All proceeds from optional AI go toward my mom&apos;s fight.
-            If Habla helps your classroom, using its AI tools or supporting her directly helps me
-            keep building while standing beside her.
+            The current core pilot is free. Proceeds from any optional AI plan that is later offered
+            will go toward my mom&apos;s fight. If Habla helps your classroom, supporting her directly
+            helps me keep building while standing beside her.
           </p>
           <div className="actions">
             <a

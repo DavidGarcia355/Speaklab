@@ -147,7 +147,7 @@ export default function BillingPanel() {
                 ? "AI billing is active"
                 : status.access === "pilot"
                   ? "AI pilot access is active"
-                  : "Activate AI grading"}
+                  : "Choose an AI access option"}
             </h2>
             <p>
               {subscribed
@@ -156,7 +156,7 @@ export default function BillingPanel() {
                   }`
                 : status.access === "pilot"
                   ? "Your manual pilot access remains separate from Stripe billing."
-                  : "Pay any amount with PayPal and include your exact Try Habla login email. The full payment becomes prepaid AI credit, activated within 24 hours."}
+                  : "AI billing is available only when this page explicitly offers Stripe Checkout. Voluntary PayPal support does not purchase or activate AI access."}
             </p>
           </div>
         </div>
@@ -177,12 +177,12 @@ export default function BillingPanel() {
               </button>
             ) : (
               <a
-                className="btn btn-primary"
+                className="btn btn-ghost"
                 href={PAYPAL_URL}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Pay with PayPal
+                Support Habla on PayPal
                 <ArrowRight size={17} aria-hidden="true" />
               </a>
             )
@@ -201,9 +201,8 @@ export default function BillingPanel() {
 
         {!status.checkoutAvailable && !subscribed ? (
           <p className="billing-availability-note">
-            PayPal is available now. Include your exact Try Habla login email with the payment. Your
-            full payment becomes prepaid AI credit at the published rates, activated within 24 hours.
-            This temporary flow does not auto-renew or transfer automatically to Stripe.
+            Stripe self-service is not available for this account right now. The separate PayPal
+            link is voluntary support only; it does not purchase or activate AI access.
           </p>
         ) : null}
       </div>
@@ -211,7 +210,11 @@ export default function BillingPanel() {
       <aside className="billing-usage-card" aria-label="Current month AI usage">
         <span>Current UTC month</span>
         <strong>{usd.format(status.usage.estimatedChargeUsd)}</strong>
-        <small>estimated Habla usage charge</small>
+        <small>
+          {subscribed
+            ? "estimated current usage charge"
+            : "estimated value at published rates — not an amount due"}
+        </small>
         <dl>
           <div>
             <dt>Successful grades</dt>
@@ -233,7 +236,7 @@ export default function BillingPanel() {
             <dd>Included</dd>
           </div>
           <div>
-            <dt>Free credits</dt>
+            <dt>{subscribed ? "Included credits" : "Published-rate credits"}</dt>
             <dd>
               {status.usage.freeCreditsUsed}/{status.usage.monthlyFreeCredits}
             </dd>

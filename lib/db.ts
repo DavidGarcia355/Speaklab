@@ -1694,6 +1694,19 @@ export async function listStorageObjectsForHardDeleteBefore(cutoffTimestamp: num
   };
 }
 
+export async function isAssignmentAttachmentReferenced(attachmentUrl: string) {
+  const normalized = attachmentUrl.trim();
+  if (!normalized) return false;
+  const result = await query(
+    `SELECT 1 as found
+    FROM assignments
+    WHERE attachment_url = ?
+    LIMIT 1`,
+    [normalized]
+  );
+  return Boolean(result.rows[0]);
+}
+
 export async function hardDeleteSoftDeletedBefore(cutoffTimestamp: number) {
   const submissionsDeleted = await query(
     `DELETE FROM submissions WHERE deleted_at IS NOT NULL AND deleted_at < ?`,

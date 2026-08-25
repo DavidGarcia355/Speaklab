@@ -22,6 +22,9 @@ const mocks = vi.hoisted(() => ({
   buildTeacherEventMetadata: vi.fn(),
   sendTeacherUpgradeConfirmationEmail: vi.fn(),
   getServerSession: vi.fn(),
+  findAssignmentById: vi.fn(),
+  setUserDefaultLanguage: vi.fn(),
+  deleteBlobObjects: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -38,6 +41,8 @@ vi.mock("@/lib/db", () => ({
   createClass: mocks.createClass,
   updateClassName: mocks.updateClassName,
   createAssignment: mocks.createAssignment,
+  findAssignmentById: mocks.findAssignmentById,
+  setUserDefaultLanguage: mocks.setUserDefaultLanguage,
 }));
 
 vi.mock("@/lib/activity", () => ({
@@ -61,6 +66,10 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/attachment-storage", () => ({
   uploadAssignmentAttachment: mocks.uploadAssignmentAttachment,
+}));
+
+vi.mock("@/lib/blob-deletion", () => ({
+  deleteBlobObjects: mocks.deleteBlobObjects,
 }));
 
 vi.mock("@/lib/email", () => ({
@@ -139,6 +148,10 @@ describe("tracking hooks", () => {
     mocks.parseOrThrow400.mockReset();
     mocks.buildTeacherEventMetadata.mockReset();
     mocks.sendTeacherUpgradeConfirmationEmail.mockReset();
+    mocks.findAssignmentById.mockReset();
+    mocks.setUserDefaultLanguage.mockReset();
+    mocks.deleteBlobObjects.mockReset();
+    mocks.deleteBlobObjects.mockResolvedValue({ failed: 0 });
 
     mocks.upsertGoogleUserAndGetRole.mockResolvedValue("student");
     mocks.getUserRoleByEmail.mockResolvedValue("student");
@@ -404,6 +417,7 @@ describe("activity helper", () => {
 
     await expect(trackActivity("user_signed_in", "teacher@example.com")).resolves.toBeUndefined();
   });
+
 });
 
 describe("admin access helper", () => {

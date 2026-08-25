@@ -79,9 +79,29 @@ describe("AI grading feature flag", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     process.env.AI_GRADING_ENABLED = original;
     if (typeof originalBulk === "undefined") delete process.env.AI_BULK_GRADING_ENABLED;
     else process.env.AI_BULK_GRADING_ENABLED = originalBulk;
+  });
+
+  it("rejects production AI before auth or audio access when student-data review is absent", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AI_GRADING_ENABLED", "true");
+    vi.stubEnv("AI_TRANSCRIPTION_PROVIDER", "mock");
+    vi.stubEnv("AI_GRADING_PROVIDER", "mock");
+    vi.stubEnv("AI_STUDENT_DATA_APPROVED", "false");
+    const { POST } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/submissions/sub_1/ai-grade", { method: "POST" }),
+      { params: Promise.resolve({ submissionId: "sub_1" }) }
+    );
+
+    expect(response.status).toBe(503);
+    expect(mocks.requireTeacherEmail).not.toHaveBeenCalled();
+    expect(mocks.findSubmissionForAiGrade).not.toHaveBeenCalled();
+    expect(mocks.blobGet).not.toHaveBeenCalled();
   });
 
   it("rejects AI grading while disabled before touching auth, audio, or providers", async () => {

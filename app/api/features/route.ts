@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { withApiHandler } from "@/lib/http";
 import { assertAiProviderConfig, getAiConfig, isLocalMockAi } from "@/lib/ai/config";
+import {
+  assertGradingProviderConfiguration,
+  getGradingConfig,
+} from "@/lib/grading/config";
 
 export const runtime = "nodejs";
 
@@ -11,6 +15,7 @@ export async function GET(request: Request) {
     if (aiReady) {
       try {
         assertAiProviderConfig(config);
+        assertGradingProviderConfiguration(getGradingConfig());
       } catch {
         aiReady = false;
       }

@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -12,13 +11,15 @@ import {
 import BrandBar from "@/app/components/BrandBar";
 import PricingCalculator from "@/app/pricing/PricingCalculator";
 import StripeSupportButton from "@/app/pricing/StripeSupportButton";
+import { createPublicMetadata } from "@/lib/public-metadata";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 
-export const metadata: Metadata = {
-  title: "Pricing - Habla",
+export const metadata = createPublicMetadata({
+  title: "Pricing",
   description:
-    "Habla's core audio classroom is free forever. Estimate optional AI grading from your classes, roster size, assignments, and recording length.",
-};
+    "Habla's core audio classroom is free during the current teacher pilot. Preview published optional AI rates.",
+  path: "/pricing",
+});
 
 const CORE_FEATURES = [
   "Classes, rosters, and speaking assignments",
@@ -28,11 +29,11 @@ const CORE_FEATURES = [
 ] as const;
 
 const AI_RULES = [
-  "One fewer monthly AI credit than your number of qualifying active classes",
-  "Charged only after a successful, unique AI grade",
-  "AI feedback is included with every successful grade",
-  "No charge for failed attempts or duplicate delivery of the same result",
-  "A free credit covers the whole result and never rolls over",
+  "If offered, the monthly allowance is one fewer AI grade than your qualifying active classes",
+  "The published model counts only a successful, unique AI grade",
+  "The published AI grade rate includes feedback",
+  "Failed attempts and duplicate delivery are excluded from the estimate",
+  "Each estimated allowance covers one whole result and does not roll over",
 ] as const;
 
 export default function PricingPage() {
@@ -43,11 +44,10 @@ export default function PricingPage() {
       <section className="pricing-hero">
         <div className="pricing-hero-copy">
           <p className="pill">Free audio classroom</p>
-          <h1>Use Habla forever. Add AI only when it earns its keep.</h1>
+          <h1>Use the core classroom free during the teacher pilot.</h1>
           <p>
-            Classes, rosters, assignments, recordings, and teacher grading stay free. Optional AI is
-            usage-based, so a small classroom pays for small usage and a busy classroom can see its
-            estimate before turning AI on.
+            Classes, rosters, assignments, recordings, and teacher grading stay free. Optional AI,
+            when a signed-in account is explicitly offered access, uses published usage-based rates.
           </p>
           <div className="actions hero-actions">
             <a className="btn btn-primary" href="#support-habla">
@@ -55,7 +55,7 @@ export default function PricingPage() {
               <ArrowRight size={17} aria-hidden="true" />
             </a>
             <Link className="btn btn-ghost" href="/teacher/register">
-              Get teacher access
+              Request teacher access
             </Link>
           </div>
         </div>
@@ -86,7 +86,7 @@ export default function PricingPage() {
           </h2>
           <p>
             I build and maintain Habla myself. Choosing optional AI helps support my family while I
-            keep the core audio classroom free for teachers and students.
+            keep the current core audio pilot free for teachers and students.
           </p>
         </div>
         <Link className="btn btn-ghost" href="/about">
@@ -105,11 +105,9 @@ export default function PricingPage() {
             <h2 id="support-habla-heading">Support Habla now</h2>
           </div>
           <p>
-            Pay any amount with PayPal and include the exact email you use to sign in to Try Habla.
-            Your full payment becomes prepaid AI credit at the published rates, and access is
-            activated within 24 hours. This temporary PayPal flow does not auto-renew or transfer
-            automatically to Stripe. Payments support Try Habla and my family and are not
-            tax-deductible.
+            PayPal is a voluntary way to support Try Habla and my family. It does not purchase or
+            activate AI access, does not auto-renew, and is not tax-deductible. The signed-in billing
+            page will explicitly say when a self-service AI payment option is available.
           </p>
         </div>
         <StripeSupportButton />
@@ -125,9 +123,9 @@ export default function PricingPage() {
             <AudioLines size={25} />
           </div>
           <p className="pill pill-subtle">Habla core</p>
-          <h2>Audio learning stays free</h2>
+          <h2>Core audio is free in the current pilot</h2>
           <p className="pricing-value-price">$0</p>
-          <p className="pricing-value-cadence">forever — no subscription</p>
+          <p className="pricing-value-cadence">no core subscription during the pilot</p>
           <ul>
             {CORE_FEATURES.map((feature) => (
               <li key={feature}>
@@ -142,9 +140,9 @@ export default function PricingPage() {
           <div className="pricing-value-icon" aria-hidden="true">
             <BrainCircuit size={25} />
           </div>
-          <p className="pill pill-subtle">Optional AI</p>
-          <h2>Simple pricing that fits your classroom</h2>
-          <div className="pricing-rate-grid" aria-label="AI launch rates">
+          <p className="pill pill-subtle">Published AI rates</p>
+          <h2>Preview the optional AI pricing model</h2>
+          <div className="pricing-rate-grid" aria-label="Published AI rates">
             <div>
               <strong>{TEACHER_AI_PRICE_BOOK.baseSuccessfulGradeUsd * 100}¢</strong>
               <span>per successful grade</span>
@@ -167,7 +165,7 @@ export default function PricingPage() {
             ))}
           </ul>
           <Link className="btn btn-primary pricing-billing-cta" href="/billing">
-            Set up AI billing
+            View AI access options
             <ArrowRight size={17} aria-hidden="true" />
           </Link>
         </article>
@@ -184,11 +182,11 @@ export default function PricingPage() {
               <Gauge size={15} aria-hidden="true" />
               Live classroom estimate
             </p>
-            <h2 id="ai-calculator-heading">See what you would pay before turning AI on</h2>
+            <h2 id="ai-calculator-heading">Preview the published AI rates</h2>
           </div>
           <p>
-            Use the controls to estimate what you would pay Habla each month. The estimate assumes AI
-            runs on every configured submission; using AI less often costs less.
+            Use the controls for an illustrative monthly estimate. It does not activate AI or create
+            a charge; access exists only when the signed-in billing page explicitly offers it.
           </p>
         </div>
         <PricingCalculator />
@@ -207,12 +205,12 @@ export default function PricingPage() {
             <p>Reaching an AI limit pauses AI only. Recording, teaching, and manual grading remain available.</p>
           </article>
           <article>
-            <strong>One delivered result, one charge</strong>
-            <p>You pay once for each successful, unique result; never for failed attempts or duplicate delivery.</p>
+            <strong>One delivered result in the estimate</strong>
+            <p>The published model counts each successful, unique result and excludes failures or duplicates.</p>
           </article>
           <article>
-            <strong>Actual usage, clear units</strong>
-            <p>Audio is measured to the second, and feedback is included with every successful grade.</p>
+            <strong>Clear estimate units</strong>
+            <p>The published model measures audio to the second and includes feedback with a successful grade.</p>
           </article>
         </div>
       </section>
@@ -237,8 +235,9 @@ export default function PricingPage() {
 
       <p className="pricing-rollout-note">
         Rates are in USD and the calculator estimates what a teacher would pay Habla; it is not a quote
-        or invoice. Teacher AI billing is opening in stages; sign in to check availability. Taxes may
-        apply. District terms remain separate.
+        or invoice. PayPal support does not buy AI access. Stripe self-service is available only when
+        the signed-in billing page explicitly offers it. Taxes may apply. District terms remain
+        separate.
       </p>
     </main>
   );

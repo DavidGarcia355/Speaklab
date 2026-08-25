@@ -5,7 +5,10 @@ const mocks = vi.hoisted(() => ({
   blobGet: vi.fn(),
   blobDel: vi.fn(),
   requireTeacherEmail: vi.fn(),
+  requireAuthenticatedEmail: vi.fn(),
   findSubmissionAccessById: vi.fn(),
+  findAssignmentById: vi.fn(),
+  isStudentOnRoster: vi.fn(),
 }));
 
 vi.mock("@vercel/blob", () => ({
@@ -17,22 +20,35 @@ vi.mock("@vercel/blob", () => ({
 const originalAudioStoreId = process.env.AUDIO_BLOB_STORE_ID;
 const originalAudioToken = process.env.AUDIO_READ_WRITE_TOKEN;
 const originalVercel = process.env.VERCEL;
+const originalEnforceStudentDomain = process.env.ENFORCE_STUDENT_DOMAIN;
+const originalRequireRoster = process.env.REQUIRE_ROSTER_FOR_SUBMISSIONS;
+const originalStudentDomain = process.env.STUDENT_DOMAIN;
+const originalLocalBypass = process.env.LOCAL_DEV_BYPASS_AUTH;
+
+function restoreEnv(name: string, value: string | undefined) {
+  if (typeof value === "undefined") delete process.env[name];
+  else process.env[name] = value;
+}
 
 afterAll(() => {
-  if (typeof originalAudioStoreId === "undefined") delete process.env.AUDIO_BLOB_STORE_ID;
-  else process.env.AUDIO_BLOB_STORE_ID = originalAudioStoreId;
-  if (typeof originalAudioToken === "undefined") delete process.env.AUDIO_READ_WRITE_TOKEN;
-  else process.env.AUDIO_READ_WRITE_TOKEN = originalAudioToken;
-  if (typeof originalVercel === "undefined") delete process.env.VERCEL;
-  else process.env.VERCEL = originalVercel;
+  restoreEnv("AUDIO_BLOB_STORE_ID", originalAudioStoreId);
+  restoreEnv("AUDIO_READ_WRITE_TOKEN", originalAudioToken);
+  restoreEnv("VERCEL", originalVercel);
+  restoreEnv("ENFORCE_STUDENT_DOMAIN", originalEnforceStudentDomain);
+  restoreEnv("REQUIRE_ROSTER_FOR_SUBMISSIONS", originalRequireRoster);
+  restoreEnv("STUDENT_DOMAIN", originalStudentDomain);
+  restoreEnv("LOCAL_DEV_BYPASS_AUTH", originalLocalBypass);
 });
 
 vi.mock("@/lib/authz", () => ({
   requireTeacherEmail: mocks.requireTeacherEmail,
+  requireAuthenticatedEmail: mocks.requireAuthenticatedEmail,
 }));
 
 vi.mock("@/lib/db", () => ({
   findSubmissionAccessById: mocks.findSubmissionAccessById,
+  findAssignmentById: mocks.findAssignmentById,
+  isStudentOnRoster: mocks.isStudentOnRoster,
 }));
 
 vi.mock("@/lib/http", async () => {
@@ -123,6 +139,180 @@ describe("private-only audio storage", () => {
 
     expect(mocks.blobPut).toHaveBeenCalledTimes(1);
     expect(mocks.blobPut.mock.calls[0]?.[2]).toMatchObject({ access: "private" });
+  });
+});
+
+describe("private worksheet storage and authorized delivery", () => {
+  beforeEach(() => {
+    mocks.blobPut.mockReset();
+    mocks.blobGet.mockReset();
+    mocks.requireAuthenticatedEmail.mockReset();
+    mocks.findAssignmentById.mockReset();
+    mocks.isStudentOnRoster.mockReset();
+    mocks.requireAuthenticatedEmail.mockResolvedValue("teacher@example.com");
+    mocks.isStudentOnRoster.mockResolvedValue(false);
+    process.env.AUDIO_BLOB_STORE_ID = "store_audio_test";
+    process.env.VERCEL = "1";
+    process.env.ENFORCE_STUDENT_DOMAIN = "false";
+    process.env.REQUIRE_ROSTER_FOR_SUBMISSIONS = "false";
+    process.env.LOCAL_DEV_BYPASS_AUTH = "false";
+    delete process.env.AUDIO_READ_WRITE_TOKEN;
+    delete process.env.STUDENT_DOMAIN;
+  });
+
+  it("uploads only signature-validated worksheets with private access", async () => {
+    const { uploadAssignmentAttachment } = await import("@/lib/attachment-storage");
+    mocks.blobPut.mockResolvedValue({
+      pathname: "assignment-attachments/asg_1/file.pdf",
+    });
+    const pdf = Buffer.from("%PDF-1.7\n%%EOF", "ascii");
+
+    const result = await uploadAssignmentAttachment({
+      assignmentId: "asg_1",
+      fileName: "My Worksheet.pdf",
+      mimeType: "application/pdf",
+      buffer: pdf,
+    });
+
+    expect(result).toBe("assignment-attachments/asg_1/file.pdf");
+    expect(mocks.blobPut).toHaveBeenCalledWith(
+      expect.stringMatching(/^assignment-attachments\/asg_1\//),
+      pdf,
+      expect.objectContaining({
+        access: "private",
+        contentType: "application/pdf",
+        storeId: "store_audio_test",
+      })
+    );
+
+    await expect(
+      uploadAssignmentAttachment({
+        assignmentId: "asg_1",
+        fileName: "fake.pdf",
+        mimeType: "application/pdf",
+        buffer: Buffer.from("not a pdf"),
+      })
+    ).rejects.toThrow(/contents/);
+    expect(mocks.blobPut).toHaveBeenCalledTimes(1);
+  });
+
+  async function callAttachmentRoute(assignmentId = "asg_1") {
+    const { GET } = await import("@/app/api/assignments/[assignmentId]/attachment/route");
+    return GET(new Request(`http://localhost/api/assignments/${assignmentId}/attachment`), {
+      params: Promise.resolve({ assignmentId }),
+    });
+  }
+
+  function privateAssignment() {
+    return {
+      id: "asg_1",
+      classId: "class_1",
+      ownerEmail: "teacher@example.com",
+      attachmentName: "worksheet.pdf",
+      attachmentUrl: "assignment-attachments/asg_1/file.pdf",
+      attachmentContentType: "application/pdf",
+    };
+  }
+
+  it("serves a private worksheet to its teacher through the proxy", async () => {
+    mocks.findAssignmentById.mockResolvedValue(privateAssignment());
+    mocks.blobGet.mockResolvedValue({
+      statusCode: 200,
+      stream: new Response("%PDF-1.7").body,
+      blob: { contentType: "application/pdf", size: 8 },
+    });
+
+    const response = await callAttachmentRoute();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(mocks.blobGet).toHaveBeenCalledWith(
+      "assignment-attachments/asg_1/file.pdf",
+      expect.objectContaining({ access: "private", storeId: "store_audio_test" })
+    );
+  });
+
+  it("allows signed-in students from open assignment links without a roster lookup", async () => {
+    mocks.findAssignmentById.mockResolvedValue(privateAssignment());
+    mocks.requireAuthenticatedEmail.mockResolvedValue("student@example.com");
+    mocks.blobGet.mockResolvedValue({
+      statusCode: 200,
+      stream: new Response("%PDF-1.7").body,
+      blob: { contentType: "application/pdf", size: 8 },
+    });
+
+    const response = await callAttachmentRoute();
+
+    expect(response.status).toBe(200);
+    expect(mocks.isStudentOnRoster).not.toHaveBeenCalled();
+  });
+
+  it("requires roster membership when submission links are roster-restricted", async () => {
+    process.env.REQUIRE_ROSTER_FOR_SUBMISSIONS = "true";
+    mocks.findAssignmentById.mockResolvedValue(privateAssignment());
+    mocks.requireAuthenticatedEmail.mockResolvedValue("student@example.com");
+    mocks.blobGet.mockResolvedValue({
+      statusCode: 200,
+      stream: new Response("%PDF-1.7").body,
+      blob: { contentType: "application/pdf", size: 8 },
+    });
+
+    const denied = await callAttachmentRoute();
+    expect(denied.status).toBe(403);
+    expect(mocks.blobGet).not.toHaveBeenCalled();
+
+    mocks.isStudentOnRoster.mockResolvedValue(true);
+    const allowed = await callAttachmentRoute();
+    expect(allowed.status).toBe(200);
+    expect(mocks.isStudentOnRoster).toHaveBeenCalledWith("class_1", "student@example.com");
+  });
+
+  it("applies the same configured student-domain rule as submissions", async () => {
+    process.env.ENFORCE_STUDENT_DOMAIN = "true";
+    process.env.STUDENT_DOMAIN = "school.example";
+    mocks.findAssignmentById.mockResolvedValue(privateAssignment());
+    mocks.blobGet.mockResolvedValue({
+      statusCode: 200,
+      stream: new Response("%PDF-1.7").body,
+      blob: { contentType: "application/pdf", size: 8 },
+    });
+
+    mocks.requireAuthenticatedEmail.mockResolvedValue("student@outside.example");
+    const denied = await callAttachmentRoute();
+    expect(denied.status).toBe(403);
+    expect(mocks.blobGet).not.toHaveBeenCalled();
+
+    mocks.requireAuthenticatedEmail.mockResolvedValue("student@school.example");
+    const allowed = await callAttachmentRoute();
+    expect(allowed.status).toBe(200);
+    expect(mocks.isStudentOnRoster).not.toHaveBeenCalled();
+  });
+
+  it("returns only a proxy URL from the public assignment endpoint", async () => {
+    mocks.findAssignmentById.mockResolvedValue({
+      ...privateAssignment(),
+      className: "Spanish 1",
+      title: "Speaking check",
+      description: "",
+      instructions: "Respond.",
+      targetLanguage: "Spanish",
+      maxPoints: 10,
+      maxSubmissions: 1,
+      maxRecordingSeconds: 60,
+      rubric: null,
+      createdAt: 1,
+    });
+    const { GET } = await import("@/app/api/student/assignments/[assignmentId]/route");
+    const response = await GET(new Request("http://localhost/api/student/assignments/asg_1"), {
+      params: Promise.resolve({ assignmentId: "asg_1" }),
+    });
+    const body = (await response.json()) as { item: Record<string, unknown> };
+
+    expect(response.status).toBe(200);
+    expect(body.item.attachmentUrl).toBe("/api/assignments/asg_1/attachment");
+    expect(body.item.ownerEmail).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("file.pdf");
   });
 });
 

@@ -61,6 +61,11 @@ vercel
 powershell -ExecutionPolicy Bypass -File scripts/sync-vercel-env.ps1 -EnvFile .env.local -Targets preview,production
 ```
 
+The sync script manages `TEACHER_ALLOWLIST` and
+`ALLOW_TEACHER_SELF_REGISTRATION`. When either is omitted or blank, it clears
+the corresponding Vercel value; production teacher self-registration therefore
+stays closed unless you deliberately set the gate to `true`.
+
 7. Redeploy:
 
 ```bash
@@ -74,7 +79,7 @@ npm run check
 npm run start
 ```
 
-`npm run check` runs lint, typecheck, and build.
+`npm run check` runs lint, the full automated test suite, typecheck, and a production build.
 
 ## Health Check
 
@@ -113,13 +118,18 @@ TURSO_DATABASE_URL=...
 TURSO_AUTH_TOKEN=...
 UPSTASH_REDIS_REST_URL=...
 UPSTASH_REDIS_REST_TOKEN=...
-BLOB_READ_WRITE_TOKEN=...
+AUDIO_BLOB_STORE_ID=...
 CRON_SECRET=...
 NEXTAUTH_URL=https://your-app.vercel.app
 ```
 
 Notes:
 - If required vars are missing, APIs fail closed and return server configuration errors.
+- `AUDIO_BLOB_STORE_ID` selects the private Vercel Blob store used at runtime. Vercel
+  deployments authenticate to it with the project's short-lived OIDC identity, so do not add
+  `AUDIO_READ_WRITE_TOKEN` to Vercel.
+- `BLOB_READ_WRITE_TOKEN` is not a runtime setting. It is only for inventorying and deleting
+  objects in the legacy public store during the one-time media migration.
 
 ### Google OAuth Setup
 
@@ -152,11 +162,57 @@ Notes:
 
 ### Storage Setup
 
-1. Create Vercel Blob store for submission audio.
-2. Add `BLOB_READ_WRITE_TOKEN` to Vercel env vars.
-3. Verify the store supports private Blob access before production classroom use.
-4. Audio retrieval is authorized through protected API routes.
-5. The app fails safely instead of falling back to public storage for student audio.
+1. Create or select a private Vercel Blob store for submission audio and assignment attachments.
+2. Connect that store to the Vercel project so deployed functions can use project OIDC, then add
+   its store ID as `AUDIO_BLOB_STORE_ID` in each deployed environment.
+3. Do not add a static `AUDIO_READ_WRITE_TOKEN` to Vercel. Use one only in the local/off-Vercel
+   process that performs the one-time legacy-media migration, then revoke or remove it.
+4. Keep `BLOB_READ_WRITE_TOKEN` out of normal runtime environments. It authorizes the legacy
+   public store and is needed only by the migration's inventory and cleanup steps.
+5. Audio and worksheet retrieval is authorized through protected API routes. The app fails safely
+   instead of falling back to public storage for new student media.
+
+### Private Media Release And Migration
+
+Do not promote the release until this sequence is complete. Run deployment and migration as one
+controlled maintenance operation so the compatibility window is short:
+
+1. Build from a clean branch based on current `origin/main`, run `npm run release:check`, and retain
+   the successful result.
+2. Configure the production private store connection and `AUDIO_BLOB_STORE_ID`; leave
+   `AUDIO_READ_WRITE_TOKEN` and `BLOB_READ_WRITE_TOKEN` out of the Vercel runtime.
+3. From a secured local/off-Vercel operator environment, provide read-only Turso credentials, the
+   legacy `BLOB_READ_WRITE_TOKEN`, `AUDIO_BLOB_STORE_ID`, and a short-lived
+   `AUDIO_READ_WRITE_TOKEN`. Run the migration with no flags. The default is a read-only dry run;
+   it inventories the legacy store and byte-validates both migration sources and existing private
+   database references:
+
+   ```bash
+   node scripts/migrate-public-audio-to-private.mjs
+   ```
+
+4. Review the dry-run totals and blockers. Separately verify (a) a current, restorable production
+   database backup and (b) a recoverable backup/export of both legacy Blob prefixes,
+   `submissions/` and `assignment-attachments/`. Obtain explicit release-owner signoff. A database
+   backup cannot restore unreferenced legacy objects removed by the final sweep.
+5. Deploy the compatibility/private-media code first and verify health/auth guards. Do not promote
+   while legacy objects remain public.
+6. In the same secured operator environment, run:
+
+   ```bash
+   node scripts/migrate-public-audio-to-private.mjs --apply --backup-confirmed --legacy-media-backup-confirmed
+   ```
+
+7. Run the default dry run again. Treat any remaining legacy database reference, pending cleanup,
+   or in-scope public object as a launch blocker.
+8. Revoke/remove the temporary private token and legacy public-store token. Confirm neither static
+   token remains in Vercel, then complete an authenticated recording -> playback -> grading smoke
+   test before promotion.
+
+`--backup-confirmed` asserts that the database backup is restorable;
+`--legacy-media-backup-confirmed` separately asserts that both legacy Blob prefixes have a
+recoverable backup/export. Neither flag creates or tests its backup. The operator remains
+responsible for confirming both and obtaining signoff before `--apply`.
 
 ### District Review And Privacy Docs
 

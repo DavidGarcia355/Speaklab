@@ -41,6 +41,32 @@ describe("AI feature readiness", () => {
     await expect(readFeatures()).resolves.toMatchObject({ aiGradingEnabled: false });
   });
 
+  it("hides production AI until the student-data review is explicitly recorded", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AI_GRADING_ENABLED", "true");
+    vi.stubEnv("AI_TRANSCRIPTION_PROVIDER", "mock");
+    vi.stubEnv("AI_GRADING_PROVIDER", "mock");
+    vi.stubEnv("AI_STUDENT_DATA_APPROVED", "false");
+
+    await expect(readFeatures()).resolves.toMatchObject({
+      aiGradingEnabled: false,
+      aiBulkGradingEnabled: false,
+    });
+  });
+
+  it("hides AI when the provider-neutral grading configuration cannot run", async () => {
+    vi.stubEnv("AI_GRADING_ENABLED", "true");
+    vi.stubEnv("AI_TRANSCRIPTION_PROVIDER", "mock");
+    vi.stubEnv("AI_GRADING_PROVIDER", "mock");
+    vi.stubEnv("GRADING_DEFAULT_PROVIDER", "google");
+    vi.stubEnv("GOOGLE_API_KEY", "");
+
+    await expect(readFeatures()).resolves.toMatchObject({
+      aiGradingEnabled: false,
+      aiBulkGradingEnabled: false,
+    });
+  });
+
   it("exposes single and bulk controls only when both are fully ready", async () => {
     vi.stubEnv("AI_GRADING_ENABLED", "true");
     vi.stubEnv("AI_BULK_GRADING_ENABLED", "true");
@@ -59,7 +85,7 @@ describe("AI feature readiness", () => {
     vi.stubEnv("AI_GRADING_ENABLED", "true");
     vi.stubEnv("AI_TRANSCRIPTION_PROVIDER", "mock");
     vi.stubEnv("AI_GRADING_PROVIDER", "mock");
-    vi.stubEnv("AI_STUDENT_DATA_APPROVED", "true");
+    vi.stubEnv("AI_STUDENT_DATA_APPROVED", "reviewed-2026-08-25");
     vi.stubEnv("AI_ACCESS_MODE", "all");
     vi.stubEnv("ALLOW_TEACHER_SELF_REGISTRATION", "true");
 

@@ -100,8 +100,8 @@ export default function PricingCalculator() {
           <p className="pill pill-subtle">Build your estimate</p>
           <h3>Match AI to your classroom</h3>
           <p>
-            Core Habla stays free. These controls estimate what you would pay Habla for the optional
-            AI grading you choose to use.
+            Core Habla is free during the current teacher pilot. These controls illustrate the
+            published rates for optional AI if it is offered.
           </p>
         </div>
 
@@ -140,7 +140,7 @@ export default function PricingCalculator() {
           <strong aria-live="polite" aria-atomic="true">
             {usd.format(estimate.estimatedMonthlyUsd)}
           </strong>
-          <small>what you would pay Habla</small>
+          <small>if optional AI billing is offered and activated</small>
         </div>
 
         <dl className="pricing-estimate-stats">
@@ -153,16 +153,16 @@ export default function PricingCalculator() {
             <dd>{number.format(estimate.projectedAiGrades)}</dd>
           </div>
           <div>
-            <dt>Free each month</dt>
+            <dt>Allowance in estimate</dt>
             <dd>{number.format(estimate.appliedFreeAiGrades)}</dd>
           </div>
           <div>
-            <dt>Billable grades</dt>
+            <dt>Grades after allowance</dt>
             <dd>{number.format(estimate.billableAiGrades)}</dd>
           </div>
         </dl>
 
-        <div className="pricing-receipt" aria-label="Estimated Habla invoice details">
+        <div className="pricing-receipt" aria-label="Published-rate estimate details">
           <div>
             <span>Successful AI grades</span>
             <span>{usd.format(estimate.baseChargeUsd)}</span>
@@ -183,15 +183,15 @@ export default function PricingCalculator() {
 
         <p className="pricing-estimate-note">
           {estimate.monthlyFreeAiGrades === 0
-            ? "Your first active class keeps Habla free; add another active class to unlock a monthly AI credit."
-            : `${number.format(estimate.monthlyFreeAiGrades)} monthly AI ${
+            ? "Under the published model, the first class adds no AI allowance; a second qualifying class would add one."
+            : `The published model would include ${number.format(estimate.monthlyFreeAiGrades)} monthly AI ${
                 estimate.monthlyFreeAiGrades === 1 ? "credit" : "credits"
-              } included — one fewer than your active class count.`}
+              } — one fewer than your active class count.`}
         </p>
         <p className="pricing-estimate-fineprint">
-          This estimates what you would pay Habla, not a final invoice. Recording time is measured
-          by whole seconds. Feedback is included. Failed attempts and duplicate results are not
-          charged.
+          This is an illustration of published rates, not a current charge, quote, or invoice. No
+          amount is due unless you deliberately activate a Stripe plan offered on your signed-in
+          billing page. The estimate excludes failed attempts and duplicate results.
         </p>
       </aside>
     </div>
