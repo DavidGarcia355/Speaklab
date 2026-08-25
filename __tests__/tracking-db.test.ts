@@ -272,4 +272,89 @@ describe("tracking db helpers", () => {
       title: "ORAL WARMUP",
     });
   });
+
+  it("reports real AI usage and cost in the CEO payment console", async () => {
+    const db = await loadDbModule();
+    const teacherEmail = "ceo-metrics@example.com";
+    const since = Date.now();
+    await new Promise((resolve) => setTimeout(resolve, 2));
+
+    await db.upsertGoogleUserAndGetRole(teacherEmail);
+    await db.setUserRoleTeacher(teacherEmail);
+    await db.setUserPaid(teacherEmail, true);
+
+    const createdClass = await db.createClass("CEO Metrics", teacherEmail);
+    const assignment = await db.createAssignment({
+      classId: createdClass.id,
+      ownerEmail: teacherEmail,
+      title: "Usage proof",
+      description: "",
+      instructions: "Speak.",
+      maxPoints: 10,
+      maxSubmissions: 0,
+      maxRecordingSeconds: 180,
+      rubric: null,
+      attachmentName: "",
+      attachmentUrl: "",
+      attachmentContentType: "",
+    });
+    const submission = await db.createSubmission({
+      assignmentId: assignment.id,
+      studentName: "Student",
+      studentEmail: "ceo-metrics-student@example.com",
+      audioBlobUrl: "https://blob.example/ceo-metrics.webm",
+    });
+    const attempt = await db.createAiGradingAttempt({
+      submissionId: submission.id,
+      teacherEmail,
+      status: "completed",
+      transcript: "Hola",
+      detectedLanguage: "es",
+      transcriptQuality: "good",
+      durationSeconds: 12,
+      suggestedScore: 9,
+      rubricScores: [],
+      feedback: "Strong response.",
+      strengths: [],
+      improvements: [],
+      evidence: [],
+      confidence: "high",
+      warnings: [],
+      teacherAttention: "review",
+      transcriptionProvider: "openai",
+      gradingProvider: "openai",
+      transcriptionModel: "audio-model",
+      gradingModel: "grading-model",
+    });
+    await db.recordGradingProviderRequest({
+      attemptId: attempt.id,
+      submissionId: submission.id,
+      teacherEmail,
+      requestStage: "grade",
+      provider: "openai",
+      model: "grading-model",
+      status: "completed",
+      inputTokens: 100,
+      outputTokens: 25,
+      estimatedCostMicrousd: 1_234,
+    });
+
+    await expect(db.getPlatformAiGradingSummarySince(since)).resolves.toEqual({
+      successfulGrades: 1,
+      failedGrades: 0,
+      providerRequests: 1,
+      estimatedCostMicrousd: 1_234,
+    });
+
+    const teacher = await db.findTeacherFunnelRowByEmail(teacherEmail);
+    expect(teacher).toMatchObject({
+      email: teacherEmail,
+      isPaid: true,
+      aiGradingCount: 1,
+      aiGradingFailedCount: 0,
+      estimatedAiCostMicrousd: 1_234,
+    });
+    expect(teacher?.latestAiGradingAt).toBeTypeOf("number");
+  });
+
 });

@@ -122,6 +122,15 @@ export type TeacherFunnelRow = {
   submissionCount: number;
   latestActivityAt: number | null;
   isPaid: boolean;
+  aiGradingCount: number;
+  aiGradingFailedCount: number;
+  latestAiGradingAt: number | null;
+  estimatedAiCostMicrousd: number;
+  manualCreditMicrousd: number;
+  manualCreditStartedAt: number | null;
+  manualPayerEmail: string;
+  manualSuccessfulAiGrades: number;
+  manualAiAudioSeconds: number;
 };
 
 export type TrackingSummaryRow = {
@@ -252,6 +261,13 @@ export type GradingUsageAggregate = {
   latencyMs: number;
   retries: number;
   escalations: number;
+  estimatedCostMicrousd: number;
+};
+
+export type PlatformAiGradingSummary = {
+  successfulGrades: number;
+  failedGrades: number;
+  providerRequests: number;
   estimatedCostMicrousd: number;
 };
 
@@ -485,6 +501,13 @@ async function ensureInitialized() {
           default_language TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL
         )`,
+        `CREATE TABLE IF NOT EXISTS manual_ai_credit_payments (
+          id TEXT PRIMARY KEY,
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          payer_email TEXT NOT NULL COLLATE NOCASE,
+          credit_microusd INTEGER NOT NULL CHECK (credit_microusd > 0),
+          created_at INTEGER NOT NULL
+        )`,
         `CREATE TABLE IF NOT EXISTS activity_events (
           id TEXT PRIMARY KEY,
           email TEXT NOT NULL,
@@ -665,6 +688,7 @@ async function ensureInitialized() {
         "CREATE INDEX IF NOT EXISTS idx_submissions_deleted_at ON submissions(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_feedback_messages_created_at ON feedback_messages(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)",
+        "CREATE INDEX IF NOT EXISTS idx_manual_ai_credit_teacher ON manual_ai_credit_payments(teacher_email, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_activity_events_email ON activity_events(email)",
         "CREATE INDEX IF NOT EXISTS idx_activity_events_occurred_at ON activity_events(occurred_at DESC)",
         `CREATE TRIGGER IF NOT EXISTS trg_classes_delete_assignments
@@ -1828,7 +1852,30 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
       COALESCE(assignment_counts.assignmentCount, 0) as assignmentCount,
       COALESCE(submission_counts.submissionCount, 0) as submissionCount,
       activity.latestActivityAt as latestActivityAt,
-      u.is_paid as isPaid
+      u.is_paid as isPaid,
+      COALESCE(ai_attempt_counts.aiGradingCount, 0) as aiGradingCount,
+      COALESCE(ai_attempt_counts.aiGradingFailedCount, 0) as aiGradingFailedCount,
+      ai_attempt_counts.latestAiGradingAt as latestAiGradingAt,
+      COALESCE(ai_cost_counts.estimatedAiCostMicrousd, 0) as estimatedAiCostMicrousd,
+      COALESCE(credit_payments.manualCreditMicrousd, 0) as manualCreditMicrousd,
+      credit_payments.manualCreditStartedAt as manualCreditStartedAt,
+      COALESCE(credit_payments.manualPayerEmail, '') as manualPayerEmail,
+      COALESCE((
+        SELECT COUNT(*)
+        FROM ai_grading_attempts manual_attempts
+        WHERE LOWER(manual_attempts.teacher_email) = LOWER(u.email)
+          AND manual_attempts.status = 'completed'
+          AND credit_payments.manualCreditStartedAt IS NOT NULL
+          AND manual_attempts.created_at >= credit_payments.manualCreditStartedAt
+      ), 0) as manualSuccessfulAiGrades,
+      COALESCE((
+        SELECT SUM(manual_attempts.duration_seconds)
+        FROM ai_grading_attempts manual_attempts
+        WHERE LOWER(manual_attempts.teacher_email) = LOWER(u.email)
+          AND manual_attempts.status = 'completed'
+          AND credit_payments.manualCreditStartedAt IS NOT NULL
+          AND manual_attempts.created_at >= credit_payments.manualCreditStartedAt
+      ), 0) as manualAiAudioSeconds
     FROM users u
     LEFT JOIN (
       SELECT LOWER(owner_email) as email, COUNT(*) as classCount
@@ -1859,6 +1906,37 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
       FROM activity_events
       GROUP BY LOWER(email)
     ) activity ON activity.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT
+        LOWER(teacher_email) as email,
+        COUNT(*) as aiGradingCount,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as aiGradingFailedCount,
+        MAX(created_at) as latestAiGradingAt
+      FROM ai_grading_attempts
+      GROUP BY LOWER(teacher_email)
+    ) ai_attempt_counts ON ai_attempt_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT
+        LOWER(teacher_email) as email,
+        SUM(estimated_cost_microusd) as estimatedAiCostMicrousd
+      FROM grading_provider_requests
+      GROUP BY LOWER(teacher_email)
+    ) ai_cost_counts ON ai_cost_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT
+        LOWER(payments.teacher_email) as email,
+        SUM(payments.credit_microusd) as manualCreditMicrousd,
+        MIN(payments.created_at) as manualCreditStartedAt,
+        (
+          SELECT latest.payer_email
+          FROM manual_ai_credit_payments latest
+          WHERE LOWER(latest.teacher_email) = LOWER(payments.teacher_email)
+          ORDER BY latest.created_at DESC, latest.id DESC
+          LIMIT 1
+        ) as manualPayerEmail
+      FROM manual_ai_credit_payments payments
+      GROUP BY LOWER(payments.teacher_email)
+    ) credit_payments ON credit_payments.email = LOWER(u.email)
     WHERE u.role = 'teacher'
     ORDER BY joinedAt DESC`
   );
@@ -1871,6 +1949,17 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
     submissionCount: toNumber(row.submissionCount),
     latestActivityAt: row.latestActivityAt === null ? null : toNumber(row.latestActivityAt),
     isPaid: toNumber(row.isPaid) === 1,
+    aiGradingCount: toNumber(row.aiGradingCount),
+    aiGradingFailedCount: toNumber(row.aiGradingFailedCount),
+    latestAiGradingAt:
+      row.latestAiGradingAt === null ? null : toNumber(row.latestAiGradingAt),
+    estimatedAiCostMicrousd: toNumber(row.estimatedAiCostMicrousd),
+    manualCreditMicrousd: toNumber(row.manualCreditMicrousd),
+    manualCreditStartedAt:
+      row.manualCreditStartedAt === null ? null : toNumber(row.manualCreditStartedAt),
+    manualPayerEmail: toStringValue(row.manualPayerEmail),
+    manualSuccessfulAiGrades: toNumber(row.manualSuccessfulAiGrades),
+    manualAiAudioSeconds: toNumber(row.manualAiAudioSeconds),
   }));
 }
 
@@ -1886,7 +1975,30 @@ export async function findTeacherFunnelRowByEmail(
       COALESCE(assignment_counts.assignmentCount, 0) as assignmentCount,
       COALESCE(submission_counts.submissionCount, 0) as submissionCount,
       activity.latestActivityAt as latestActivityAt,
-      u.is_paid as isPaid
+      u.is_paid as isPaid,
+      COALESCE(ai_attempt_counts.aiGradingCount, 0) as aiGradingCount,
+      COALESCE(ai_attempt_counts.aiGradingFailedCount, 0) as aiGradingFailedCount,
+      ai_attempt_counts.latestAiGradingAt as latestAiGradingAt,
+      COALESCE(ai_cost_counts.estimatedAiCostMicrousd, 0) as estimatedAiCostMicrousd,
+      COALESCE(credit_payments.manualCreditMicrousd, 0) as manualCreditMicrousd,
+      credit_payments.manualCreditStartedAt as manualCreditStartedAt,
+      COALESCE(credit_payments.manualPayerEmail, '') as manualPayerEmail,
+      COALESCE((
+        SELECT COUNT(*)
+        FROM ai_grading_attempts manual_attempts
+        WHERE LOWER(manual_attempts.teacher_email) = LOWER(u.email)
+          AND manual_attempts.status = 'completed'
+          AND credit_payments.manualCreditStartedAt IS NOT NULL
+          AND manual_attempts.created_at >= credit_payments.manualCreditStartedAt
+      ), 0) as manualSuccessfulAiGrades,
+      COALESCE((
+        SELECT SUM(manual_attempts.duration_seconds)
+        FROM ai_grading_attempts manual_attempts
+        WHERE LOWER(manual_attempts.teacher_email) = LOWER(u.email)
+          AND manual_attempts.status = 'completed'
+          AND credit_payments.manualCreditStartedAt IS NOT NULL
+          AND manual_attempts.created_at >= credit_payments.manualCreditStartedAt
+      ), 0) as manualAiAudioSeconds
     FROM users u
     LEFT JOIN (
       SELECT LOWER(owner_email) as email, COUNT(*) as classCount
@@ -1917,6 +2029,37 @@ export async function findTeacherFunnelRowByEmail(
       FROM activity_events
       GROUP BY LOWER(email)
     ) activity ON activity.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT
+        LOWER(teacher_email) as email,
+        COUNT(*) as aiGradingCount,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as aiGradingFailedCount,
+        MAX(created_at) as latestAiGradingAt
+      FROM ai_grading_attempts
+      GROUP BY LOWER(teacher_email)
+    ) ai_attempt_counts ON ai_attempt_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT
+        LOWER(teacher_email) as email,
+        SUM(estimated_cost_microusd) as estimatedAiCostMicrousd
+      FROM grading_provider_requests
+      GROUP BY LOWER(teacher_email)
+    ) ai_cost_counts ON ai_cost_counts.email = LOWER(u.email)
+    LEFT JOIN (
+      SELECT
+        LOWER(payments.teacher_email) as email,
+        SUM(payments.credit_microusd) as manualCreditMicrousd,
+        MIN(payments.created_at) as manualCreditStartedAt,
+        (
+          SELECT latest.payer_email
+          FROM manual_ai_credit_payments latest
+          WHERE LOWER(latest.teacher_email) = LOWER(payments.teacher_email)
+          ORDER BY latest.created_at DESC, latest.id DESC
+          LIMIT 1
+        ) as manualPayerEmail
+      FROM manual_ai_credit_payments payments
+      GROUP BY LOWER(payments.teacher_email)
+    ) credit_payments ON credit_payments.email = LOWER(u.email)
     WHERE u.role = 'teacher'
       AND LOWER(u.email) = LOWER(?)
     LIMIT 1`,
@@ -1933,6 +2076,17 @@ export async function findTeacherFunnelRowByEmail(
     submissionCount: toNumber(row.submissionCount),
     latestActivityAt: row.latestActivityAt === null ? null : toNumber(row.latestActivityAt),
     isPaid: toNumber(row.isPaid) === 1,
+    aiGradingCount: toNumber(row.aiGradingCount),
+    aiGradingFailedCount: toNumber(row.aiGradingFailedCount),
+    latestAiGradingAt:
+      row.latestAiGradingAt === null ? null : toNumber(row.latestAiGradingAt),
+    estimatedAiCostMicrousd: toNumber(row.estimatedAiCostMicrousd),
+    manualCreditMicrousd: toNumber(row.manualCreditMicrousd),
+    manualCreditStartedAt:
+      row.manualCreditStartedAt === null ? null : toNumber(row.manualCreditStartedAt),
+    manualPayerEmail: toStringValue(row.manualPayerEmail),
+    manualSuccessfulAiGrades: toNumber(row.manualSuccessfulAiGrades),
+    manualAiAudioSeconds: toNumber(row.manualAiAudioSeconds),
   };
 }
 
@@ -2072,6 +2226,42 @@ export async function setUserPaid(email: string, isPaid: boolean): Promise<boole
     [isPaid ? 1 : 0, normalized]
   );
   return result.rowsAffected > 0;
+}
+
+export async function recordManualAiCreditPayment(input: {
+  teacherEmail: string;
+  payerEmail: string;
+  creditMicrousd: number;
+  paidAt?: number;
+}): Promise<boolean> {
+  const teacherEmail = requireTrimmedValue("teacherEmail", input.teacherEmail).toLowerCase();
+  const payerEmail = requireTrimmedValue("payerEmail", input.payerEmail).toLowerCase();
+  const creditMicrousd = requireNonNegativeInteger("creditMicrousd", input.creditMicrousd);
+  if (creditMicrousd === 0) throw new RangeError("creditMicrousd must be greater than zero.");
+  const paidAt = requireNonNegativeInteger("paidAt", input.paidAt ?? Date.now());
+  const paymentId = makeId("manual_credit");
+  const results = await writeBatch([
+    {
+      sql: `INSERT INTO manual_ai_credit_payments (
+        id, teacher_email, payer_email, credit_microusd, created_at
+      )
+      SELECT ?, LOWER(email), ?, ?, ?
+      FROM users
+      WHERE LOWER(email) = LOWER(?) AND role = 'teacher'`,
+      args: [paymentId, payerEmail, creditMicrousd, paidAt, teacherEmail],
+    },
+    {
+      sql: `UPDATE users
+        SET is_paid = 1
+        WHERE LOWER(email) = LOWER(?)
+          AND role = 'teacher'
+          AND EXISTS (
+            SELECT 1 FROM manual_ai_credit_payments WHERE id = ?
+          )`,
+      args: [teacherEmail, paymentId],
+    },
+  ]);
+  return toNumber(results[1]?.rowsAffected) === 1;
 }
 
 function rowToStripeBillingAccount(row: Row): StripeBillingAccountRow {
@@ -3656,6 +3846,43 @@ export async function getTeacherGradingUsageSince(
   since: number
 ): Promise<GradingUsageAggregate> {
   return getTeacherGradingUsageBetween(teacherEmail, since, null);
+}
+
+export async function getPlatformAiGradingSummarySince(
+  since: number
+): Promise<PlatformAiGradingSummary> {
+  const safeSince = Math.max(0, Math.floor(since));
+  const result = await query(
+    `SELECT
+      (
+        SELECT COUNT(*)
+        FROM ai_grading_attempts
+        WHERE status = 'completed' AND created_at >= ?
+      ) as successfulGrades,
+      (
+        SELECT COUNT(*)
+        FROM ai_grading_attempts
+        WHERE status = 'failed' AND created_at >= ?
+      ) as failedGrades,
+      (
+        SELECT COUNT(*)
+        FROM grading_provider_requests
+        WHERE created_at >= ?
+      ) as providerRequests,
+      (
+        SELECT COALESCE(SUM(estimated_cost_microusd), 0)
+        FROM grading_provider_requests
+        WHERE created_at >= ?
+      ) as estimatedCostMicrousd`,
+    [safeSince, safeSince, safeSince, safeSince]
+  );
+  const row = result.rows[0];
+  return {
+    successfulGrades: toNumber(row?.successfulGrades),
+    failedGrades: toNumber(row?.failedGrades),
+    providerRequests: toNumber(row?.providerRequests),
+    estimatedCostMicrousd: toNumber(row?.estimatedCostMicrousd),
+  };
 }
 
 export async function getTeacherGradingUsageForUtcMonth(

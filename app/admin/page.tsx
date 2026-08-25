@@ -5,6 +5,7 @@ import { requireAdminEmail } from "@/lib/admin";
 import DeleteFeedbackButton from "./DeleteFeedbackButton";
 import TeacherPaidToggle from "./TeacherPaidToggle";
 import {
+  getPlatformAiGradingSummarySince,
   getTrackingSummary,
   listClasses,
   listFeedbackMessages,
@@ -27,6 +28,15 @@ function formatDateTime(timestamp: number | null) {
     minute: "2-digit",
     timeZone: "America/Chicago",
   });
+}
+
+function formatMicrousd(microusd: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(microusd / 1_000_000);
 }
 
 function formatTimeAgo(timestamp: number) {
@@ -126,24 +136,46 @@ export default async function AdminPage() {
     );
   }
 
-  const [summary, allEvents, teacherEvents, funnelRows, allClasses, feedbackMessages] = await Promise.all([
+  const now = getCurrentTimestamp();
+  const oneDayAgo = now - 24 * 60 * 60 * 1000;
+  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const currentDate = new Date(now);
+  const monthStart = Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth(), 1);
+
+  const [
+    summary,
+    allEvents,
+    teacherEvents,
+    funnelRows,
+    allClasses,
+    feedbackMessages,
+    aiToday,
+    aiThisMonth,
+  ] = await Promise.all([
     getTrackingSummary(),
     listRecentActivityEvents(50),
     listRecentTeacherActivityEvents(30),
     listTeacherFunnelRows(),
     listClasses(),
     listFeedbackMessages(),
+    getPlatformAiGradingSummarySince(oneDayAgo),
+    getPlatformAiGradingSummarySince(monthStart),
   ]);
 
   const totalSubmissions = allClasses.reduce((sum, c) => sum + c.submissionCount, 0);
   const totalAssignments = allClasses.reduce((sum, c) => sum + c.assignmentCount, 0);
+  const paidTeachers = funnelRows.filter((teacher) => teacher.isPaid).length;
+  const paymentReviewCount = funnelRows.filter((teacher) => !teacher.isPaid).length;
+  const paymentReviewRows = funnelRows
+    .filter((teacher) => !teacher.isPaid)
+    .sort(
+      (left, right) =>
+        (right.latestActivityAt ?? right.joinedAt) - (left.latestActivityAt ?? left.joinedAt)
+    )
+    .slice(0, 12);
 
   const activationRate = percent(summary.activatedTeachers, summary.teacherAccounts);
   const teachingRate = percent(summary.teachingReadyTeachers, summary.teacherAccounts);
-
-  const now = getCurrentTimestamp();
-  const oneDayAgo = now - 24 * 60 * 60 * 1000;
-  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
   const signInsToday = allEvents.filter(
     (e) => e.eventType === "user_signed_in" && e.occurredAt > oneDayAgo
   ).length;
@@ -158,8 +190,8 @@ export default async function AdminPage() {
 
       <section className="admin-header">
         <div className="admin-header-copy">
-          <h1 className="admin-headline">Dashboard</h1>
-          <p className="meta">Founder analytics for Habla. Real-time teacher funnel, activity, and platform health.</p>
+          <h1 className="admin-headline">CEO command center</h1>
+          <p className="meta">Real operations for Try Habla: access, adoption, AI delivery, and launch blockers.</p>
         </div>
         <div className="actions">
           <Link className="btn btn-ghost" href="/">Back home</Link>
@@ -217,6 +249,131 @@ export default async function AdminPage() {
           <p className="meta stat-label">Sign-ins (7d)</p>
           <p className="stat-value">{signIns7d}</p>
           <p className="meta kpi-note">Last 7 days</p>
+        </article>
+      </section>
+
+      <section className="grid cols-4 section-gap admin-kpi-strip">
+        <article className="card kpi-card kpi-success">
+          <p className="meta stat-label">Paid access</p>
+          <p className="stat-value">{paidTeachers}</p>
+          <p className="meta kpi-note">Manual and Stripe entitlements</p>
+        </article>
+        <article className="card kpi-card kpi-warning">
+          <p className="meta stat-label">Payment review</p>
+          <p className="stat-value">{paymentReviewCount}</p>
+          <p className="meta kpi-note">Free accounts to check</p>
+        </article>
+        <article className="card kpi-card">
+          <p className="meta stat-label">AI grades today</p>
+          <p className="stat-value">{aiToday.successfulGrades}</p>
+          <p className="meta kpi-note">{aiToday.failedGrades} failed · {aiToday.providerRequests} provider calls</p>
+        </article>
+        <article className="card kpi-card">
+          <p className="meta stat-label">AI spend this month</p>
+          <p className="stat-value">{formatMicrousd(aiThisMonth.estimatedCostMicrousd)}</p>
+          <p className="meta kpi-note">Estimated provider cost · not revenue</p>
+        </article>
+      </section>
+
+      <section className="workspace-split section-gap">
+        <article className="card">
+          <div className="admin-panel-head">
+            <div>
+              <h2 className="surface-title">PayPal activation queue</h2>
+              <p className="meta">
+                Buyers include their Try Habla account email. Match it here, then grant paid access.
+              </p>
+            </div>
+            <a
+              className="btn btn-primary"
+              href="https://paypal.me/DavidGarcia355"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open PayPal
+            </a>
+          </div>
+          <div className="notice warning">
+            <strong>Manual tonight.</strong> PayPal transactions are not connected to this dashboard,
+            so revenue is intentionally not shown. Stripe automation is the next billing update.
+          </div>
+          {paymentReviewRows.length === 0 ? (
+            <p className="empty">Every teacher currently has paid access.</p>
+          ) : (
+            <div className="table-scroll">
+              <table className="data-table admin-roster-table">
+                <thead>
+                  <tr>
+                    <th>Account email</th>
+                    <th>Joined</th>
+                    <th>Activity</th>
+                    <th>Usage</th>
+                    <th>Access</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentReviewRows.map((teacher) => (
+                    <tr key={teacher.email}>
+                      <td className="admin-roster-email">{teacher.email}</td>
+                      <td className="admin-roster-date">{formatDateTime(teacher.joinedAt)}</td>
+                      <td className="admin-roster-date">
+                        {teacher.latestActivityAt ? formatTimeAgo(teacher.latestActivityAt) : "Never"}
+                      </td>
+                      <td>
+                        {teacher.classCount} classes · {teacher.submissionCount} submissions
+                      </td>
+                      <td>
+                        <TeacherPaidToggle email={teacher.email} isPaid={teacher.isPaid} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </article>
+
+        <article className="card panel-subtle">
+          <div className="admin-panel-head">
+            <h2 className="surface-title">Launch status</h2>
+            <span className="pill pill-warning">Manual billing</span>
+          </div>
+          <div className="admin-class-list">
+            <div className="admin-class-item">
+              <div className="admin-class-info">
+                <p className="admin-class-name">PayPal checkout</p>
+                <p className="admin-class-owner">Live link · buyer email required</p>
+              </div>
+              <span className="pill pill-success">Ready</span>
+            </div>
+            <div className="admin-class-item">
+              <div className="admin-class-info">
+                <p className="admin-class-name">Paid access</p>
+                <p className="admin-class-owner">Grant manually after matching the buyer email</p>
+              </div>
+              <span className="pill pill-success">Ready</span>
+            </div>
+            <div className="admin-class-item">
+              <div className="admin-class-info">
+                <p className="admin-class-name">Stripe automation</p>
+                <p className="admin-class-owner">Do not depend on this for tonight&apos;s launch</p>
+              </div>
+              <span className="pill pill-warning">Next</span>
+            </div>
+            <div className="admin-class-item">
+              <div className="admin-class-info">
+                <p className="admin-class-name">AI delivery evidence</p>
+                <p className="admin-class-owner">
+                  {aiToday.successfulGrades > 0
+                    ? `${aiToday.successfulGrades} successful grade${aiToday.successfulGrades === 1 ? "" : "s"} in the last 24 hours`
+                    : "No successful grades recorded in the last 24 hours"}
+                </p>
+              </div>
+              <span className={`pill ${aiToday.successfulGrades > 0 ? "pill-success" : "pill-warning"}`}>
+                {aiToday.successfulGrades > 0 ? "Observed" : "Verify"}
+              </span>
+            </div>
+          </div>
         </article>
       </section>
 
@@ -397,7 +554,9 @@ export default async function AdminPage() {
                   <th>Assignments</th>
                   <th>Submissions</th>
                   <th>Last active</th>
-                  <th>AI grading</th>
+                  <th>AI grades</th>
+                  <th>AI cost</th>
+                  <th>Paid access</th>
                 </tr>
               </thead>
               <tbody>
@@ -418,6 +577,13 @@ export default async function AdminPage() {
                           ? formatTimeAgo(teacher.latestActivityAt)
                           : "Never"}
                       </td>
+                      <td>
+                        {teacher.aiGradingCount}
+                        {teacher.aiGradingFailedCount > 0
+                          ? ` · ${teacher.aiGradingFailedCount} failed`
+                          : ""}
+                      </td>
+                      <td>{formatMicrousd(teacher.estimatedAiCostMicrousd)}</td>
                       <td>
                         <TeacherPaidToggle email={teacher.email} isPaid={teacher.isPaid} />
                       </td>

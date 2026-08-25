@@ -12,16 +12,23 @@ export default function TeacherPaidToggle({
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
 
   async function toggle() {
     setPending(true);
+    setError("");
     try {
-      await fetch(`/api/admin/teachers/${encodeURIComponent(email)}/paid`, {
+      const response = await fetch(`/api/admin/teachers/${encodeURIComponent(email)}/paid`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isPaid: !isPaid }),
       });
+      if (!response.ok) {
+        throw new Error("Paid access did not update.");
+      }
       router.refresh();
+    } catch {
+      setError("Retry");
     } finally {
       setPending(false);
     }
@@ -30,12 +37,13 @@ export default function TeacherPaidToggle({
   return (
     <button
       type="button"
-      className={`pill pill-button ${isPaid ? "pill-success" : "pill-neutral"}`}
+      className={`pill pill-button ${error ? "pill-warning" : isPaid ? "pill-success" : "pill-neutral"}`}
       onClick={() => void toggle()}
       disabled={pending}
-      aria-label={isPaid ? `Revoke AI grading access for ${email}` : `Grant AI grading access to ${email}`}
+      aria-label={isPaid ? `Revoke paid access for ${email}` : `Grant paid access to ${email}`}
+      title={error || undefined}
     >
-      {pending ? "..." : isPaid ? "Paid" : "Free"}
+      {pending ? "Saving..." : error || (isPaid ? "Paid access" : "Grant access")}
     </button>
   );
 }
