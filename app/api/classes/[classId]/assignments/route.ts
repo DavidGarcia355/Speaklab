@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { enqueueFirstAssignmentPublishedAlert } from "@/lib/admin-alert-lifecycle";
 import { buildTeacherEventMetadata, trackActivity } from "@/lib/activity";
 import { requireTeacherEmail } from "@/lib/authz";
 import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
@@ -110,12 +111,19 @@ export async function POST(
       }
     }
     let isFirstAssignment = false;
+    let teacherJoinedAt = created.createdAt;
     try {
       const metadata = await buildTeacherEventMetadata(teacherEmail);
       isFirstAssignment = metadata.isFirstAssignment;
+      teacherJoinedAt = metadata.teacher?.joinedAt ?? created.createdAt;
     } catch (error) {
       console.warn("Failed to build assignment activity metadata", error);
     }
+    await enqueueFirstAssignmentPublishedAlert({
+      teacherEmail,
+      teacherJoinedAt,
+      assignmentCreatedAt: created.createdAt,
+    });
     try {
       await trackActivity("assignment_created", teacherEmail, {
         assignmentId: created.id,

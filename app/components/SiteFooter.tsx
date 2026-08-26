@@ -6,7 +6,8 @@ export default function SiteFooter() {
     <footer className="site-footer">
       <div className="site-footer-inner">
         <p>
-          <strong>{APP_NAME}</strong> is currently offered as a teacher pilot.
+          <strong>{APP_NAME}</strong> keeps the core classroom free forever. Optional AI starts
+          with a lifetime allowance of 30 successful reviews.
         </p>
         <nav className="site-footer-links" aria-label="Legal and support links">
           <Link className="btn btn-sm btn-primary site-footer-support" href="/about">

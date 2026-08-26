@@ -17,7 +17,7 @@ import { createPublicMetadata } from "@/lib/public-metadata";
 export const metadata = createPublicMetadata({
   title: "Pricing",
   description:
-    "Start with TryHabla Free, add 300 successful AI reviews with Teacher, or ask about a founder-managed School Pilot.",
+    "Start with TryHabla Free, add 300 successful AI reviews with Teacher, or contact TryHabla for Schools for larger needs.",
   path: "/pricing",
 });
 
@@ -120,7 +120,7 @@ export default function PricingPage() {
             <AudioLines size={25} />
           </div>
           <p className="pill pill-subtle">Free</p>
-          <h2>The complete audio classroom, plus a real AI trial</h2>
+          <h2>The complete audio classroom, plus a lifetime AI allowance</h2>
           <p className="pricing-value-price">$0</p>
           <p className="pricing-value-cadence">no card required</p>
           <ul>
@@ -168,7 +168,7 @@ export default function PricingPage() {
             <ArrowRight size={17} aria-hidden="true" />
           </Link>
           <p className="pricing-note">
-            Need more AI reviews? Ask your school about a TryHabla School Pilot.
+            Need more AI reviews? Explore TryHabla for Schools.
           </p>
         </article>
       </section>
@@ -225,15 +225,15 @@ export default function PricingPage() {
           <Building2 size={28} />
         </div>
         <div>
-          <p className="pill pill-subtle">School Pilot - Contact us</p>
-          <h2>A founder-managed, manually provisioned teacher cohort.</h2>
+          <p className="pill pill-subtle">TryHabla for Schools - Contact us</p>
+          <h2>Larger and custom school needs.</h2>
           <p>
-            David scopes each School Pilot directly with the school, including the teacher cohort,
-            expected review volume, onboarding, privacy review, and pilot terms. School Pilot is not
-            a self-service plan and does not imply a school admin console or district approval.
+            Contact David to discuss teacher cohort size, expected review volume, onboarding,
+            privacy review, and custom terms. TryHabla for Schools is a contact-based option; it
+            does not currently imply a school admin console or district approval.
           </p>
         </div>
-        <Link className="btn btn-ghost" href="/feedback">
+        <Link className="btn btn-ghost" href="/feedback?intent=schools">
           Contact us
         </Link>
       </section>
@@ -243,7 +243,7 @@ export default function PricingPage() {
         teacher account. Teacher includes 300 reviews per Stripe billing period for $20 per month;
         unused reviews do not roll over, and there are no automatic overages. Stripe shows the final
         amount before payment. PayPal donations are separate from TryHabla product billing and do
-        not buy access or AI reviews. School Pilot terms are scoped manually.
+        not buy access or AI reviews. Larger and custom school terms are scoped directly.
       </p>
     </main>
   );

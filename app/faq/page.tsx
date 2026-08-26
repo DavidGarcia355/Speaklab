@@ -150,7 +150,7 @@ const FAQ_SECTIONS = [
       {
         question: "Does AI save the grade automatically?",
         answer:
-          "When AI is enabled for an approved account, a successful run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, TryHabla saves no score.",
+          "When a teacher has AI reviews available, a successful run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, TryHabla saves no score.",
       },
       {
         question: "What does the current workflow include?",
@@ -160,7 +160,7 @@ const FAQ_SECTIONS = [
       {
         question: "What if my department or district needs a review?",
         answer:
-          "Ask about a School Pilot. It is a founder-managed, manually provisioned teacher cohort with scope, onboarding, expected review volume, and pilot terms agreed directly with the school. It does not currently include a school admin console or imply district approval. Contact us for privacy, retention, security, subprocessor, and DPA-review materials.",
+          "Contact TryHabla for Schools. It is the larger and custom path for schools that need cohort planning, expected review volume, onboarding, privacy review, or custom terms. It does not currently include a school admin console or imply district approval. Contact us for privacy, retention, security, subprocessor, and DPA-review materials.",
       },
     ],
   },

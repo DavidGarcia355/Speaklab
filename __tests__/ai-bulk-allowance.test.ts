@@ -134,7 +134,7 @@ describe("bulk AI allowance preflight", () => {
     });
   });
 
-  it("stops before provider budget or grading and returns the School Pilot CTA", async () => {
+  it("stops before provider budget or grading and returns the Schools CTA", async () => {
     const { POST } = await import("@/app/api/assignments/[assignmentId]/ai-grade-all/route");
 
     const response = await POST(request("POST"), context);
@@ -142,7 +142,7 @@ describe("bulk AI allowance preflight", () => {
     expect(response.status).toBe(429);
     await expect(response.json()).resolves.toEqual({
       error:
-        "This run needs 2 AI reviews, but 0 remain in your current allowance. Need more AI reviews? Ask your school about a TryHabla School Pilot.",
+        "This run needs 2 AI reviews, but 0 remain in your current allowance. Need more AI reviews? Explore TryHabla for Schools.",
     });
     expect(mocks.reserveGenerationBudget).not.toHaveBeenCalled();
     expect(mocks.gradeOneSubmission).not.toHaveBeenCalled();

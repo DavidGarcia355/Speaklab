@@ -5,7 +5,7 @@ TryHabla is a Next.js app for language teachers to run speaking assignments:
 - publish student recording links
 - review submissions with inline grades and feedback
 - export CSV gradebooks for PowerSchool import
-- collect pilot feedback from public school teachers
+- collect product feedback from teachers and school teams
 
 ## Requirements
 
@@ -99,7 +99,7 @@ Expected response:
 
 - `/` Home
 - `/faq` Teacher FAQ
-- `/feedback` Pilot request and feedback form (writes to `feedback_messages` table)
+- `/feedback` Contact, TryHabla for Schools inquiry, and product feedback form (writes to `feedback_messages` table)
 - `/unauthorized` Friendly access message page
 
 ## Production Checklist
@@ -130,6 +130,14 @@ Notes:
   `AUDIO_READ_WRITE_TOKEN` to Vercel.
 - `BLOB_READ_WRITE_TOKEN` is not a runtime setting. It is only for inventorying and deleting
   objects in the legacy public store during the one-time media migration.
+
+### Private Admin Alerts
+
+Habla Pulse uses a durable, disabled-by-default outbox for private TryHabla HQ
+Discord alerts. Product and Stripe request paths never deliver to Discord
+directly. Follow `docs/admin-discord-alerts.md` to create private channels,
+configure environment-isolated webhook secrets, run sandbox failure and
+deduplication checks, and enable the delivery kill switch.
 
 ### Google OAuth Setup
 
@@ -226,6 +234,7 @@ Preliminary review materials live in `docs/`:
 - `docs/legal/school-dpa-template-draft.md`
 - `docs/legal/district-security-questionnaire-template.md`
 - `docs/compliance-gap-register.md`
+- `docs/admin-discord-alerts.md`
 
 Legal drafts are not legal advice and must be reviewed by qualified counsel before use.
 
@@ -240,12 +249,14 @@ AI_GRADING_ENABLED=false
 Do not enable AI grading for student data until privacy, provider, cost, retention, testing,
 and district-review requirements have been completed.
 
-### Cron Cleanup
+### Scheduled Jobs
 
-`vercel.json` schedules daily cleanup at 2:00 UTC:
-- Path: `/api/cron/cleanup`
-- Auth: requires `CRON_SECRET` in `Authorization: Bearer ...` or `x-cron-secret`
-- Behavior: hard-deletes records soft-deleted more than 30 days ago
+`vercel.json` schedules two authenticated jobs:
+
+- `/api/cron/cleanup` at 2:00 UTC hard-deletes records soft-deleted more than 30 days ago.
+- `/api/cron/admin-alerts` every five minutes schedules and delivers private Habla Pulse alerts. Daily and weekly reporting boundaries are computed in America/Chicago.
+
+Both require `CRON_SECRET` in `Authorization: Bearer ...` or `x-cron-secret`.
 
 ### Secret Rotation
 

@@ -5,6 +5,11 @@ import { requireAdminEmail } from "@/lib/admin";
 import DeleteFeedbackButton from "./DeleteFeedbackButton";
 import TeacherPaidToggle from "./TeacherPaidToggle";
 import {
+  isAdminAlertDeliveryEnabled,
+  resolveAdminAlertsEnvironment,
+} from "@/lib/admin-alerts/config";
+import {
+  getAdminAlertOutboxHealthForEnvironment,
   getTrackingSummary,
   listClasses,
   listFeedbackMessages,
@@ -126,17 +131,29 @@ export default async function AdminPage() {
     );
   }
 
-  const [summary, allEvents, teacherEvents, funnelRows, allClasses, feedbackMessages] = await Promise.all([
+  const alertEnvironment = resolveAdminAlertsEnvironment();
+
+  const [
+    summary,
+    allEvents,
+    teacherEvents,
+    funnelRows,
+    allClasses,
+    feedbackMessages,
+    alertHealth,
+  ] = await Promise.all([
     getTrackingSummary(),
     listRecentActivityEvents(50),
     listRecentTeacherActivityEvents(30),
     listTeacherFunnelRows(),
     listClasses(),
     listFeedbackMessages(),
+    getAdminAlertOutboxHealthForEnvironment(alertEnvironment),
   ]);
 
   const totalSubmissions = allClasses.reduce((sum, c) => sum + c.submissionCount, 0);
   const totalAssignments = allClasses.reduce((sum, c) => sum + c.assignmentCount, 0);
+  const alertDeliveryEnabled = isAdminAlertDeliveryEnabled();
 
   const activationRate = percent(summary.activatedTeachers, summary.teacherAccounts);
   const teachingRate = percent(summary.teachingReadyTeachers, summary.teacherAccounts);
@@ -218,6 +235,47 @@ export default async function AdminPage() {
           <p className="stat-value">{signIns7d}</p>
           <p className="meta kpi-note">Last 7 days</p>
         </article>
+      </section>
+
+      <section className="card section-gap">
+        <div className="admin-panel-head">
+          <div>
+            <h2 className="surface-title">Habla Pulse delivery health</h2>
+            <p className="meta">
+              Private {alertEnvironment} admin-alert outbox only. No alert payloads are shown here.
+            </p>
+          </div>
+          <span className={`pill ${!alertDeliveryEnabled || alertHealth.dead > 0 || alertHealth.stale > 0 ? "pill-warning" : "pill-success"}`}>
+            {!alertDeliveryEnabled
+              ? "Delivery disabled"
+              : alertHealth.dead > 0 || alertHealth.stale > 0
+                ? "Needs attention"
+                : "Healthy"}
+          </span>
+        </div>
+        <div className="grid cols-4 section-gap admin-kpi-strip">
+          <div className="kpi-card">
+            <p className="meta stat-label">Pending</p>
+            <p className="stat-value">{alertHealth.pending}</p>
+          </div>
+          <div className="kpi-card">
+            <p className="meta stat-label">Stale over 10m</p>
+            <p className="stat-value">{alertHealth.stale}</p>
+          </div>
+          <div className="kpi-card">
+            <p className="meta stat-label">Dead-lettered</p>
+            <p className="stat-value">{alertHealth.dead}</p>
+          </div>
+          <div className="kpi-card">
+            <p className="meta stat-label">Delivered</p>
+            <p className="stat-value">{alertHealth.delivered}</p>
+          </div>
+        </div>
+        <p className="meta">
+          Oldest pending: {alertHealth.oldestPendingAt
+            ? formatDateTime(alertHealth.oldestPendingAt)
+            : "none"}
+        </p>
       </section>
 
       <section className="admin-funnel-visual section-gap">

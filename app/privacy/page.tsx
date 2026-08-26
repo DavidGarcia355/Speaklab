@@ -4,9 +4,9 @@ import { CONTACT_LINKS, OPERATOR_NAME } from "@/app/constants";
 import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
-  title: "Pilot Privacy Notice",
+  title: "Privacy Notice",
   description:
-    "How TryHabla collects, uses, shares, retains, and handles information during its teacher pilot.",
+    "How TryHabla collects, uses, shares, retains, and handles information through its service.",
   path: "/privacy",
 });
 
@@ -16,10 +16,10 @@ export default function PrivacyPage() {
       <BrandBar label="Privacy" />
 
       <header className="hero legal-hero">
-        <p className="pill">Pilot notice</p>
+        <p className="pill">Privacy notice</p>
         <h1>Privacy at TryHabla</h1>
         <p>
-          This plain-language notice describes the current TryHabla teacher pilot. It is not a claim
+          This plain-language notice describes the current TryHabla service. It is not a claim
           that a school or district has approved TryHabla, and a signed school or district agreement
           may add different instructions.
         </p>
@@ -39,7 +39,7 @@ export default function PrivacyPage() {
 
         <section className="legal-section" aria-labelledby="privacy-data">
           <h2 id="privacy-data">Information TryHabla handles</h2>
-          <p>The information depends on how the pilot is used and can include:</p>
+          <p>The information depends on how the service is used and can include:</p>
           <ul>
             <li>
               <strong>Account information:</strong> name, email address, sign-in provider profile,
@@ -90,7 +90,7 @@ export default function PrivacyPage() {
             processing and notices.
           </p>
           <p>
-            As of this notice&apos;s update date, the production pilot identifies OpenAI as its
+            As of this notice&apos;s update date, the production service identifies OpenAI as its
             transcription and grading provider, with requests potentially routed through Vercel AI
             Gateway. TryHabla does not promise a particular provider retention mode; schools can ask
             for the current configuration and provider-control status before authorizing AI use.
@@ -104,7 +104,7 @@ export default function PrivacyPage() {
             <li>Store, play back, grade, and display speaking submissions.</li>
             <li>Operate optional AI grading and enforce AI review allowances when those features are enabled.</li>
             <li>Prevent abuse, enforce limits, troubleshoot problems, and secure the service.</li>
-            <li>Respond to support messages and understand basic pilot activity.</li>
+            <li>Respond to support messages and understand basic service activity.</li>
           </ul>
         </section>
 
@@ -128,8 +128,8 @@ export default function PrivacyPage() {
           <p>
             Which optional providers are active, their processing locations, and their own log or
             backup schedules depend on the production configuration. A school can{" "}
-            <Link href="/feedback">ask for the current deployment details</Link> before approving a
-            pilot.
+            <Link href="/feedback">ask for the current deployment details</Link> before approving
+            use of TryHabla.
           </p>
         </section>
 
@@ -179,7 +179,7 @@ export default function PrivacyPage() {
           <p>
             TryHabla uses measures such as authenticated sessions, role and class-ownership checks,
             input validation, access-controlled media routes, rate limiting when configured, and
-            scheduled deletion. No online service can guarantee absolute security. Pilot controls,
+            scheduled deletion. No online service can guarantee absolute security. Service controls,
             providers, and this notice may change; material updates will be posted here with a new
             date.
           </p>

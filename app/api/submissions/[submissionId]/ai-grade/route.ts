@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { enqueueSuccessfulAiReviewAlerts } from "@/lib/admin-alert-lifecycle";
 import { requireTeacherEmail } from "@/lib/authz";
 import {
   countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince,
   countAiAttemptsSince,
+  findTeacherFunnelRowByEmail,
   findOwnedSubmissionForAiReview,
   findSubmissionForAiGrade,
   getAiReviewAllowanceSummary,
@@ -150,6 +152,7 @@ export async function POST(
 
     }
 
+    const wasAlreadyGraded = data.finalGrade !== null;
     const outcome = await gradeOneSubmission({ config, teacherEmail, data, enhanced });
     if (outcome.status === "skipped") {
       throw new HttpError(
@@ -197,6 +200,33 @@ export async function POST(
                 : 502,
         }
       );
+    }
+    const usableNewReview =
+      !wasAlreadyGraded &&
+      outcome.attempt.suggestedScore !== null &&
+      outcome.teacherAttention !== "unable_to_grade" &&
+      outcome.attempt.resultSource !== "allowance_duplicate";
+    if (usableNewReview) {
+      try {
+        const [teacher, allowance] = await Promise.all([
+          findTeacherFunnelRowByEmail(teacherEmail),
+          config.accessMode === "paid" && !isLocalMockAi(config)
+            ? getAiReviewAllowanceSummary({ teacherEmail })
+            : Promise.resolve(null),
+        ]);
+        await enqueueSuccessfulAiReviewAlerts({
+          teacherEmail,
+          teacherJoinedAt: teacher?.joinedAt ?? outcome.attempt.createdAt,
+          durationSeconds: outcome.attempt.durationSeconds,
+          estimatedCostMicrousd: outcome.attempt.estimatedCostMicrousd,
+          allowance,
+          completedAt: outcome.attempt.completedAt ?? outcome.attempt.createdAt,
+        });
+      } catch {
+        console.warn("Admin alert lifecycle check failed", {
+          code: "ai_review_lifecycle_check_failed",
+        });
+      }
     }
     return NextResponse.json({
       attempt: publicAttempt(outcome.attempt),

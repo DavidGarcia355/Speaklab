@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => ({
   upsertStripeBillingSubscription: vi.fn(),
   hasProcessedStripeWebhookEvent: vi.fn(),
   recordProcessedStripeWebhookEvent: vi.fn(),
+  buildProcessedStripeAdminAlerts: vi.fn(),
+  recordStripeWebhookProcessedWithAdminAlerts: vi.fn(),
+  enqueueAdminAlert: vi.fn(),
   getStripeClientAvailability: vi.fn(),
   getStripePortalAvailability: vi.fn(),
   getStripeSubscriptionBillingAvailability: vi.fn(),
@@ -70,6 +73,24 @@ vi.mock("@/lib/db", () => ({
   upsertStripeBillingSubscription: mocks.upsertStripeBillingSubscription,
   hasProcessedStripeWebhookEvent: mocks.hasProcessedStripeWebhookEvent,
   recordProcessedStripeWebhookEvent: mocks.recordProcessedStripeWebhookEvent,
+}));
+
+vi.mock("@/lib/admin-alerts", () => ({
+  buildProcessedStripeAdminAlerts: mocks.buildProcessedStripeAdminAlerts,
+  enqueueAdminAlert: mocks.enqueueAdminAlert,
+  recordStripeWebhookProcessedWithAdminAlerts: (input: {
+    eventId: string;
+    eventType: string;
+    stripeEventCreated: number;
+    alerts: unknown[];
+  }) => {
+    mocks.recordStripeWebhookProcessedWithAdminAlerts(input);
+    return mocks.recordProcessedStripeWebhookEvent({
+      eventId: input.eventId,
+      eventType: input.eventType,
+      stripeEventCreated: input.stripeEventCreated,
+    });
+  },
 }));
 
 vi.mock("@/lib/env", () => ({
@@ -402,6 +423,8 @@ beforeEach(() => {
   mocks.subscriptionsList.mockResolvedValue({ data: [], has_more: false });
   mocks.hasProcessedStripeWebhookEvent.mockResolvedValue(false);
   mocks.recordProcessedStripeWebhookEvent.mockResolvedValue(true);
+  mocks.buildProcessedStripeAdminAlerts.mockResolvedValue([]);
+  mocks.enqueueAdminAlert.mockResolvedValue({ inserted: true });
 });
 
 describe("billing status route", () => {
@@ -445,7 +468,7 @@ describe("billing status route", () => {
     expect(mocks.subscriptionsRetrieve).not.toHaveBeenCalled();
   });
 
-  it("keeps Portal and manual pilot access available while subscription billing is paused", async () => {
+  it("keeps Portal and manual-grant access available while subscription billing is paused", async () => {
     mocks.getStripeSubscriptionBillingAvailability.mockReturnValue({
       enabled: false,
       available: false,
@@ -1288,6 +1311,14 @@ describe("Stripe webhook route", () => {
     expect(mocks.upsertStripeBillingCustomer).not.toHaveBeenCalled();
     expect(mocks.upsertStripeBillingSubscription).not.toHaveBeenCalled();
     expect(mocks.recordProcessedStripeWebhookEvent).not.toHaveBeenCalled();
+    expect(mocks.enqueueAdminAlert).toHaveBeenCalledWith(
+      {
+        type: "incident",
+        code: "stripe_environment_mismatch",
+        summary: "A verified Stripe event does not match this deployment environment.",
+      },
+      { dedupeKey: "stripe-mode:evt_live_in_test" },
+    );
   });
 
   it("rejects a test event in live mode before any database read or side effect", async () => {
@@ -1317,6 +1348,38 @@ describe("Stripe webhook route", () => {
     expect(mocks.hasProcessedStripeWebhookEvent).not.toHaveBeenCalled();
     expect(mocks.subscriptionsRetrieve).not.toHaveBeenCalled();
     expect(mocks.recordProcessedStripeWebhookEvent).not.toHaveBeenCalled();
+    expect(mocks.enqueueAdminAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "incident",
+        code: "stripe_environment_mismatch",
+      }),
+      { dedupeKey: "stripe-mode:evt_test_in_live" },
+    );
+  });
+
+  it("records a verified billing event even when alert enrichment fails", async () => {
+    const event = {
+      id: "evt_alert_enrichment_failure",
+      livemode: false,
+      type: "invoice.paid",
+      created: 699,
+      data: { object: {} },
+    };
+    mocks.constructWebhookEvent.mockReturnValue(event);
+    mocks.buildProcessedStripeAdminAlerts.mockRejectedValueOnce(
+      new Error("alert-only failure"),
+    );
+    const { POST } = await import("@/app/api/billing/webhook/route");
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(mocks.recordStripeWebhookProcessedWithAdminAlerts).toHaveBeenCalledWith({
+      eventId: event.id,
+      eventType: event.type,
+      stripeEventCreated: event.created,
+      alerts: [],
+    });
   });
 
   it("maps Habla Checkout and projects access only after exact catalog verification", async () => {
@@ -1392,6 +1455,20 @@ describe("Stripe webhook route", () => {
       eventId: "evt_checkout",
       eventType: "checkout.session.completed",
       stripeEventCreated: 700,
+    });
+    expect(mocks.buildProcessedStripeAdminAlerts).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "evt_checkout" }),
+      {
+        livemode: false,
+        stripeAccountId: config.accountId,
+        billingContractId: BILLING_CONTRACT_ID,
+      },
+    );
+    expect(mocks.recordStripeWebhookProcessedWithAdminAlerts).toHaveBeenCalledWith({
+      eventId: "evt_checkout",
+      eventType: "checkout.session.completed",
+      stripeEventCreated: 700,
+      alerts: [],
     });
   });
 
@@ -1788,6 +1865,14 @@ describe("Stripe webhook route", () => {
       }),
     );
     expect(mocks.recordProcessedStripeWebhookEvent).not.toHaveBeenCalled();
+    expect(mocks.enqueueAdminAlert).toHaveBeenCalledWith(
+      {
+        type: "incident",
+        code: "stripe_webhook_processing_failed",
+        summary: "A verified Stripe webhook could not complete its local projection and remains eligible for retry.",
+      },
+      { dedupeKey: "stripe-failure:evt_mapped_unrelated" },
+    );
   });
 
   it("revokes and retries a stale event for a second currently active subscription", async () => {

@@ -10,12 +10,14 @@ const mocks = vi.hoisted(() => ({
   mockCountStudentSubmissions: vi.fn(),
   mockCreateSubmission: vi.fn(),
   mockFindAssignmentById: vi.fn(),
+  mockFindTeacherFunnelRowByEmail: vi.fn(),
   mockIsStudentOnRoster: vi.fn(),
   mockUpsertRosterEntry: vi.fn(),
   mockEnforceSubmissionRateLimit: vi.fn(),
   mockParseOrThrow400: vi.fn(),
   mockParseAudioDataUrl: vi.fn(),
   mockGetEnv: vi.fn(),
+  mockEnqueueFirstRecordingReceivedAlert: vi.fn(),
 }));
 
 vi.mock("@/lib/authz", () => ({
@@ -35,6 +37,7 @@ vi.mock("@/lib/db", () => ({
   countStudentSubmissions: mocks.mockCountStudentSubmissions,
   createSubmission: mocks.mockCreateSubmission,
   findAssignmentById: mocks.mockFindAssignmentById,
+  findTeacherFunnelRowByEmail: mocks.mockFindTeacherFunnelRowByEmail,
   isStudentOnRoster: mocks.mockIsStudentOnRoster,
   upsertRosterEntry: mocks.mockUpsertRosterEntry,
 }));
@@ -51,6 +54,10 @@ vi.mock("@/lib/validation", () => ({
 
 vi.mock("@/lib/env", () => ({
   getEnv: mocks.mockGetEnv,
+}));
+
+vi.mock("@/lib/admin-alert-lifecycle", () => ({
+  enqueueFirstRecordingReceivedAlert: mocks.mockEnqueueFirstRecordingReceivedAlert,
 }));
 
 vi.mock("@/lib/http", async () => {
@@ -111,12 +118,14 @@ describe("submission route domain enforcement", () => {
     mocks.mockCountStudentSubmissions.mockReset();
     mocks.mockCreateSubmission.mockReset();
     mocks.mockFindAssignmentById.mockReset();
+    mocks.mockFindTeacherFunnelRowByEmail.mockReset();
     mocks.mockIsStudentOnRoster.mockReset();
     mocks.mockUpsertRosterEntry.mockReset();
     mocks.mockEnforceSubmissionRateLimit.mockReset();
     mocks.mockParseOrThrow400.mockReset();
     mocks.mockParseAudioDataUrl.mockReset();
     mocks.mockGetEnv.mockReset();
+    mocks.mockEnqueueFirstRecordingReceivedAlert.mockReset().mockResolvedValue(undefined);
 
     mocks.mockRequireSchoolStudentEmail.mockResolvedValue("student@gmail.com");
     mocks.mockAssertRecordingDuration.mockResolvedValue(59.9);
@@ -126,7 +135,9 @@ describe("submission route domain enforcement", () => {
       ownerEmail: "teacher@school.edu",
       maxSubmissions: 0,
       maxRecordingSeconds: 60,
+      createdAt: 1_000,
     });
+    mocks.mockFindTeacherFunnelRowByEmail.mockResolvedValue({ joinedAt: 500 });
     mocks.mockCountStudentSubmissions.mockResolvedValue(0);
     mocks.mockIsStudentOnRoster.mockResolvedValue(true);
     mocks.mockEnforceSubmissionRateLimit.mockResolvedValue(undefined);
@@ -186,6 +197,12 @@ describe("submission route domain enforcement", () => {
       maxRecordingSeconds: 60,
     });
     expect(mocks.mockCreateSubmission).toHaveBeenCalledOnce();
+    expect(mocks.mockEnqueueFirstRecordingReceivedAlert).toHaveBeenCalledWith({
+      teacherEmail: "teacher@school.edu",
+      teacherJoinedAt: 500,
+      assignmentCreatedAt: 1_000,
+      recordingCreatedAt: 1,
+    });
   });
 
   it("rejects an over-limit low-bitrate recording before upload", async () => {

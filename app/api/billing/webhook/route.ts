@@ -19,12 +19,17 @@ import {
   isStripeBillingStorageReady,
   projectCurrentStripeEntitledSubscription,
   projectCurrentStripeNonEntitledSubscription,
-  recordProcessedStripeWebhookEvent,
   replaceTerminalStripeSubscriptionFromCheckout,
   upsertStripeBillingCustomer,
   upsertStripeBillingSubscription,
   type StripeBillingAccountRow,
 } from "@/lib/db";
+import {
+  buildProcessedStripeAdminAlerts,
+  enqueueAdminAlert,
+  recordStripeWebhookProcessedWithAdminAlerts,
+  type AdminAlertEvent,
+} from "@/lib/admin-alerts";
 import {
   requireSubscriptionPeriodBoundsMs,
   requireStripeWebhookConfigForApi,
@@ -741,6 +746,66 @@ async function processBillingEvent(event: Stripe.Event, config: StripeWebhookCon
   }
 }
 
+async function buildSafeAdminAlerts(
+  event: Stripe.Event,
+  config: StripeWebhookConfig,
+): Promise<AdminAlertEvent[]> {
+  try {
+    return await buildProcessedStripeAdminAlerts(event, {
+      livemode: config.keyMode === "live",
+      stripeAccountId: config.accountId,
+      billingContractId: getStripeBillingContractId(requireStripeCatalogConfig()),
+    });
+  } catch {
+    // Alert enrichment must never turn an otherwise valid billing event into a
+    // customer-facing failure. The verified event is still durably recorded.
+    console.error("Stripe admin alert enrichment failed", {
+      eventId: event.id,
+      eventType: event.type,
+      errorCode: "admin_alert_enrichment_failed",
+    });
+    return [];
+  }
+}
+
+async function enqueueStripeModeIncident(event: Stripe.Event) {
+  try {
+    await enqueueAdminAlert(
+      {
+        type: "incident",
+        code: "stripe_environment_mismatch",
+        summary: "A verified Stripe event does not match this deployment environment.",
+      },
+      { dedupeKey: `stripe-mode:${event.id}` },
+    );
+  } catch {
+    console.error("Stripe environment incident enqueue failed", {
+      eventId: event.id,
+      eventType: event.type,
+      errorCode: "admin_alert_enqueue_failed",
+    });
+  }
+}
+
+async function enqueueStripeProcessingIncident(event: Stripe.Event) {
+  try {
+    await enqueueAdminAlert(
+      {
+        type: "incident",
+        code: "stripe_webhook_processing_failed",
+        summary: "A verified Stripe webhook could not complete its local projection and remains eligible for retry.",
+      },
+      { dedupeKey: `stripe-failure:${event.id}` },
+    );
+  } catch {
+    console.error("Stripe processing incident enqueue failed", {
+      eventId: event.id,
+      eventType: event.type,
+      errorCode: "admin_alert_enqueue_failed",
+    });
+  }
+}
+
 export async function POST(request: Request) {
   let config: StripeWebhookConfig;
   try {
@@ -761,6 +826,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid Stripe webhook signature." }, { status: 400 });
   }
   if (event.livemode !== (config.keyMode === "live")) {
+    await enqueueStripeModeIncident(event);
     return NextResponse.json(
       { error: "Stripe webhook mode does not match this deployment." },
       { status: 400 },
@@ -772,13 +838,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true, duplicate: true });
     }
     await processBillingEvent(event, config);
-    await recordProcessedStripeWebhookEvent({
+    const alerts = await buildSafeAdminAlerts(event, config);
+    await recordStripeWebhookProcessedWithAdminAlerts({
       eventId: event.id,
       eventType: event.type,
       stripeEventCreated: event.created,
+      alerts,
     });
     return NextResponse.json({ received: true });
   } catch (error) {
+    await enqueueStripeProcessingIncident(event);
     console.error("Stripe webhook processing failed", {
       eventId: event.id,
       eventType: event.type,

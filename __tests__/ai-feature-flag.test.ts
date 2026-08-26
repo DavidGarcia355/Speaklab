@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   requireTeacherEmail: vi.fn(),
   findSubmissionForAiGrade: vi.fn(),
+  findTeacherFunnelRowByEmail: vi.fn(),
   getUserHasAiAccess: vi.fn(),
   countAiAttemptsForSubmission: vi.fn(),
   countAiAttemptsForTeacherSince: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   listAiGradingAttemptsForSubmission: vi.fn(),
   listUngradedSubmissionsForAiGrade: vi.fn(),
   blobGet: vi.fn(),
+  enqueueSuccessfulAiReviewAlerts: vi.fn(),
 }));
 
 vi.mock("@/lib/authz", () => ({
@@ -21,6 +23,7 @@ vi.mock("@/lib/authz", () => ({
 
 vi.mock("@/lib/db", () => ({
   findSubmissionForAiGrade: mocks.findSubmissionForAiGrade,
+  findTeacherFunnelRowByEmail: mocks.findTeacherFunnelRowByEmail,
   getUserHasAiAccess: mocks.getUserHasAiAccess,
   countAiAttemptsForSubmission: mocks.countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince: mocks.countAiAttemptsForTeacherSince,
@@ -30,6 +33,10 @@ vi.mock("@/lib/db", () => ({
   latestAiAttemptCreatedAt: mocks.latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission: mocks.listAiGradingAttemptsForSubmission,
   listUngradedSubmissionsForAiGrade: mocks.listUngradedSubmissionsForAiGrade,
+}));
+
+vi.mock("@/lib/admin-alert-lifecycle", () => ({
+  enqueueSuccessfulAiReviewAlerts: mocks.enqueueSuccessfulAiReviewAlerts,
 }));
 
 vi.mock("@vercel/blob", () => ({
@@ -74,6 +81,8 @@ describe("AI grading feature flag", () => {
     delete process.env.AI_BULK_GRADING_ENABLED;
     mocks.requireTeacherEmail.mockReset();
     mocks.findSubmissionForAiGrade.mockReset();
+    mocks.findTeacherFunnelRowByEmail.mockReset();
+    mocks.enqueueSuccessfulAiReviewAlerts.mockReset().mockResolvedValue(undefined);
     mocks.getUserHasAiAccess.mockReset();
     mocks.blobGet.mockReset();
   });

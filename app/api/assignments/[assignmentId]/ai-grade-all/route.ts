@@ -110,10 +110,10 @@ export async function POST(
     if (allowance && pending.length > allowance.remaining) {
       const nextStep =
         allowance.status === "teacher_period"
-          ? "Need more AI reviews? Ask your school about a TryHabla School Pilot."
+          ? "Need more AI reviews? Explore TryHabla for Schools."
           : allowance.status === "free_lifetime"
             ? "Choose Teacher for 300 AI reviews per Stripe billing period."
-            : "Contact us to scope a TryHabla School Pilot.";
+            : "Contact TryHabla for Schools to discuss larger or custom needs.";
       throw new HttpError(
         429,
         `This run needs ${pending.length} AI reviews, but ${allowance.remaining} remain in your current allowance. ${nextStep}`,

@@ -255,6 +255,7 @@ export const feedbackCreateSchema = z.object({
   school: cleanTextSchema("School", 1, 120),
   role: cleanTextSchema("Role", 1, 80),
   message: cleanTextSchema("Message", 10, 1000),
+  intent: z.enum(["schools", "school-pilot"]).optional(),
 });
 
 export type ParsedAudio = {

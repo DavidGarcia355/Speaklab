@@ -17,7 +17,7 @@ const reviewItems = [
   },
   {
     icon: ClipboardCheck,
-    title: "Pilot planning",
+    title: "Rollout planning",
     description: "Start with a small group of teachers, confirm classroom fit, then decide on wider access.",
   },
   {
@@ -42,16 +42,16 @@ export default function DistrictPage() {
         <h1>Evaluate TryHabla before it reaches every classroom.</h1>
         <p>
           TryHabla gives language programs one place for speaking assignments, audio submissions, grading,
-          feedback, and CSV exports. District teams can begin with a controlled teacher pilot while
-          privacy, storage, network, and vendor requirements are reviewed.
+          feedback, and CSV exports. Teachers can start self-serve, while school and district teams
+          can review privacy, storage, network, vendor, and larger-rollout requirements.
         </p>
         <div className="actions hero-actions">
-          <Link className="btn btn-primary" href="/feedback">
-            Request a pilot
+          <Link className="btn btn-primary" href="/feedback?intent=schools">
+            Contact TryHabla for Schools
             <ArrowRight size={17} aria-hidden="true" />
           </Link>
           <Link className="btn btn-ghost" href="/pricing">
-            View access notes
+            View pricing
           </Link>
         </div>
       </section>

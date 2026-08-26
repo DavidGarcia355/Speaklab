@@ -15,6 +15,10 @@ const mocks = vi.hoisted(() => ({
     finalFeedback: "",
   })),
   findOwnedSubmissionForAiReview: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null),
+  findTeacherFunnelRowByEmail: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+    joinedAt: 50,
+  })),
+  enqueueSuccessfulAiReviewAlerts: vi.fn(async () => undefined),
   getAiReviewAllowanceSummary: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
     teacherEmail: "dev-teacher@local.test",
     status: "free_lifetime",
@@ -99,9 +103,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/authz", () => ({ requireTeacherEmail: mocks.requireTeacherEmail }));
+vi.mock("@/lib/admin-alert-lifecycle", () => ({
+  enqueueSuccessfulAiReviewAlerts: mocks.enqueueSuccessfulAiReviewAlerts,
+}));
 vi.mock("@/lib/db", () => ({
   findSubmissionForAiGrade: mocks.findSubmissionForAiGrade,
   findOwnedSubmissionForAiReview: mocks.findOwnedSubmissionForAiReview,
+  findTeacherFunnelRowByEmail: mocks.findTeacherFunnelRowByEmail,
   getAiReviewAllowanceSummary: mocks.getAiReviewAllowanceSummary,
   reserveAiReviewAllowance: mocks.reserveAiReviewAllowance,
   releaseAiReviewAllowanceReservation: mocks.releaseAiReviewAllowanceReservation,
@@ -171,6 +179,8 @@ describe("AI grading mock route", () => {
     });
     mocks.findOwnedSubmissionForAiReview.mockReset();
     mocks.findOwnedSubmissionForAiReview.mockResolvedValue(null);
+    mocks.findTeacherFunnelRowByEmail.mockReset().mockResolvedValue({ joinedAt: 50 });
+    mocks.enqueueSuccessfulAiReviewAlerts.mockReset().mockResolvedValue(undefined);
     mocks.getAiReviewAllowanceSummary.mockClear();
     mocks.reserveAiReviewAllowance.mockReset();
     mocks.reserveAiReviewAllowance.mockResolvedValue({
@@ -243,6 +253,13 @@ describe("AI grading mock route", () => {
       }),
     );
     expect(mocks.applyAiGradeToSubmission).not.toHaveBeenCalled();
+    expect(mocks.enqueueSuccessfulAiReviewAlerts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teacherEmail: "dev-teacher@local.test",
+        teacherJoinedAt: 50,
+        allowance: null,
+      }),
+    );
   }, 30_000);
 
   it("returns cooldown as a visible rate-limit state", async () => {

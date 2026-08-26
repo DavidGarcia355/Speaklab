@@ -188,7 +188,7 @@ export default function BillingPanel() {
           </strong>
           <p>
             {needsTeacherSignIn
-              ? "Sign in with an approved teacher account to view AI access and Stripe billing."
+              ? "Sign in with your teacher account to view AI access and Stripe billing."
               : error}
           </p>
           {needsTeacherSignIn ? (
@@ -216,7 +216,7 @@ export default function BillingPanel() {
     status.usage.allowanceKind === "teacher_period"
       ? "Teacher / current Stripe period"
       : status.usage.allowanceKind === "manual_lifetime"
-        ? "Founder-managed pilot / lifetime"
+        ? "Manual grant / lifetime"
         : status.usage.allowanceKind === "free_lifetime"
           ? "Free / lifetime"
           : "Billing verification required";
@@ -337,7 +337,7 @@ export default function BillingPanel() {
           </div>
         </dl>
         <p className="billing-usage-caveat">
-          Need more AI reviews? Ask your school about a TryHabla School Pilot.
+          Need more AI reviews? Explore TryHabla for Schools.
         </p>
       </aside>
     </section>

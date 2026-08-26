@@ -204,9 +204,9 @@ function stateCopy(status: BillingStatus) {
   }
   if (status.access === "pilot") {
     return {
-      heading: "AI pilot access is active",
+      heading: "Manual AI access is active",
       description:
-        "Your founder-managed pilot allowance is separate from Stripe billing and has no automatic overages.",
+        "Your manual lifetime allowance is separate from Stripe billing and has no automatic overages.",
     };
   }
   if (status.accountIssue === "catalog_unverified") {

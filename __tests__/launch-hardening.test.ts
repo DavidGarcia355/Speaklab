@@ -6,7 +6,6 @@ describe("launch hardening helpers", () => {
     AUTH_GOOGLE_ID: process.env.AUTH_GOOGLE_ID,
     AUTH_GOOGLE_SECRET: process.env.AUTH_GOOGLE_SECRET,
     AUTH_SECRET: process.env.AUTH_SECRET,
-    DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     AUTH_RATE_LIMIT_PER_HOUR: process.env.AUTH_RATE_LIMIT_PER_HOUR,
     GRADEBOOK_RATE_LIMIT_PER_HOUR: process.env.GRADEBOOK_RATE_LIMIT_PER_HOUR,
@@ -18,7 +17,6 @@ describe("launch hardening helpers", () => {
     process.env.AUTH_GOOGLE_ID = "google-id";
     process.env.AUTH_GOOGLE_SECRET = "google-secret";
     process.env.AUTH_SECRET = "secret";
-    process.env.DISCORD_WEBHOOK_URL = "https://discord.example/webhook";
     process.env.RESEND_API_KEY = "re_test";
   });
 
@@ -27,7 +25,6 @@ describe("launch hardening helpers", () => {
     process.env.AUTH_GOOGLE_ID = originalEnv.AUTH_GOOGLE_ID;
     process.env.AUTH_GOOGLE_SECRET = originalEnv.AUTH_GOOGLE_SECRET;
     process.env.AUTH_SECRET = originalEnv.AUTH_SECRET;
-    process.env.DISCORD_WEBHOOK_URL = originalEnv.DISCORD_WEBHOOK_URL;
     process.env.RESEND_API_KEY = originalEnv.RESEND_API_KEY;
     process.env.AUTH_RATE_LIMIT_PER_HOUR = originalEnv.AUTH_RATE_LIMIT_PER_HOUR;
     process.env.GRADEBOOK_RATE_LIMIT_PER_HOUR = originalEnv.GRADEBOOK_RATE_LIMIT_PER_HOUR;
@@ -36,7 +33,7 @@ describe("launch hardening helpers", () => {
     vi.unstubAllGlobals();
   });
 
-  it("only sends Discord notifications for teacher_upgraded, not sign-ins or class/assignment events", async () => {
+  it("keeps legacy activity tracking free of request-path Discord delivery", async () => {
     vi.doMock("@/lib/db", () => ({
       findTeacherFunnelRowByEmail: vi.fn().mockResolvedValue(null),
       logActivityEvent: vi.fn().mockResolvedValue(undefined),
@@ -45,20 +42,13 @@ describe("launch hardening helpers", () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", mockFetch);
 
-    const { notifyDiscordActivity } = await import("@/lib/activity");
+    const { trackActivity } = await import("@/lib/activity");
 
-    notifyDiscordActivity("user_signed_in", "teacher@example.com");
-    notifyDiscordActivity("class_created", "teacher@example.com");
-    notifyDiscordActivity("assignment_created", "teacher@example.com");
+    await trackActivity("user_signed_in", "teacher@example.com");
+    await trackActivity("class_created", "teacher@example.com");
+    await trackActivity("assignment_created", "teacher@example.com");
+    await trackActivity("teacher_upgraded", "teacher@example.com");
     expect(mockFetch).not.toHaveBeenCalled();
-
-    notifyDiscordActivity("teacher_upgraded", "teacher@example.com");
-    expect(mockFetch).toHaveBeenCalledOnce();
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ body: expect.stringContaining("a teacher account was enabled") })
-    );
-    expect(JSON.stringify(mockFetch.mock.calls)).not.toContain("teacher@example.com");
   });
 
   it("keeps Google sign-in working when activity logging or Discord fail", async () => {
@@ -71,6 +61,9 @@ describe("launch hardening helpers", () => {
       listTeacherFunnelRows: vi.fn().mockResolvedValue([]),
       logActivityEvent: mockLogActivityEvent,
       upsertGoogleUserAndGetRole: mockUpsertGoogleUserAndGetRole,
+    }));
+    vi.doMock("@/lib/admin-alert-lifecycle", () => ({
+      enqueueTeacherSignedUpAlert: vi.fn().mockResolvedValue(undefined),
     }));
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("discord down")));
 
@@ -119,6 +112,9 @@ describe("launch hardening helpers", () => {
     vi.doMock("@/lib/validation", () => ({
       classCreateSchema: {},
       parseOrThrow400: vi.fn().mockImplementation((_schema, input) => input),
+    }));
+    vi.doMock("@/lib/admin-alert-lifecycle", () => ({
+      enqueueFirstClassCreatedAlert: vi.fn().mockResolvedValue(undefined),
     }));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
 

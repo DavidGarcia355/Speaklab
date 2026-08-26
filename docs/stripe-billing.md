@@ -55,7 +55,7 @@ or admin allowlisting. The v3 migration therefore labels every origin-less legac
 repairs any early guessed provenance) as `legacy_unclassified` and grants it no AI allowance. Do
 not infer provenance from the current allowlist. Before production activation, review those rows
 with the operator and explicitly regrant
-only real pilot/manual accounts through the admin teacher roster. New allowlisted sign-ins receive
+only real manual-grant accounts through the admin teacher roster. New allowlisted sign-ins receive
 the teacher role only; new admin toggles persist explicit manual-grant provenance.
 
 ## Provision the sandbox catalog
@@ -132,6 +132,13 @@ The webhook must continue receiving:
 - `customer.subscription.created`
 - `customer.subscription.updated`
 - `customer.subscription.deleted`
+- `invoice.paid`
+- `invoice.payment_failed`
+- `refund.created`
+
+The final three events feed the private, durable Habla Pulse revenue/incident
+outbox after signature verification. They do not change customer entitlement,
+and Discord delivery is never performed in the webhook request path.
 
 Only the exact supported subscription—correct account, mode, contract, catalog fingerprint, one
 Teacher Price, licensed quantity 1, accepted collection state—may grant entitlement. Duplicate and

@@ -83,13 +83,23 @@ blocker.
 | `ADMIN_EMAILS` | Comma-separated emails allowed to view `/admin`; also grants the teacher role, but no AI allowance, on sign-in. | Optional | Server | Falls back to the legacy `ADMIN_EMAIL`. |
 | `ADMIN_EMAIL` | Legacy single-admin setting, merged with `ADMIN_EMAILS`. | Optional | Server | Admin page/API deny access when both admin settings are empty. |
 | `RESEND_API_KEY` | Teacher confirmation and feedback notification email. | Optional | Server | Email sends are skipped. |
-| `DISCORD_WEBHOOK_URL` | Generic founder event webhook; current messages contain no account, contact, school, message, or student identifiers. | Optional | Server | Discord notifications are skipped. |
+| `DISCORD_ADMIN_ALERTS_ENABLED` | Delivery-only kill switch for the private durable admin-alert outbox. Only exact `true` enables network delivery; enqueue and deduplication continue while disabled. | Optional | Server | Defaults disabled; queued intents remain pending. |
+| `DISCORD_ALERTS_ENV` | Explicit alert environment: `production`, `preview`, `development`, or `test`. Deployed values must agree with Vercel's environment. | Required before enabling delivery | Server | The runtime infers the platform environment; a configured mismatch fails delivery closed. |
+| `DISCORD_ALERTS_REFERENCE_SECRET` | HMAC secret used to derive short irreversible teacher, lead, and payment references. Use at least 32 random characters. | Optional when `AUTH_SECRET` is present | Server | Falls back to `AUTH_SECRET`; identity derivation fails safely if neither is suitable. |
+| `DISCORD_TRACTION_WEBHOOK_URL` | Private production traction destination. | Required when production delivery is enabled | Server secret | That destination retries and eventually dead-letters without affecting customer workflows. |
+| `DISCORD_REVENUE_WEBHOOK_URL` | Private production revenue destination. | Required when production delivery is enabled | Server secret | Same as above. |
+| `DISCORD_MILESTONES_WEBHOOK_URL` | Private production milestone destination. | Required when production delivery is enabled | Server secret | Same as above. |
+| `DISCORD_PULSE_WEBHOOK_URL` | Private production daily/weekly pulse destination. | Required when production delivery is enabled | Server secret | Same as above. |
+| `DISCORD_INCIDENTS_WEBHOOK_URL` | Private production incident destination. | Required when production delivery is enabled | Server secret | Same as above. |
+| `DISCORD_TEST_WEBHOOK_URL` | Sole destination permitted for Preview, Development, and Test alerts. | Required when non-production delivery is enabled | Server secret | Non-production delivery fails closed; it can never fall through to production hooks. |
+| `DISCORD_AI_P95_TARGET_MS` | Rolling 24-hour p95 AI grading-latency incident threshold in milliseconds; accepted range is 1000-600000. | Optional | Server | Defaults to 60000 ms. Alerts require at least 20 terminal latency samples. |
+| `DISCORD_WEBHOOK_URL` | Removed legacy request-path webhook. | No | Server | Ignored. Remove it from deployments after rollout. |
 
 ## Cron
 
 | Name | Purpose | Required | Scope | Absent behavior |
 | --- | --- | --- | --- | --- |
-| `CRON_SECRET` | Authorizes the cleanup cron route. It is not part of licensed Stripe subscription or Checkout readiness. | Required only when the cleanup cron is invoked. | Server | The cleanup route denies requests; subscription billing and Checkout are unaffected. |
+| `CRON_SECRET` | Authorizes cleanup and admin-alert cron routes. It is not part of licensed Stripe subscription or Checkout readiness. | Required when either cron route is invoked. | Server | Cron routes deny requests; subscription billing and Checkout are unaffected. |
 
 ## School And Role Controls
 
@@ -111,7 +121,7 @@ blocker.
 | `AI_GRADING_PROVIDER` | Selects `openai`, `ollama`, or local `mock`. | Required for a reviewed launch | Server | Defaults to `openai` in production and local `ollama` otherwise; set it explicitly for deployments. |
 | `AI_TRANSCRIPTION_MODEL` | Exact transcription model ID. The repository candidate is `gpt-4o-mini-transcribe`, but it is not approved merely by appearing here. | Optional, but set explicitly for production AI | Server | Production defaults to `gpt-4o-transcribe`. The runtime honors an explicit value without silently substituting a different cost/behavior profile. |
 | `AI_GRADING_MODEL` | Legacy-compatible exact grading model setting used when `GRADING_DEFAULT_MODEL` is absent. | Optional, but set explicitly for production AI | Server | The provider-neutral setting takes precedence. The runtime does not silently replace explicit model IDs. |
-| `AI_ACCESS_MODE` | `paid` grants the Free lifetime allowance and then AI through either an explicit manual pilot entitlement or an exact remotely verified active Stripe subscription; `all` bypasses allowance limits for every authenticated teacher. | Optional | Server | Defaults to `paid`; production fails closed if `all` is combined with open teacher self-registration. |
+| `AI_ACCESS_MODE` | `paid` grants the Free lifetime allowance and then AI through either an explicit manual entitlement or an exact remotely verified active Stripe subscription; `all` bypasses allowance limits for every authenticated teacher. | Optional | Server | Defaults to `paid`; production fails closed if `all` is combined with open teacher self-registration. |
 | `AI_TEACHER_DENYLIST` | Comma-separated emergency account suspension list in either access mode. | Optional | Server | No accounts are denied. |
 | `AI_STUDENT_DATA_APPROVED` | Versioned operator attestation after student-data, disclosure, retention, school authorization, provider controls, and exact-model review. The current accepted value is `reviewed-2026-08-25`; the old boolean `true` is intentionally rejected. | Required for production AI | Server | Production provider calls fail closed and `/api/features` hides AI. Re-attest when the policy, provider, model set, or retention behavior materially changes. |
 | `AI_MONTHLY_BUDGET_USD` | App-side UTC-calendar-month reservation ceiling. | Required for production AI | Server | Defaults to `200`; zero fails configuration. |

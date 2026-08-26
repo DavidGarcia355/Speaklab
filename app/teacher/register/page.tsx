@@ -82,22 +82,28 @@ export default function TeacherRegisterPage() {
       <BrandBar label="Teacher Registration" />
       <section className="hero">
         <p className="pill">Teacher setup</p>
-        <h1>Request or activate teacher access</h1>
+        <h1>Set up your free teacher account</h1>
         <p>Create classes, share speaking prompts, and review recordings in one classroom workspace.</p>
       </section>
 
       <section className="card form-shell panel-subtle section-gap">
         <h2 className="surface-title">
-          {registrationState === "available" ? "Your teacher access is ready" : "Teacher access is invite-only"}
+          {registrationState === "available"
+            ? "Create your teacher account"
+            : registrationState === "checking"
+              ? "Checking your account"
+              : registrationState === "signed-out"
+                ? "Sign in to start free"
+                : "Teacher setup needs support"}
         </h2>
         <p className="meta">
           {registrationState === "available"
-            ? "Your signed-in account is approved. Activate it to open the teacher dashboard."
+            ? "Continue to open your teacher dashboard. Core classroom features are free forever, and Free includes 30 successful AI reviews for the lifetime of your teacher account."
             : registrationState === "checking"
-              ? "Checking whether your signed-in account is approved for the current pilot."
+              ? "Checking whether teacher setup is available for your signed-in account."
               : registrationState === "signed-out"
-                ? "Sign in to check whether your account is already approved, or request a place in the current pilot."
-                : "TryHabla is adding teachers through a reviewed pilot while privacy and district materials are finalized."}
+                ? "Sign in to create your free teacher account and open the classroom workspace."
+                : "Self-service teacher setup is unavailable for this account right now. Contact TryHabla support if you believe this is an error."}
         </p>
         {errorMsg ? <p className="notice danger">{errorMsg}</p> : null}
         <div className="actions form-actions">
@@ -108,7 +114,7 @@ export default function TeacherRegisterPage() {
               onClick={() => void registerTeacher()}
               disabled={saving}
             >
-              {saving ? "Activating..." : "Activate teacher access"}
+              {saving ? "Creating..." : "Create teacher account"}
             </button>
           ) : registrationState === "checking" ? (
             <button className="btn btn-primary" type="button" disabled>
@@ -116,13 +122,13 @@ export default function TeacherRegisterPage() {
             </button>
           ) : (
             <a className="btn btn-primary" href="/feedback">
-              Request teacher pilot access
+              Contact support
             </a>
           )}
         </div>
         <div className="actions" style={{ marginTop: "0.5rem" }}>
           <SignInLink className="btn btn-ghost" callbackUrl="/teacher/register">
-            {registrationState === "signed-out" ? "Sign in to check access" : "Use another account"}
+            {registrationState === "signed-out" ? "Sign in to start free" : "Use another account"}
           </SignInLink>
         </div>
       </section>

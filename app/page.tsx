@@ -122,18 +122,18 @@ export default function Home() {
         <div>
           <p className="pill pill-subtle">
             <ShieldCheck size={14} aria-hidden="true" />
-            Teacher pilot requests open while district review continues
+            Self-serve for teachers. Flexible options for schools.
           </p>
           <h2>Start with one class. Prove the workflow before a wider rollout.</h2>
           <p className="meta">
             Free includes the complete audio classroom and a lifetime allowance of 30 successful AI
             reviews per teacher account. Teacher adds 300 reviews per Stripe billing period for $20
-            per month. Schools can contact David about a founder-managed School Pilot.
+            per month. Larger and custom needs can go through TryHabla for Schools.
           </p>
         </div>
         <div className="actions home-district-actions">
-          <Link className="btn btn-primary" href="/teachers">
-            Request a teacher pilot
+          <Link className="btn btn-primary" href="/teacher/register">
+            Start free
             <ArrowRight size={17} aria-hidden="true" />
           </Link>
           <Link className="btn btn-ghost" href="/district">
@@ -148,13 +148,13 @@ export default function Home() {
       <section className="home-quick-preview section-gap">
         <article>
           <UsersRound size={20} aria-hidden="true" />
-          <h2>Already learning from real classroom pilots</h2>
+          <h2>Already learning from real classroom use</h2>
           <p className="meta">
-            TryHabla is being shaped by actual speaking assignments while wider school and district
-            review remains intentionally separate.
+            TryHabla is being shaped by actual speaking assignments while school and district teams
+            can review privacy and rollout needs separately.
           </p>
-          <div className="home-proof-grid" aria-label="TryHabla pilot activity">
-            <span className="home-proof-stat"><strong>Real</strong><span>teacher pilots</span></span>
+          <div className="home-proof-grid" aria-label="TryHabla classroom activity">
+            <span className="home-proof-stat"><strong>Real</strong><span>teacher workflows</span></span>
             <span className="home-proof-stat"><strong>Live</strong><span>classroom workflows</span></span>
             <span className="home-proof-stat"><strong>Careful</strong><span>review before scale</span></span>
           </div>

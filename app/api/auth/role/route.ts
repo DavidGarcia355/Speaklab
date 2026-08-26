@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { enqueueTeacherSignedUpAlert } from "@/lib/admin-alert-lifecycle";
 import { trackActivity } from "@/lib/activity";
 import { requireAuthenticatedEmail } from "@/lib/authz";
 import { getUserRoleByEmail, setUserRoleTeacher } from "@/lib/db";
@@ -45,10 +46,16 @@ export async function POST(request: Request) {
 
     const currentRole = await getUserRoleByEmail(email);
     if (currentRole !== "teacher" && !canSelfRegisterTeacher(email)) {
-      throw new HttpError(403, "Teacher account setup is currently limited. Contact TryHabla to request access.");
+      throw new HttpError(
+        403,
+        "Teacher account setup is unavailable for this account. Contact TryHabla support.",
+      );
     }
 
     await setUserRoleTeacher(email);
+    if (currentRole !== "teacher") {
+      await enqueueTeacherSignedUpAlert({ teacherEmail: email, source: "direct" });
+    }
     try {
       await trackActivity("teacher_upgraded", email);
     } catch (error) {

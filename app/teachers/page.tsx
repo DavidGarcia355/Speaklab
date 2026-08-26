@@ -66,7 +66,7 @@ export default function TeachersPage() {
         </p>
         <div className="actions hero-actions">
           <Link className="btn btn-primary" href="/teacher/register">
-            Request pilot access
+            Start free
             <ArrowRight size={17} aria-hidden="true" />
           </Link>
           <SignInLink className="btn btn-ghost" callbackUrl="/teacher">

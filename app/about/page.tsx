@@ -33,8 +33,8 @@ export default function AboutPage() {
           <h2 className="surface-title">A small project with a human purpose.</h2>
           <p className="meta">
             TryHabla started as a practical answer to a problem my mom faced in her own classroom. I
-            build and maintain it myself, and the core audio classroom is free during the current
-            teacher pilot so useful speaking practice does not begin with another burden.
+            build and maintain it myself, and the core audio classroom is free forever so useful
+            speaking practice does not begin with another burden.
           </p>
         </article>
 

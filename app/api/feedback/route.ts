@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { notifyDiscordFeedback } from "@/lib/activity";
+import { enqueueSchoolLeadAlert } from "@/lib/admin-alert-lifecycle";
 import { createFeedbackMessage } from "@/lib/db";
 import { sendFeedbackNotification } from "@/lib/email";
 import { getClientIp, withApiHandler } from "@/lib/http";
@@ -26,12 +26,11 @@ export async function POST(request: Request) {
       role: body.role ?? "",
       message: body.message ?? "",
     });
-    notifyDiscordFeedback({
-      name: body.name ?? "",
-      email: body.email,
-      school: body.school ?? "",
-      role: body.role ?? "",
-    });
+    if (body.intent === "schools" || body.intent === "school-pilot") {
+      await enqueueSchoolLeadAlert({
+        feedbackId: item.id,
+      });
+    }
     return NextResponse.json({ item }, { status: 201 });
   });
 }

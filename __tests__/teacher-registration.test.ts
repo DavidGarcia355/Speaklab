@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   requireAuthenticatedEmail: vi.fn(),
   getUserRoleByEmail: vi.fn(),
   setUserRoleTeacher: vi.fn(),
+  enqueueTeacherSignedUpAlert: vi.fn(),
   trackActivity: vi.fn(),
   sendTeacherUpgradeConfirmationEmail: vi.fn(),
 }));
@@ -19,6 +20,10 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/activity", () => ({
   trackActivity: mocks.trackActivity,
+}));
+
+vi.mock("@/lib/admin-alert-lifecycle", () => ({
+  enqueueTeacherSignedUpAlert: mocks.enqueueTeacherSignedUpAlert,
 }));
 
 vi.mock("@/lib/email", () => ({
@@ -61,6 +66,7 @@ describe("teacher registration controls", () => {
     mocks.requireAuthenticatedEmail.mockReset();
     mocks.getUserRoleByEmail.mockReset();
     mocks.setUserRoleTeacher.mockReset();
+    mocks.enqueueTeacherSignedUpAlert.mockReset().mockResolvedValue(undefined);
     mocks.trackActivity.mockReset();
     mocks.sendTeacherUpgradeConfirmationEmail.mockReset();
     mocks.requireAuthenticatedEmail.mockResolvedValue("new-teacher@example.com");
@@ -85,7 +91,7 @@ describe("teacher registration controls", () => {
     return new Request("http://localhost/api/auth/role");
   }
 
-  it("reports invite-only availability to signed-in, non-allowlisted users", async () => {
+  it("reports unavailable self-service setup to signed-in, non-allowlisted users", async () => {
     const { GET } = await import("@/app/api/auth/role/route");
 
     const response = await GET(getRequest());
@@ -111,8 +117,13 @@ describe("teacher registration controls", () => {
     const { POST } = await import("@/app/api/auth/role/route");
 
     const response = await POST(request());
+    const body = (await response.json()) as { error: string };
 
     expect(response.status).toBe(403);
+    expect(body.error).toBe(
+      "Teacher account setup is unavailable for this account. Contact TryHabla support.",
+    );
+    expect(body.error).not.toMatch(/pilot|request access|invite/i);
     expect(mocks.setUserRoleTeacher).not.toHaveBeenCalled();
   });
 
@@ -124,6 +135,10 @@ describe("teacher registration controls", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.setUserRoleTeacher).toHaveBeenCalledWith("new-teacher@example.com");
+    expect(mocks.enqueueTeacherSignedUpAlert).toHaveBeenCalledWith({
+      teacherEmail: "new-teacher@example.com",
+      source: "direct",
+    });
   });
 
   it("does not lock out existing teachers who revisit setup", async () => {
@@ -134,5 +149,6 @@ describe("teacher registration controls", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.setUserRoleTeacher).toHaveBeenCalledWith("new-teacher@example.com");
+    expect(mocks.enqueueTeacherSignedUpAlert).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Teacher Pilot Access",
+  title: "Teacher Account Setup",
   robots: { index: false, follow: false },
 };
 

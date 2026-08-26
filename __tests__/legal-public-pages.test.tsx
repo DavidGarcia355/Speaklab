@@ -1,21 +1,21 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-describe("pilot legal surface", () => {
+describe("public legal surface", () => {
   it("publishes a concrete privacy notice without unsupported approval claims", async () => {
     const { default: PrivacyPage } = await import("@/app/privacy/page");
 
     const markup = renderToStaticMarkup(<PrivacyPage />);
     const lower = markup.toLowerCase();
 
-    expect(markup).toContain("Pilot notice");
+    expect(markup).toContain("Privacy notice");
     expect(markup).toContain("TryHabla is operated by David Garcia.");
     expect(markup).toContain("Last updated: August 26, 2026");
     expect(markup).toContain("Information TryHabla handles");
     expect(markup).toContain("Optional AI grading");
     expect(markup).toContain("recorded answer");
     expect(markup).toContain("may be shown to the student before a teacher");
-    expect(markup).toContain("production pilot identifies OpenAI");
+    expect(markup).toContain("production service identifies OpenAI");
     expect(markup).toContain("does not promise a particular provider retention mode");
     expect(markup).toContain("30-day");
     expect(markup).toContain("do not yet have an automatic deletion schedule");
@@ -31,13 +31,13 @@ describe("pilot legal surface", () => {
     expect(markup).not.toMatch(/\bHabla\b/);
   });
 
-  it("keeps pilot terms conditional about AI and payments", async () => {
+  it("keeps service terms conditional about AI and payments", async () => {
     const { default: TermsPage } = await import("@/app/terms/page");
 
     const markup = renderToStaticMarkup(<TermsPage />);
     const lower = markup.toLowerCase();
 
-    expect(markup).toContain("Pilot terms");
+    expect(markup).toContain("Terms of Use");
     expect(markup).toContain("TryHabla is operated by David Garcia.");
     expect(markup).toContain("Optional AI results");
     expect(markup).toContain("Paid functionality is available only when it is enabled");
@@ -51,6 +51,7 @@ describe("pilot legal surface", () => {
     expect(lower).not.toContain("coppa compliant");
     expect(lower).not.toContain("district-approved");
     expect(markup).not.toMatch(/\bHabla\b/);
+    expect(markup).not.toMatch(/teacher pilot|school pilot/i);
   });
 
   it("keeps privacy, terms, and support links in the shared footer", async () => {
@@ -65,7 +66,9 @@ describe("pilot legal surface", () => {
     expect(markup).toContain('href="/about"');
     expect(markup).toContain("My story &amp; donations");
     expect(markup).toContain("mailto:davidsgarcia325@gmail.com");
-    expect(markup).toContain("currently offered as a teacher pilot");
+    expect(markup).toContain("keeps the core classroom free forever");
+    expect(markup).toContain("30 successful reviews");
+    expect(markup).not.toMatch(/teacher pilot/i);
     expect(markup).not.toContain("paypal.me");
   });
 

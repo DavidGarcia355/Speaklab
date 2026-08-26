@@ -4,8 +4,8 @@ import { CONTACT_LINKS, OPERATOR_NAME } from "@/app/constants";
 import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
-  title: "Pilot Terms of Use",
-  description: "Interim terms for teachers, students, and schools using the TryHabla teacher pilot.",
+  title: "Terms of Use",
+  description: "Interim terms for teachers, students, and schools using the TryHabla service.",
   path: "/terms",
 });
 
@@ -15,10 +15,10 @@ export default function TermsPage() {
       <BrandBar label="Terms" />
 
       <header className="hero legal-hero">
-        <p className="pill">Pilot terms</p>
+        <p className="pill">Terms of Use</p>
         <h1>Terms for using TryHabla</h1>
         <p>
-          These interim terms cover the current teacher pilot. They are not a statement that any
+          These interim terms cover the current TryHabla service. They are not a statement that any
           school or district has approved TryHabla. A signed agreement with a school or district will
           control if it conflicts with these terms.
         </p>
@@ -27,11 +27,11 @@ export default function TermsPage() {
 
       <article className="card legal-document">
         <section className="legal-section" aria-labelledby="terms-acceptance">
-          <h2 id="terms-acceptance">Using the pilot</h2>
+          <h2 id="terms-acceptance">Using TryHabla</h2>
           <p>
             Adult users accept these terms by creating an account or using TryHabla. Students use
             TryHabla at the direction of a teacher or school. If you act for a school, you confirm
-            that you have authority to use the pilot for that school and to give the instructions
+            that you have authority to use the service for that school and to give the instructions
             you provide to TryHabla.
           </p>
           <p>TryHabla is operated by {OPERATOR_NAME}.</p>
@@ -49,7 +49,7 @@ export default function TermsPage() {
           <p>
             TryHabla provides a browser-based workflow for speaking assignments, recordings, rosters,
             teacher review, grading, feedback, and exports. Some deployments may also offer optional
-            AI grading and billing. Pilot features can change, be limited, or be temporarily
+            AI grading and billing. Service features can change, be limited, or be temporarily
             unavailable while the service is tested and improved.
           </p>
           <p>
@@ -134,10 +134,10 @@ export default function TermsPage() {
             delayed, contact TryHabla before starting another checkout.
           </p>
           <p>
-            School Pilot is a founder-managed, manually provisioned cohort with scope, review volume,
-            onboarding, and terms agreed directly with the school. It is not a self-service plan and
-            does not promise a school administrator console, consolidated school billing, or
-            district approval.
+            TryHabla for Schools is a contact-based option for larger or custom teacher cohorts,
+            with scope, review volume, onboarding, and terms agreed directly with the school. It is
+            not a self-service plan and does not promise a school administrator console,
+            consolidated school billing, or district approval.
           </p>
           <p>
             A separate PayPal link may be available for voluntary, non-tax-deductible donations
@@ -155,14 +155,14 @@ export default function TermsPage() {
             <li>Upload content or personal information you are not authorized to provide.</li>
             <li>Try to access another user&apos;s account, class, submission, or private file.</li>
             <li>Probe, bypass, or interfere with security, rate limits, or service availability.</li>
-            <li>Use automated traffic that creates an unreasonable load on the pilot.</li>
+            <li>Use automated traffic that creates an unreasonable load on the service.</li>
           </ul>
         </section>
 
         <section className="legal-section" aria-labelledby="terms-privacy">
           <h2 id="terms-privacy">Privacy and deletion</h2>
           <p>
-            The <Link href="/privacy">Pilot Privacy Notice</Link> explains the information TryHabla
+            The <Link href="/privacy">Privacy Notice</Link> explains the information TryHabla
             handles, optional AI processing, current retention behavior, and how to make a request.
             Deleting classroom content begins the current recovery-and-cleanup process described in
             that notice; deleting an account is not yet a self-service feature.
@@ -173,17 +173,17 @@ export default function TermsPage() {
           <h2 id="terms-suspension">Suspension and ending use</h2>
           <p>
             TryHabla may limit or suspend access when reasonably needed to protect users, investigate
-            misuse, comply with legal requirements, or keep the pilot operating. A teacher can stop
+            misuse, comply with legal requirements, or keep the service operating. A teacher can stop
             using the service and delete classroom content available through the product. For
-            account or school-level closure, contact TryHabla before the pilot ends so data handling
+            account or school-level closure, contact TryHabla before ending use so data handling
             instructions can be confirmed.
           </p>
         </section>
 
         <section className="legal-section" aria-labelledby="terms-reliability">
-          <h2 id="terms-reliability">Pilot reliability</h2>
+          <h2 id="terms-reliability">Service reliability</h2>
           <p>
-            TryHabla is an early-stage pilot and may contain errors or experience interruptions. No
+            TryHabla is an early-stage service and may contain errors or experience interruptions. No
             online service or AI output is guaranteed to be secure, uninterrupted, or error-free.
             Report problems promptly and keep an independent copy of any school record that must be
             preserved.
@@ -193,7 +193,7 @@ export default function TermsPage() {
         <section className="legal-section" aria-labelledby="terms-updates">
           <h2 id="terms-updates">Changes and contact</h2>
           <p>
-            These terms may be updated as the pilot changes. The latest version and update date will
+            These terms may be updated as the service changes. The latest version and update date will
             remain on this page. Questions, billing concerns, or notices can be sent to{" "}
             <a href={CONTACT_LINKS.email}>davidsgarcia325@gmail.com</a> or through the{" "}
             <Link href="/feedback">TryHabla contact form</Link>.

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
 
@@ -28,6 +28,14 @@ export default function FeedbackPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [status, setStatus] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [intent, setIntent] = useState<"" | "schools">("");
+
+  useEffect(() => {
+    const requestedIntent = new URLSearchParams(window.location.search).get("intent");
+    if (requestedIntent === "schools" || requestedIntent === "school-pilot") {
+      setIntent("schools");
+    }
+  }, []);
 
   function updateField<K extends keyof FeedbackForm>(key: K, value: FeedbackForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -43,7 +51,10 @@ export default function FeedbackPage() {
       const response = await fetch("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          ...(intent === "schools" ? { intent } : {}),
+        }),
       });
       const data = (await response.json()) as { error?: string; fieldErrors?: FieldErrors };
 
@@ -67,10 +78,16 @@ export default function FeedbackPage() {
       <PageTitle title="Feedback" />
       <BrandBar label="Feedback" />
       <section className="hero">
-        <p className="pill">Contact</p>
-        <h1>Share feedback or ask a question</h1>
+        <p className="pill">{intent === "schools" ? "TryHabla for Schools" : "Contact"}</p>
+        <h1>
+          {intent === "schools"
+            ? "Talk with TryHabla for Schools"
+            : "Share feedback or ask a question"}
+        </h1>
         <p>
-          Share feedback, ask a question, or let us know how we can help.
+          {intent === "schools"
+            ? "Tell us about your school or program, expected teacher cohort, review volume, and any rollout requirements."
+            : "Share feedback, ask a question, or let us know how we can help."}
         </p>
       </section>
 
@@ -159,7 +176,11 @@ export default function FeedbackPage() {
 
           <div className="actions form-actions">
             <button className="btn btn-primary" type="submit" disabled={submitting}>
-              {submitting ? "Sending..." : "Send feedback"}
+              {submitting
+                ? "Sending..."
+                : intent === "schools"
+                  ? "Contact TryHabla for Schools"
+                  : "Send feedback"}
             </button>
             <Link className="btn btn-ghost" href="/faq">
               View FAQ

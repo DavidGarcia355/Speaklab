@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { enqueueFirstRecordingReceivedAlert } from "@/lib/admin-alert-lifecycle";
 import { requireSchoolStudentEmail } from "@/lib/authz";
 import { assertRecordingDuration } from "@/lib/audio-duration";
 import { deleteSubmissionAudio, uploadSubmissionAudio } from "@/lib/audio-storage";
@@ -6,6 +7,7 @@ import {
   countStudentSubmissions,
   createSubmission,
   findAssignmentById,
+  findTeacherFunnelRowByEmail,
   upsertRosterEntry,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
@@ -99,6 +101,22 @@ export async function POST(
       }
       throw error;
     }
+
+    let teacherJoinedAt: number | undefined;
+    try {
+      const teacher = await findTeacherFunnelRowByEmail(assignment.ownerEmail);
+      teacherJoinedAt = teacher?.joinedAt;
+    } catch {
+      console.warn("Admin alert activation lookup failed", {
+        code: "admin_alert_activation_lookup_failed",
+      });
+    }
+    await enqueueFirstRecordingReceivedAlert({
+      teacherEmail: assignment.ownerEmail,
+      teacherJoinedAt,
+      assignmentCreatedAt: assignment.createdAt,
+      recordingCreatedAt: created.submittedAt,
+    });
 
     upsertRosterEntry({
       classId: assignment.classId,

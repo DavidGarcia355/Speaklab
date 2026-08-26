@@ -42,6 +42,27 @@ function status(overrides: Partial<BillingStatus> = {}): BillingStatus {
 }
 
 describe("billing presentation", () => {
+  it("labels legacy manual entitlement without public pilot language", () => {
+    const presentation = deriveBillingPresentation(
+      status({
+        access: "pilot",
+        usage: {
+          ...baseStatus.usage,
+          allowanceKind: "manual_lifetime",
+          limit: 300,
+          remainingReviews: 300,
+        },
+      }),
+    );
+
+    expect(presentation).toMatchObject({
+      heading: "Manual AI access is active",
+      description:
+        "Your manual lifetime allowance is separate from Stripe billing and has no automatic overages.",
+    });
+    expect(`${presentation.heading} ${presentation.description}`).not.toMatch(/pilot/i);
+  });
+
   it("offers Checkout only for a clean inactive account", () => {
     const presentation = deriveBillingPresentation(status());
 

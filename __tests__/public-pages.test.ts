@@ -8,7 +8,7 @@ describe("pricing page", () => {
     const markup = renderToStaticMarkup(await PricingPage());
 
     expect(markup).toContain("Start free. Add AI when it saves you time.");
-    expect(markup).toContain("The complete audio classroom, plus a real AI trial");
+    expect(markup).toContain("The complete audio classroom, plus a lifetime AI allowance");
     expect(markup).toContain("$0");
     expect(markup).toContain("30 successful AI reviews for the lifetime of your teacher account");
     expect(markup).toContain("no card required");
@@ -34,17 +34,18 @@ describe("pricing page", () => {
     expect(markup).not.toContain("Support with PayPal");
     expect(markup).not.toMatch(/\bHabla\b/);
     expect(markup).toContain("not a usage charge or invoice");
-    expect(markup).toContain("School Pilot - Contact us");
-    expect(markup).toContain("A founder-managed, manually provisioned teacher cohort.");
-    expect(markup).toContain("Need more AI reviews? Ask your school about a TryHabla School Pilot.");
+    expect(markup).toContain("TryHabla for Schools - Contact us");
+    expect(markup).toContain("Larger and custom school needs.");
+    expect(markup).toContain("Need more AI reviews? Explore TryHabla for Schools.");
     expect(markup).toContain("Contact us");
     expect(markup).toContain("/feedback");
-    expect(markup).toContain("does not imply a school admin console or district approval");
+    expect(markup).toContain("does not currently imply a school admin console or district approval");
     expect(markup).not.toContain("$9/month");
     expect(markup).not.toContain("$89/year");
     expect(markup).not.toContain("$99");
     expect(markup).not.toContain("June 2026");
     expect(markup).not.toContain("Coming soon for schools");
+    expect(markup).not.toMatch(/(?:teacher|school) pilot|request a pilot/i);
     expect(markup.toLowerCase()).not.toContain("credit");
     expect(markup.toLowerCase()).not.toContain("per successful grade");
     expect(markup.toLowerCase()).not.toContain("per audio minute");
@@ -88,6 +89,16 @@ describe("billing page", () => {
 });
 
 describe("public audience paths", () => {
+  it("presents self-serve access in the shared footer", async () => {
+    const { default: SiteFooter } = await import("@/app/components/SiteFooter");
+
+    const markup = renderToStaticMarkup(SiteFooter());
+
+    expect(markup).toContain("keeps the core classroom free forever");
+    expect(markup).toContain("lifetime allowance of 30 successful reviews");
+    expect(markup).not.toMatch(/pilot|request access|invite-only/i);
+  });
+
   it("routes each audience to a truthful product story", async () => {
     const { default: HomePage } = await import("@/app/page");
 
@@ -96,7 +107,7 @@ describe("public audience paths", () => {
     expect(markup).toContain("/district");
     expect(markup).toContain("/teachers");
     expect(markup).toContain("/students");
-    expect(markup).toContain("Already learning from real classroom pilots");
+    expect(markup).toContain("Already learning from real classroom use");
     expect(markup).not.toContain("<strong>37</strong>");
     expect(markup).not.toContain("<strong>141</strong>");
     expect(markup).not.toContain("<strong>585</strong>");
@@ -107,7 +118,7 @@ describe("public audience paths", () => {
       "Free includes the complete audio classroom and a lifetime allowance of 30 successful AI",
     );
     expect(markup).toContain("Teacher adds 300 reviews per Stripe billing period for $20");
-    expect(markup).toContain("founder-managed School Pilot");
+    expect(markup).toContain("Larger and custom needs can go through TryHabla for Schools");
     expect(markup).not.toContain("Habla points");
     expect(markup).not.toContain("badges");
     expect(markup).not.toMatch(/\bHabla\b/);
@@ -132,8 +143,11 @@ describe("public audience paths", () => {
     expect(studentMarkup).not.toContain("Habla points");
     expect(studentMarkup).not.toContain("streak");
     expect(studentMarkup).not.toContain("Submit securely");
-    expect(districtMarkup).toContain("controlled teacher pilot");
+    expect(districtMarkup).toContain("Teachers can start self-serve");
     expect(districtMarkup).toContain("private audio storage");
+    expect(`${teacherMarkup}${districtMarkup}`).not.toMatch(
+      /(?:teacher|school) pilot|request (?:a )?pilot/i,
+    );
     expect(`${teacherMarkup}${studentMarkup}${districtMarkup}`).not.toMatch(/\bHabla\b/);
   });
 });
@@ -173,7 +187,7 @@ describe("about page", () => {
 });
 
 describe("faq pricing copy", () => {
-  it("keeps FAQ messaging aligned with Free, Teacher, and School Pilot", async () => {
+  it("keeps FAQ messaging aligned with Free, Teacher, and TryHabla for Schools", async () => {
     const { default: FaqPage } = await import("@/app/faq/page");
 
     const markup = renderToStaticMarkup(await FaqPage());
@@ -187,8 +201,8 @@ describe("faq pricing copy", () => {
       "Teacher is $20 per month and includes 300 successful AI reviews in each Stripe billing period",
     );
     expect(markup).toContain("there are no automatic overages");
-    expect(markup).toContain("Ask about a School Pilot");
-    expect(markup).toContain("founder-managed, manually provisioned teacher cohort");
+    expect(markup).toContain("Contact TryHabla for Schools");
+    expect(markup).toContain("larger and custom path for schools");
     expect(markup).toContain("does not currently include a school admin console");
     expect(markup).toContain("Does AI save the grade automatically?");
     expect(markup).toContain("saves a whole-point score");
@@ -198,6 +212,7 @@ describe("faq pricing copy", () => {
     expect(markup).not.toContain("June 2026");
     expect(markup).not.toContain("FERPA compliant");
     expect(markup).not.toContain("$99");
+    expect(markup).not.toMatch(/(?:teacher|school) pilot|request a pilot/i);
     expect(markup.toLowerCase()).not.toContain("credit");
     expect(markup.toLowerCase()).not.toContain("per successful grade");
     expect(markup.toLowerCase()).not.toContain("per audio minute");

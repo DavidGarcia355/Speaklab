@@ -129,7 +129,7 @@ Do not use production student data or production credentials for local testing.
 
 ### Choosing teacher access
 
-`AI_ACCESS_MODE=paid` enables the 30-review Free lifetime allowance, explicit manual pilot grants,
+`AI_ACCESS_MODE=paid` enables the 30-review Free lifetime allowance, explicit manual grants,
 and exact verified Teacher subscriptions. An admin can create or revoke a manual grant from the
 teacher roster; authentication allowlists do not grant AI access. `AI_ACCESS_MODE=all` bypasses
 customer allowances for every authenticated teacher, subject to global quotas and the monthly
@@ -168,7 +168,7 @@ have different response-format contracts and need adapter tests with synthetic a
 
 Layered protections, in the order a request hits them:
 
-1. **Access gate** — `AI_ACCESS_MODE=paid` uses Free, explicit manual pilot, or exact verified Teacher allowance; `all` is an explicit operator bypass. `AI_TEACHER_DENYLIST` remains an emergency block.
+1. **Access gate** — `AI_ACCESS_MODE=paid` uses Free, an explicit manual grant, or an exact verified Teacher allowance; `all` is an explicit operator bypass. `AI_TEACHER_DENYLIST` remains an emergency block.
 2. **Cooldown** — `AI_GENERATION_COOLDOWN_SECONDS` (default 3s) blocks rapid re-clicks.
 3. **Per-submission cap** — `AI_MAX_GENERATIONS_PER_SUBMISSION` (default 10) bounds regeneration on one recording.
 4. **Per-teacher daily cap** — `AI_DAILY_TEACHER_LIMIT` (default 20/day).

@@ -416,7 +416,7 @@ export async function gradeOneSubmission(input: {
           code: "ai_review_limit_reached",
           message:
             reservation.status === "teacher_period"
-              ? "This billing period's 300 AI reviews have been used. Recording, playback, and manual grading are still available. Need more AI reviews? Ask your school about a TryHabla School Pilot."
+              ? "This billing period's 300 AI reviews have been used. Recording, playback, and manual grading are still available. Need more AI reviews? Explore TryHabla for Schools."
               : `Your ${reservation.limit}-review lifetime allowance has been used. Recording, playback, and manual grading are still available.`,
         };
       }

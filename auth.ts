@@ -1,6 +1,7 @@
 import type { NextAuthOptions } from "next-auth";
 import Google from "next-auth/providers/google";
 import AzureAD from "next-auth/providers/azure-ad";
+import { enqueueTeacherSignedUpAlert } from "@/lib/admin-alert-lifecycle";
 import { trackActivity } from "@/lib/activity";
 import { getUserRoleByEmail, upsertGoogleUserAndGetRole } from "@/lib/db";
 
@@ -49,7 +50,11 @@ export const authOptions: NextAuthOptions = {
       const emailVerified = (profile as { email_verified?: boolean } | null)?.email_verified;
       if (!email) return false;
       if (emailVerified === false) return false;
-      await upsertGoogleUserAndGetRole(email);
+      const previousRole = await getUserRoleByEmail(email);
+      const role = await upsertGoogleUserAndGetRole(email);
+      if (previousRole !== "teacher" && role === "teacher") {
+        await enqueueTeacherSignedUpAlert({ teacherEmail: email, source: "other" });
+      }
       try {
         await trackActivity("user_signed_in", email);
       } catch (error) {

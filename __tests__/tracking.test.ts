@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listTeacherFunnelRows: vi.fn(),
   listClasses: vi.fn(),
   listFeedbackMessages: vi.fn(),
+  getAdminAlertOutboxHealthForEnvironment: vi.fn(),
   trackActivity: vi.fn(),
   requireAuthenticatedEmail: vi.fn(),
   setUserRoleTeacher: vi.fn(),
@@ -25,6 +26,9 @@ const mocks = vi.hoisted(() => ({
   findAssignmentById: vi.fn(),
   setUserDefaultLanguage: vi.fn(),
   deleteBlobObjects: vi.fn(),
+  enqueueTeacherSignedUpAlert: vi.fn(),
+  enqueueFirstClassCreatedAlert: vi.fn(),
+  enqueueFirstAssignmentPublishedAlert: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -36,6 +40,8 @@ vi.mock("@/lib/db", () => ({
   listTeacherFunnelRows: mocks.listTeacherFunnelRows,
   listClasses: mocks.listClasses,
   listFeedbackMessages: mocks.listFeedbackMessages,
+  getAdminAlertOutboxHealthForEnvironment:
+    mocks.getAdminAlertOutboxHealthForEnvironment,
   setUserRoleTeacher: mocks.setUserRoleTeacher,
   findClassById: mocks.findClassById,
   createClass: mocks.createClass,
@@ -48,6 +54,12 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/activity", () => ({
   trackActivity: mocks.trackActivity,
   buildTeacherEventMetadata: mocks.buildTeacherEventMetadata,
+}));
+
+vi.mock("@/lib/admin-alert-lifecycle", () => ({
+  enqueueTeacherSignedUpAlert: mocks.enqueueTeacherSignedUpAlert,
+  enqueueFirstClassCreatedAlert: mocks.enqueueFirstClassCreatedAlert,
+  enqueueFirstAssignmentPublishedAlert: mocks.enqueueFirstAssignmentPublishedAlert,
 }));
 
 vi.mock("next-auth", () => ({
@@ -139,6 +151,7 @@ describe("tracking hooks", () => {
     mocks.listTeacherFunnelRows.mockReset();
     mocks.listClasses.mockReset();
     mocks.listFeedbackMessages.mockReset();
+    mocks.getAdminAlertOutboxHealthForEnvironment.mockReset();
     mocks.setUserRoleTeacher.mockReset();
     mocks.findClassById.mockReset();
     mocks.createClass.mockReset();
@@ -151,6 +164,9 @@ describe("tracking hooks", () => {
     mocks.findAssignmentById.mockReset();
     mocks.setUserDefaultLanguage.mockReset();
     mocks.deleteBlobObjects.mockReset();
+    mocks.enqueueTeacherSignedUpAlert.mockReset().mockResolvedValue(undefined);
+    mocks.enqueueFirstClassCreatedAlert.mockReset().mockResolvedValue(undefined);
+    mocks.enqueueFirstAssignmentPublishedAlert.mockReset().mockResolvedValue(undefined);
     mocks.deleteBlobObjects.mockResolvedValue({ failed: 0 });
 
     mocks.upsertGoogleUserAndGetRole.mockResolvedValue("student");
@@ -185,6 +201,14 @@ describe("tracking hooks", () => {
     mocks.listRecentTeacherActivityEvents.mockResolvedValue([]);
     mocks.listClasses.mockResolvedValue([]);
     mocks.listFeedbackMessages.mockResolvedValue([]);
+    mocks.getAdminAlertOutboxHealthForEnvironment.mockResolvedValue({
+      pending: 0,
+      due: 0,
+      stale: 0,
+      delivered: 3,
+      dead: 0,
+      oldestPendingAt: null,
+    });
     mocks.trackActivity.mockResolvedValue(undefined);
     mocks.requireAuthenticatedEmail.mockResolvedValue("teacher@example.com");
     mocks.getServerSession.mockResolvedValue({
@@ -260,6 +284,10 @@ describe("tracking hooks", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.setUserRoleTeacher).toHaveBeenCalledWith("teacher@example.com");
+    expect(mocks.enqueueTeacherSignedUpAlert).toHaveBeenCalledWith({
+      teacherEmail: "teacher@example.com",
+      source: "direct",
+    });
     expect(mocks.trackActivity).toHaveBeenCalledWith("teacher_upgraded", "teacher@example.com");
     expect(mocks.sendTeacherUpgradeConfirmationEmail).toHaveBeenCalledWith("teacher@example.com");
   });
@@ -303,6 +331,11 @@ describe("tracking hooks", () => {
         isFirstClass: true,
       })
     );
+    expect(mocks.enqueueFirstClassCreatedAlert).toHaveBeenCalledWith({
+      teacherEmail: "teacher@example.com",
+      teacherJoinedAt: expect.any(Number),
+      classCreatedAt: expect.any(Number),
+    });
   });
 
   it("returns 409 when a duplicate class name is submitted", async () => {
@@ -355,6 +388,11 @@ describe("tracking hooks", () => {
         isFirstAssignment: true,
       })
     );
+    expect(mocks.enqueueFirstAssignmentPublishedAlert).toHaveBeenCalledWith({
+      teacherEmail: "teacher@example.com",
+      teacherJoinedAt: expect.any(Number),
+      assignmentCreatedAt: expect.any(Number),
+    });
   });
 
   it("returns 409 when a duplicate assignment title is submitted", async () => {
@@ -387,35 +425,28 @@ describe("tracking hooks", () => {
 });
 
 describe("activity helper", () => {
-  const originalEnv = {
-    DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL,
-  };
-
   beforeEach(() => {
-    process.env.DISCORD_WEBHOOK_URL = "https://discord.example/webhook";
     vi.resetModules();
   });
 
   afterEach(() => {
-    process.env.DISCORD_WEBHOOK_URL = originalEnv.DISCORD_WEBHOOK_URL;
     vi.unstubAllGlobals();
     vi.doUnmock("@/lib/db");
   });
 
-  it("does not throw when the Discord webhook fails", async () => {
+  it("keeps legacy activity persistence separate from network delivery", async () => {
     vi.doMock("@/lib/db", () => ({
       logActivityEvent: vi.fn().mockResolvedValue(undefined),
       getTrackingSummary: vi.fn(),
       listTeacherFunnelRows: vi.fn(),
     }));
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 500 })
-    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
 
     const { trackActivity } = await import("@/lib/activity");
 
     await expect(trackActivity("user_signed_in", "teacher@example.com")).resolves.toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
 });
@@ -472,6 +503,8 @@ describe("admin page", () => {
       listTeacherFunnelRows: mocks.listTeacherFunnelRows,
       listClasses: mocks.listClasses,
       listFeedbackMessages: mocks.listFeedbackMessages,
+      getAdminAlertOutboxHealthForEnvironment:
+        mocks.getAdminAlertOutboxHealthForEnvironment,
     }));
     mocks.getTrackingSummary.mockResolvedValue({
       totalUsers: 3,
@@ -495,6 +528,14 @@ describe("admin page", () => {
     ]);
     mocks.listClasses.mockResolvedValue([]);
     mocks.listFeedbackMessages.mockResolvedValue([]);
+    mocks.getAdminAlertOutboxHealthForEnvironment.mockResolvedValue({
+      pending: 0,
+      due: 0,
+      stale: 0,
+      delivered: 3,
+      dead: 0,
+      oldestPendingAt: null,
+    });
   });
 
   it("renders founder metrics for the configured admin email", async () => {
@@ -509,6 +550,9 @@ describe("admin page", () => {
     expect(markup).toContain("Total users");
     expect(markup).toContain("Teacher accounts");
     expect(markup).toContain("teacher@example.com");
+    expect(markup).toContain("Habla Pulse delivery health");
+    expect(markup).toContain("Delivery disabled");
+    expect(markup).not.toContain("safe_payload_json");
   });
 
   it("shows access denied content for non-admin users", async () => {

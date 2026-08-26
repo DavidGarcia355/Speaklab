@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   enforceGradebookRateLimit: vi.fn(),
   deleteBlobObjects: vi.fn(),
   isAssignmentAttachmentReferenced: vi.fn(),
+  enqueueFirstAssignmentPublishedAlert: vi.fn(),
 }));
 
 vi.mock("@/lib/authz", () => ({
@@ -62,6 +63,10 @@ vi.mock("@/lib/activity", () => ({
     isFirstClass: true,
     isFirstAssignment: true,
   }),
+}));
+
+vi.mock("@/lib/admin-alert-lifecycle", () => ({
+  enqueueFirstAssignmentPublishedAlert: mocks.enqueueFirstAssignmentPublishedAlert,
 }));
 
 vi.mock("@/lib/http", async () => {
@@ -204,6 +209,7 @@ describe("rubric routes", () => {
     mocks.enforceGradebookRateLimit.mockReset();
     mocks.deleteBlobObjects.mockReset();
     mocks.isAssignmentAttachmentReferenced.mockReset();
+    mocks.enqueueFirstAssignmentPublishedAlert.mockReset().mockResolvedValue(undefined);
 
     mocks.requireTeacherEmail.mockResolvedValue("teacher@example.com");
     mocks.deleteBlobObjects.mockResolvedValue({ failed: 0 });
@@ -300,6 +306,11 @@ describe("rubric routes", () => {
         rubric: expect.objectContaining({ title: "Speaking rubric" }),
       })
     );
+    expect(mocks.enqueueFirstAssignmentPublishedAlert).toHaveBeenCalledWith({
+      teacherEmail: "teacher@example.com",
+      teacherJoinedAt: expect.any(Number),
+      assignmentCreatedAt: expect.any(Number),
+    });
   });
 
   it("allows pasted assignments to reuse a server-authorized source attachment", async () => {

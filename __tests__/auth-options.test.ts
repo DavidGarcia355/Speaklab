@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getUserRoleByEmail: vi.fn(),
   trackActivity: vi.fn(),
   upsertGoogleUserAndGetRole: vi.fn(),
+  enqueueTeacherSignedUpAlert: vi.fn(),
 }));
 
 vi.mock("@/lib/activity", () => ({
@@ -13,6 +14,10 @@ vi.mock("@/lib/activity", () => ({
 vi.mock("@/lib/db", () => ({
   getUserRoleByEmail: mocks.getUserRoleByEmail,
   upsertGoogleUserAndGetRole: mocks.upsertGoogleUserAndGetRole,
+}));
+
+vi.mock("@/lib/admin-alert-lifecycle", () => ({
+  enqueueTeacherSignedUpAlert: mocks.enqueueTeacherSignedUpAlert,
 }));
 
 const managedEnvKeys = [
@@ -73,6 +78,7 @@ describe("auth options", () => {
     mocks.getUserRoleByEmail.mockReset().mockResolvedValue("student");
     mocks.trackActivity.mockReset().mockResolvedValue(undefined);
     mocks.upsertGoogleUserAndGetRole.mockReset().mockResolvedValue("student");
+    mocks.enqueueTeacherSignedUpAlert.mockReset().mockResolvedValue(undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
 
@@ -136,6 +142,25 @@ describe("auth options", () => {
     expect(result).toBe(true);
     expect(mocks.upsertGoogleUserAndGetRole).toHaveBeenCalledOnce();
     expect(mocks.upsertGoogleUserAndGetRole).toHaveBeenCalledWith("teacher@example.com");
+    expect(mocks.enqueueTeacherSignedUpAlert).not.toHaveBeenCalled();
+  });
+
+  it("enqueues a teacher signup only when sign-in commits a teacher transition", async () => {
+    mocks.upsertGoogleUserAndGetRole.mockResolvedValue("teacher");
+    const authOptions = await loadAuthOptions();
+
+    const result = await authOptions.callbacks!.signIn!({
+      account: { provider: "google", providerAccountId: "account-1", type: "oauth" } as never,
+      profile: { email: "Teacher@Example.COM", email_verified: true } as never,
+      user: undefined as never,
+      credentials: undefined,
+    });
+
+    expect(result).toBe(true);
+    expect(mocks.enqueueTeacherSignedUpAlert).toHaveBeenCalledWith({
+      teacherEmail: "teacher@example.com",
+      source: "other",
+    });
   });
 
   it("rejects sign-in when the provider profile has no email", async () => {

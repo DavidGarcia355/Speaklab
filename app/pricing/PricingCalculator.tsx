@@ -82,7 +82,7 @@ function planRecommendation(projectedReviews: number) {
   }
 
   return {
-    name: "School Pilot",
+    name: "TryHabla for Schools",
     detail: "This example exceeds the self-service Teacher allowance.",
   };
 }
@@ -197,7 +197,7 @@ export default function PricingCalculator() {
             <span>300 reviews / $20 month</span>
           </div>
           <div>
-            <span>School Pilot</span>
+            <span>TryHabla for Schools</span>
             <span>Contact us</span>
           </div>
           <div className="pricing-receipt-total">
@@ -207,7 +207,7 @@ export default function PricingCalculator() {
         </div>
 
         <p className="pricing-estimate-note">
-          Need more AI reviews? Ask your school about a TryHabla School Pilot.
+          Need more AI reviews? Explore TryHabla for Schools.
         </p>
         <p className="pricing-estimate-fineprint">
           This estimate assumes one submission from every student for each selected assignment.

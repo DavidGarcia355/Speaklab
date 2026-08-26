@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { enqueueFirstClassCreatedAlert } from "@/lib/admin-alert-lifecycle";
 import { buildTeacherEventMetadata, trackActivity } from "@/lib/activity";
 import { requireTeacherEmail } from "@/lib/authz";
 import { createClass, listClassesByTeacher } from "@/lib/db";
@@ -29,12 +30,19 @@ export async function POST(request: Request) {
       throw error;
     }
     let isFirstClass = false;
+    let teacherJoinedAt = created.createdAt;
     try {
       const metadata = await buildTeacherEventMetadata(teacherEmail);
       isFirstClass = metadata.isFirstClass;
+      teacherJoinedAt = metadata.teacher?.joinedAt ?? created.createdAt;
     } catch (error) {
       console.warn("Failed to build class activity metadata", error);
     }
+    await enqueueFirstClassCreatedAlert({
+      teacherEmail,
+      teacherJoinedAt,
+      classCreatedAt: created.createdAt,
+    });
     try {
       await trackActivity("class_created", teacherEmail, {
         classId: created.id,

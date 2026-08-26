@@ -23,6 +23,7 @@ import {
   type StripeKeyMode,
 } from "@/lib/billing/config";
 import { getStripeAutomaticUsageRecoverySupportedSince } from "@/lib/billing/recovery-policy";
+import { INTERNAL_TEST_EMAILS } from "@/lib/internal-accounts";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 import type { Rubric, RubricScore } from "@/lib/validation";
 
@@ -137,6 +138,107 @@ export type ActivityEventRow = {
   eventType: ActivityEventType;
   occurredAt: number;
   metadata: Record<string, unknown> | null;
+};
+
+export type AdminAlertDestination =
+  | "traction"
+  | "revenue"
+  | "milestones"
+  | "pulse"
+  | "incidents";
+
+export type AdminAlertEnvironment =
+  | "production"
+  | "preview"
+  | "development"
+  | "test";
+
+export type AdminAlertOutboxStatus = "pending" | "delivered" | "dead";
+
+export type AdminAlertOutboxInsert = {
+  id: string;
+  dedupeKey: string;
+  eventType: string;
+  destination: AdminAlertDestination;
+  safePayloadJson: string;
+  environment: AdminAlertEnvironment;
+  nextAttemptAt: number;
+  createdAt: number;
+};
+
+export type AdminAlertOutboxRow = AdminAlertOutboxInsert & {
+  status: AdminAlertOutboxStatus;
+  attemptCount: number;
+  deliveredAt: number | null;
+  lastErrorCode: string;
+  leaseToken: string;
+  leaseExpiresAt: number;
+};
+
+export type AdminAlertOutboxHealth = {
+  pending: number;
+  due: number;
+  stale: number;
+  delivered: number;
+  dead: number;
+  oldestPendingAt: number | null;
+};
+
+// Delivery is intentionally sequential. Keeping the database claim bounded
+// prevents a caller from leasing more rows than one worker can safely finish.
+export const ADMIN_ALERT_OUTBOX_MAX_CLAIM = 8;
+
+export type AdminAlertPeriodAggregate = {
+  newTeachers: number;
+  activatedTeachers: number;
+  newPaidTeachers: number;
+  eligibleFreeTeachers: number;
+  convertedEligibleFreeTeachers: number;
+  assignmentsPublished: number;
+  recordingsReceived: number;
+  successfulAiReviews: number;
+  aiAttempts: number;
+  aiFailures: number;
+  retryCount: number;
+  durationSampleCount: number;
+  medianDurationSeconds: number;
+  p90DurationSeconds: number;
+  activePaidTeachers: number;
+  mrrCents: number;
+  newMrrCents: number;
+  recognizedRevenueCents: number;
+  cancellations: number;
+  refundsCents: number;
+  failedPayments: number;
+  estimatedProviderSpendCents: number;
+  estimatedStripeFeesCents: number;
+  estimatedContributionCents: number;
+  freeTrialsExhausted: number;
+  nearPaidLimitTeachers: number;
+  paidLimitExhaustedTeachers: number;
+  schoolLeads: number;
+};
+
+export type AdminAlertMilestoneAggregate = {
+  totalTeachers: number;
+  activatedTeachers: number;
+  paidTeachers: number;
+  successfulAiReviews: number;
+  studentRecordings: number;
+  mrrCents: number;
+  schoolLeads: number;
+  estimatedProviderCostCents: number;
+};
+
+export type AdminAlertOperationalAggregate = {
+  budgetPeriod: string;
+  providerSpendMicrousd: number;
+  rollingWindowStartAt: number;
+  rollingWindowEndAt: number;
+  completedAttempts: number;
+  usableAttempts: number;
+  latencySampleCount: number;
+  p95LatencyMs: number;
 };
 
 export type TeacherFunnelRow = {
@@ -557,6 +659,8 @@ const AI_ATTEMPT_DELIVERY_STATUS_MIGRATION =
   "2026-08-25-ai-attempt-delivery-status-v1";
 const AI_ACCESS_GRANT_PROVENANCE_MIGRATION =
   "2026-08-26-ai-access-grant-provenance-v2";
+const ADMIN_ALERT_OUTBOX_MIGRATION =
+  "2026-08-26-admin-alert-outbox-v1";
 const MANUAL_AI_ACCESS_GRANT_SOURCES = ["manual"] as const;
 const MANUAL_AI_ACCESS_GRANT_SQL_LIST = MANUAL_AI_ACCESS_GRANT_SOURCES
   .map((source) => `'${source}'`)
@@ -622,6 +726,52 @@ async function migrateAiAccessGrantProvenance() {
             OR ai_access_grant_source IN ('legacy_manual', 'legacy_allowlist')
           )`);
     }
+    await transaction.commit();
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+async function migrateAdminAlertOutbox() {
+  const transaction = await db.transaction("write");
+  try {
+    await transaction.execute(`CREATE TABLE IF NOT EXISTS admin_alert_outbox (
+      id TEXT PRIMARY KEY,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      event_type TEXT NOT NULL,
+      destination TEXT NOT NULL
+        CHECK (destination IN ('traction', 'revenue', 'milestones', 'pulse', 'incidents')),
+      safe_payload_json TEXT NOT NULL,
+      environment TEXT NOT NULL
+        CHECK (environment IN ('production', 'preview', 'development', 'test')),
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'delivered', 'dead')),
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      next_attempt_at INTEGER NOT NULL CHECK (next_attempt_at >= 0),
+      created_at INTEGER NOT NULL CHECK (created_at >= 0),
+      delivered_at INTEGER,
+      last_error_code TEXT NOT NULL DEFAULT '',
+      lease_token TEXT NOT NULL DEFAULT '',
+      lease_expires_at INTEGER NOT NULL DEFAULT 0 CHECK (lease_expires_at >= 0),
+      CHECK (status <> 'delivered' OR delivered_at IS NOT NULL)
+    )`);
+    await transaction.execute(
+      `CREATE INDEX IF NOT EXISTS idx_admin_alert_outbox_due
+        ON admin_alert_outbox(environment, status, next_attempt_at, lease_expires_at, created_at)`,
+    );
+    await transaction.execute(
+      `CREATE INDEX IF NOT EXISTS idx_admin_alert_outbox_status_created
+        ON admin_alert_outbox(status, created_at)`,
+    );
+    await transaction.execute({
+      sql: `INSERT INTO schema_migrations (name, applied_at)
+        VALUES (?, ?)
+        ON CONFLICT(name) DO NOTHING`,
+      args: [ADMIN_ALERT_OUTBOX_MIGRATION, Date.now()],
+    });
     await transaction.commit();
   } catch (error) {
     if (!transaction.closed) await transaction.rollback();
@@ -1043,6 +1193,7 @@ async function ensureInitialized() {
       for (const sql of statements) {
         await rawExecute(sql);
       }
+      await migrateAdminAlertOutbox();
       await ensureColumn("classes", "deleted_at", "INTEGER");
       await ensureColumn("classes", "owner_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("assignments", "deleted_at", "INTEGER");
@@ -1326,6 +1477,920 @@ function parseJsonValue<T>(value: unknown): T | null {
 
 function stringifyJsonValue(value: unknown) {
   return value === null ? null : JSON.stringify(value);
+}
+
+const ADMIN_ALERT_DESTINATIONS = new Set<AdminAlertDestination>([
+  "traction",
+  "revenue",
+  "milestones",
+  "pulse",
+  "incidents",
+]);
+const ADMIN_ALERT_ENVIRONMENTS = new Set<AdminAlertEnvironment>([
+  "production",
+  "preview",
+  "development",
+  "test",
+]);
+
+function normalizeAdminAlertOutboxInsert(
+  input: AdminAlertOutboxInsert,
+): AdminAlertOutboxInsert {
+  const id = requireTrimmedValue("admin alert id", input.id);
+  const dedupeKey = requireTrimmedValue("admin alert dedupeKey", input.dedupeKey);
+  const eventType = requireTrimmedValue("admin alert eventType", input.eventType);
+  const safePayloadJson = requireTrimmedValue(
+    "admin alert safePayloadJson",
+    input.safePayloadJson,
+  );
+  if (!/^[A-Za-z0-9._:-]{1,255}$/.test(id)) {
+    throw new Error("admin alert id contains unsupported characters.");
+  }
+  if (!/^[A-Za-z0-9._:-]{1,512}$/.test(dedupeKey)) {
+    throw new Error("admin alert dedupeKey contains unsupported characters.");
+  }
+  if (!/^[a-z0-9][a-z0-9._-]{0,99}$/.test(eventType)) {
+    throw new Error("admin alert eventType is invalid.");
+  }
+  if (!ADMIN_ALERT_DESTINATIONS.has(input.destination)) {
+    throw new Error("admin alert destination is invalid.");
+  }
+  if (!ADMIN_ALERT_ENVIRONMENTS.has(input.environment)) {
+    throw new Error("admin alert environment is invalid.");
+  }
+  if (safePayloadJson.length > 16_000) {
+    throw new Error("admin alert safe payload is too large.");
+  }
+  let parsedPayload: unknown;
+  try {
+    parsedPayload = JSON.parse(safePayloadJson);
+  } catch {
+    throw new Error("admin alert safe payload must be valid JSON.");
+  }
+  if (!parsedPayload || Array.isArray(parsedPayload) || typeof parsedPayload !== "object") {
+    throw new Error("admin alert safe payload must be a JSON object.");
+  }
+  return {
+    id,
+    dedupeKey,
+    eventType,
+    destination: input.destination,
+    safePayloadJson,
+    environment: input.environment,
+    nextAttemptAt: requireNonNegativeInteger(
+      "admin alert nextAttemptAt",
+      input.nextAttemptAt,
+    ),
+    createdAt: requireNonNegativeInteger("admin alert createdAt", input.createdAt),
+  };
+}
+
+function rowToAdminAlertOutbox(row: Row): AdminAlertOutboxRow {
+  return {
+    id: toStringValue(row.id),
+    dedupeKey: toStringValue(row.dedupeKey),
+    eventType: toStringValue(row.eventType),
+    destination: toStringValue(row.destination) as AdminAlertDestination,
+    safePayloadJson: toStringValue(row.safePayloadJson),
+    environment: toStringValue(row.environment) as AdminAlertEnvironment,
+    status: toStringValue(row.status) as AdminAlertOutboxStatus,
+    attemptCount: toNumber(row.attemptCount),
+    nextAttemptAt: toNumber(row.nextAttemptAt),
+    createdAt: toNumber(row.createdAt),
+    deliveredAt: toNullableNumber(row.deliveredAt),
+    lastErrorCode: toStringValue(row.lastErrorCode),
+    leaseToken: toStringValue(row.leaseToken),
+    leaseExpiresAt: toNumber(row.leaseExpiresAt),
+  };
+}
+
+const ADMIN_ALERT_OUTBOX_SELECT = `SELECT
+  id,
+  dedupe_key as dedupeKey,
+  event_type as eventType,
+  destination,
+  safe_payload_json as safePayloadJson,
+  environment,
+  status,
+  attempt_count as attemptCount,
+  next_attempt_at as nextAttemptAt,
+  created_at as createdAt,
+  delivered_at as deliveredAt,
+  last_error_code as lastErrorCode,
+  lease_token as leaseToken,
+  lease_expires_at as leaseExpiresAt
+FROM admin_alert_outbox`;
+
+export async function enqueueAdminAlertOutbox(
+  inputs: readonly AdminAlertOutboxInsert[],
+): Promise<Array<{ inserted: boolean; row: AdminAlertOutboxRow }>> {
+  if (inputs.length === 0) return [];
+  if (inputs.length > 20) {
+    throw new RangeError("At most 20 admin alerts can be enqueued atomically.");
+  }
+  const normalized = inputs.map(normalizeAdminAlertOutboxInsert);
+  const statements: InStatement[] = [];
+  for (const input of normalized) {
+    statements.push(
+      {
+        sql: `INSERT INTO admin_alert_outbox (
+          id,
+          dedupe_key,
+          event_type,
+          destination,
+          safe_payload_json,
+          environment,
+          status,
+          attempt_count,
+          next_attempt_at,
+          created_at,
+          delivered_at,
+          last_error_code,
+          lease_token,
+          lease_expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, NULL, '', '', 0)
+        ON CONFLICT(dedupe_key) DO NOTHING`,
+        args: [
+          input.id,
+          input.dedupeKey,
+          input.eventType,
+          input.destination,
+          input.safePayloadJson,
+          input.environment,
+          input.nextAttemptAt,
+          input.createdAt,
+        ],
+      },
+      {
+        sql: `${ADMIN_ALERT_OUTBOX_SELECT} WHERE dedupe_key = ? LIMIT 1`,
+        args: [input.dedupeKey],
+      },
+    );
+  }
+  const results = await writeBatch(statements);
+  return normalized.map((_, index) => {
+    const insertResult = results[index * 2];
+    const row = results[index * 2 + 1]?.rows[0];
+    if (!row) throw new Error("Admin alert outbox insert could not be verified.");
+    return {
+      inserted: toNumber(insertResult?.rowsAffected) === 1,
+      row: rowToAdminAlertOutbox(row),
+    };
+  });
+}
+
+export async function getAdminAlertOutboxByDedupeKey(
+  dedupeKey: string,
+): Promise<AdminAlertOutboxRow | null> {
+  const normalized = requireTrimmedValue("admin alert dedupeKey", dedupeKey);
+  const result = await query(
+    `${ADMIN_ALERT_OUTBOX_SELECT} WHERE dedupe_key = ? LIMIT 1`,
+    [normalized],
+  );
+  return result.rows[0] ? rowToAdminAlertOutbox(result.rows[0]) : null;
+}
+
+export async function claimPendingAdminAlertOutbox(input: {
+  environment: AdminAlertEnvironment;
+  limit?: number;
+  now?: number;
+  leaseMs?: number;
+  maxAttempts?: number;
+}): Promise<AdminAlertOutboxRow[]> {
+  if (!ADMIN_ALERT_ENVIRONMENTS.has(input.environment)) {
+    throw new Error("admin alert environment is invalid.");
+  }
+  const limit = Math.max(
+    1,
+    Math.min(
+      requireNonNegativeInteger(
+        "admin alert claim limit",
+        input.limit ?? ADMIN_ALERT_OUTBOX_MAX_CLAIM,
+      ),
+      ADMIN_ALERT_OUTBOX_MAX_CLAIM,
+    ),
+  );
+  const now = requireNonNegativeInteger("admin alert claim now", input.now ?? Date.now());
+  const leaseMs = Math.max(
+    1_000,
+    Math.min(
+      requireNonNegativeInteger("admin alert leaseMs", input.leaseMs ?? 30_000),
+      300_000,
+    ),
+  );
+  const maxAttempts = Math.max(
+    1,
+    Math.min(
+      requireNonNegativeInteger("admin alert maxAttempts", input.maxAttempts ?? 6),
+      20,
+    ),
+  );
+  const leaseToken = makeId("alertlease");
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  try {
+    await transaction.execute({
+      sql: `UPDATE admin_alert_outbox
+        SET status = 'dead',
+            last_error_code = CASE
+              WHEN last_error_code = '' THEN 'attempts_exhausted' ELSE last_error_code
+            END,
+            lease_token = '',
+            lease_expires_at = 0
+        WHERE environment = ?
+          AND status = 'pending'
+          AND attempt_count >= ?
+          AND lease_expires_at <= ?`,
+      args: [input.environment, maxAttempts, now],
+    });
+    const candidates = await transaction.execute({
+      sql: `SELECT id
+        FROM admin_alert_outbox
+        WHERE environment = ?
+          AND status = 'pending'
+          AND attempt_count < ?
+          AND next_attempt_at <= ?
+          AND (lease_token = '' OR lease_expires_at <= ?)
+        ORDER BY next_attempt_at ASC, created_at ASC, id ASC
+        LIMIT ?`,
+      args: [input.environment, maxAttempts, now, now, limit],
+    });
+    const ids = candidates.rows.map((row) => toStringValue(row.id));
+    if (ids.length === 0) {
+      await transaction.commit();
+      return [];
+    }
+    const placeholders = ids.map(() => "?").join(", ");
+    await transaction.execute({
+      sql: `UPDATE admin_alert_outbox
+        SET lease_token = ?,
+            lease_expires_at = ?,
+            attempt_count = attempt_count + 1
+        WHERE id IN (${placeholders})
+          AND environment = ?
+          AND status = 'pending'
+          AND attempt_count < ?
+          AND next_attempt_at <= ?
+          AND (lease_token = '' OR lease_expires_at <= ?)`,
+      args: [
+        leaseToken,
+        now + leaseMs,
+        ...ids,
+        input.environment,
+        maxAttempts,
+        now,
+        now,
+      ],
+    });
+    const claimed = await transaction.execute({
+      sql: `${ADMIN_ALERT_OUTBOX_SELECT}
+        WHERE lease_token = ?
+        ORDER BY next_attempt_at ASC, created_at ASC, id ASC`,
+      args: [leaseToken],
+    });
+    await transaction.commit();
+    return claimed.rows.map(rowToAdminAlertOutbox);
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+export async function markAdminAlertOutboxDelivered(input: {
+  id: string;
+  leaseToken: string;
+  deliveredAt?: number;
+}): Promise<boolean> {
+  const id = requireTrimmedValue("admin alert id", input.id);
+  const leaseToken = requireTrimmedValue("admin alert leaseToken", input.leaseToken);
+  const deliveredAt = requireNonNegativeInteger(
+    "admin alert deliveredAt",
+    input.deliveredAt ?? Date.now(),
+  );
+  const result = await query(
+    `UPDATE admin_alert_outbox
+      SET status = 'delivered',
+          delivered_at = ?,
+          last_error_code = '',
+          lease_token = '',
+          lease_expires_at = 0
+      WHERE id = ?
+        AND status = 'pending'
+        AND lease_token = ?`,
+    [deliveredAt, id, leaseToken],
+  );
+  return toNumber(result.rowsAffected) === 1;
+}
+
+export async function markAdminAlertOutboxFailed(input: {
+  id: string;
+  leaseToken: string;
+  errorCode: string;
+  retryable: boolean;
+  nextAttemptAt: number;
+  maxAttempts?: number;
+}): Promise<{ updated: boolean; status: AdminAlertOutboxStatus | null }> {
+  const id = requireTrimmedValue("admin alert id", input.id);
+  const leaseToken = requireTrimmedValue("admin alert leaseToken", input.leaseToken);
+  const errorCode = requireTrimmedValue("admin alert errorCode", input.errorCode);
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(errorCode)) {
+    throw new Error("admin alert errorCode is invalid.");
+  }
+  const nextAttemptAt = requireNonNegativeInteger(
+    "admin alert nextAttemptAt",
+    input.nextAttemptAt,
+  );
+  const maxAttempts = Math.max(
+    1,
+    Math.min(
+      requireNonNegativeInteger("admin alert maxAttempts", input.maxAttempts ?? 6),
+      20,
+    ),
+  );
+  const results = await writeBatch([
+    {
+      sql: `UPDATE admin_alert_outbox
+        SET status = CASE
+              WHEN ? = 0 OR attempt_count >= ? THEN 'dead' ELSE 'pending'
+            END,
+            next_attempt_at = ?,
+            delivered_at = NULL,
+            last_error_code = ?,
+            lease_token = '',
+            lease_expires_at = 0
+        WHERE id = ?
+          AND status = 'pending'
+          AND lease_token = ?`,
+      args: [
+        input.retryable ? 1 : 0,
+        maxAttempts,
+        nextAttemptAt,
+        errorCode,
+        id,
+        leaseToken,
+      ],
+    },
+    {
+      sql: `${ADMIN_ALERT_OUTBOX_SELECT} WHERE id = ? LIMIT 1`,
+      args: [id],
+    },
+  ]);
+  const row = results[1]?.rows[0];
+  return {
+    updated: toNumber(results[0]?.rowsAffected) === 1,
+    status: row ? rowToAdminAlertOutbox(row).status : null,
+  };
+}
+
+async function queryAdminAlertOutboxHealth(input: {
+  now: number;
+  environment?: AdminAlertEnvironment;
+  excludeIncidentEvents?: boolean;
+}): Promise<AdminAlertOutboxHealth> {
+  const safeNow = requireNonNegativeInteger("admin alert health now", input.now);
+  const staleBefore = Math.max(0, safeNow - 10 * 60_000);
+  const where = ["1 = 1"];
+  const args: InValue[] = [safeNow, safeNow, staleBefore];
+  if (input.environment) {
+    if (!ADMIN_ALERT_ENVIRONMENTS.has(input.environment)) {
+      throw new Error("admin alert environment is invalid.");
+    }
+    where.push("environment = ?");
+    args.push(input.environment);
+  }
+  if (input.excludeIncidentEvents) where.push("event_type <> 'incident'");
+  const result = await query(
+    `SELECT
+      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+      SUM(CASE
+        WHEN status = 'pending'
+          AND next_attempt_at <= ?
+          AND (lease_token = '' OR lease_expires_at <= ?)
+        THEN 1 ELSE 0 END) as due,
+      SUM(CASE
+        WHEN status = 'pending' AND created_at <= ?
+        THEN 1 ELSE 0 END) as stale,
+      SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
+      SUM(CASE WHEN status = 'dead' THEN 1 ELSE 0 END) as dead,
+      MIN(CASE WHEN status = 'pending' THEN created_at END) as oldestPendingAt
+    FROM admin_alert_outbox
+    WHERE ${where.join(" AND ")}`,
+    args,
+  );
+  const row = result.rows[0];
+  return {
+    pending: toNumber(row?.pending),
+    due: toNumber(row?.due),
+    stale: toNumber(row?.stale),
+    delivered: toNumber(row?.delivered),
+    dead: toNumber(row?.dead),
+    oldestPendingAt: toNullableNumber(row?.oldestPendingAt),
+  };
+}
+
+export async function getAdminAlertOutboxHealth(
+  now = Date.now(),
+): Promise<AdminAlertOutboxHealth> {
+  return queryAdminAlertOutboxHealth({ now });
+}
+
+export async function getAdminAlertOutboxHealthForEnvironment(
+  environment: AdminAlertEnvironment,
+  now = Date.now(),
+  options: { excludeIncidentEvents?: boolean } = {},
+): Promise<AdminAlertOutboxHealth> {
+  return queryAdminAlertOutboxHealth({
+    now,
+    environment,
+    excludeIncidentEvents: options.excludeIncidentEvents,
+  });
+}
+
+const TEACHER_PLAN_MONTHLY_CENTS = TEACHER_AI_PRICE_BOOK.monthlyPriceUsd * 100;
+// Planning estimate: 2.9% card processing + 0.7% Stripe Billing.
+const ESTIMATED_STRIPE_PERCENT_FEE = 0.036;
+const ESTIMATED_STRIPE_FIXED_FEE_CENTS = 30;
+
+function estimatedStripeFeeCents(successfulCharges: number) {
+  const safeCharges = Math.max(0, Math.floor(successfulCharges));
+  const perCharge = Math.round(TEACHER_PLAN_MONTHLY_CENTS * ESTIMATED_STRIPE_PERCENT_FEE)
+    + ESTIMATED_STRIPE_FIXED_FEE_CENTS;
+  return safeCharges * perCharge;
+}
+
+function estimatedProviderCents(microusd: unknown) {
+  const amount = toNumber(microusd);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return Math.round(amount / 10_000);
+}
+
+function validateAdminAlertAggregateScope(input: {
+  environment: AdminAlertEnvironment;
+  livemode: boolean;
+}) {
+  if (!ADMIN_ALERT_ENVIRONMENTS.has(input.environment)) {
+    throw new Error("admin alert environment is invalid.");
+  }
+  return {
+    environment: input.environment,
+    livemode: input.livemode ? 1 : 0,
+  };
+}
+
+/**
+ * Returns aggregate-only operational metrics for one half-open time window.
+ * No account, student, class, submission, Stripe, or provider identifiers are
+ * selected into the result.
+ */
+export async function getAdminAlertPeriodAggregate(input: {
+  startAt: number;
+  endAt: number;
+  snapshotAt?: number;
+  environment: AdminAlertEnvironment;
+  livemode: boolean;
+}): Promise<AdminAlertPeriodAggregate> {
+  const startAt = requireNonNegativeInteger("admin alert aggregate startAt", input.startAt);
+  const endAt = requireNonNegativeInteger("admin alert aggregate endAt", input.endAt);
+  const snapshotAt = requireNonNegativeInteger(
+    "admin alert aggregate snapshotAt",
+    input.snapshotAt ?? endAt,
+  );
+  if (endAt <= startAt) {
+    throw new RangeError("admin alert aggregate endAt must be after startAt.");
+  }
+  const scope = validateAdminAlertAggregateScope(input);
+  const result = await query(
+    `WITH
+      params AS (
+        SELECT
+          ? AS startAt,
+          ? AS endAt,
+          ? AS snapshotAt,
+          ? AS livemode,
+          ? AS environment
+      ),
+      internal_accounts(email) AS (
+        VALUES (LOWER(?)), (LOWER(?)), (LOWER(?))
+      ),
+      unique_successful_ai AS (
+        SELECT
+          LOWER(teacher_email) as teacherEmail,
+          CASE WHEN TRIM(cache_key) <> '' THEN cache_key ELSE id END as semanticKey,
+          MIN(COALESCE(completed_at, created_at)) as completedAt,
+          MIN(duration_seconds) as durationSeconds
+        FROM ai_grading_attempts
+        WHERE status = 'completed'
+          AND delivery_status IN ('delivered', 'not_applicable')
+          AND suggested_score IS NOT NULL
+          AND TRIM(error_code) = ''
+          AND teacher_attention <> 'unable_to_grade'
+          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+        GROUP BY
+          LOWER(teacher_email),
+          CASE WHEN TRIM(cache_key) <> '' THEN cache_key ELSE id END
+      ),
+      period_successful_ai AS (
+        SELECT successful.*
+        FROM unique_successful_ai successful, params
+        WHERE successful.completedAt >= params.startAt
+          AND successful.completedAt < params.endAt
+      ),
+      ranked_durations AS (
+        SELECT
+          durationSeconds,
+          ROW_NUMBER() OVER (ORDER BY durationSeconds ASC, semanticKey ASC) as rowNumber,
+          COUNT(*) OVER () as sampleCount
+        FROM period_successful_ai
+        WHERE durationSeconds > 0
+      ),
+      free_exhausted AS (
+        SELECT LOWER(teacher_email) as teacherEmail, MAX(consumed_at) as exhaustedAt
+        FROM ai_review_allowance_reservations_v1
+        WHERE allowance_kind = 'free_lifetime'
+          AND status = 'consumed'
+          AND consumed_at IS NOT NULL
+          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+        GROUP BY LOWER(teacher_email)
+        HAVING COUNT(*) >= ${AI_REVIEW_FREE_LIFETIME_LIMIT}
+      ),
+      period_revenue_events AS (
+        SELECT event_type as eventType, safe_payload_json as payload
+        FROM admin_alert_outbox, params
+        WHERE destination = 'revenue'
+          AND admin_alert_outbox.environment = params.environment
+          AND created_at >= params.startAt
+          AND created_at < params.endAt
+      ),
+      period_traction_events AS (
+        SELECT event_type as eventType
+        FROM admin_alert_outbox, params
+        WHERE destination = 'traction'
+          AND admin_alert_outbox.environment = params.environment
+          AND created_at >= params.startAt
+          AND created_at < params.endAt
+      ),
+      active_paid AS (
+        SELECT COUNT(*) as count
+        FROM stripe_billing_accounts account, params
+        WHERE account.subscription_status = 'active'
+          AND TRIM(account.stripe_subscription_id) <> ''
+          AND account.created_at < params.snapshotAt
+          AND account.subscription_period_end > params.snapshotAt
+          AND account.livemode = params.livemode
+          AND account.price_book_id = ?
+          AND account.catalog_fingerprint = ?
+          AND LOWER(account.teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      )
+    SELECT
+      (SELECT COUNT(*) FROM period_traction_events
+        WHERE eventType = 'teacher.signed_up') as newTeachers,
+      (SELECT COUNT(*) FROM period_traction_events
+        WHERE eventType = 'teacher.activated') as activatedTeachers,
+      (SELECT COUNT(*) FROM period_revenue_events
+        WHERE eventType = 'subscription.started') as newPaidTeachers,
+      (SELECT COUNT(*) FROM free_exhausted, params
+        WHERE exhaustedAt >= params.startAt
+          AND exhaustedAt < params.endAt) as eligibleFreeTeachers,
+      (SELECT COUNT(*)
+        FROM free_exhausted exhausted
+        JOIN stripe_billing_accounts account
+          ON LOWER(account.teacher_email) = exhausted.teacherEmail
+        JOIN params
+        WHERE exhausted.exhaustedAt >= params.startAt
+          AND exhausted.exhaustedAt < params.endAt
+          AND account.created_at < params.endAt
+          AND TRIM(account.stripe_subscription_id) <> ''
+          AND account.livemode = params.livemode
+          AND LOWER(account.teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as convertedEligibleFreeTeachers,
+      (SELECT COUNT(*)
+        FROM assignments assignment
+        JOIN classes class ON class.id = assignment.class_id
+        JOIN params
+        WHERE assignment.deleted_at IS NULL
+          AND class.deleted_at IS NULL
+          AND assignment.created_at >= params.startAt
+          AND assignment.created_at < params.endAt
+          AND LOWER(class.owner_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as assignmentsPublished,
+      (SELECT COUNT(*)
+        FROM submissions submission
+        JOIN assignments assignment ON assignment.id = submission.assignment_id
+        JOIN classes class ON class.id = assignment.class_id
+        JOIN params
+        WHERE submission.deleted_at IS NULL
+          AND assignment.deleted_at IS NULL
+          AND class.deleted_at IS NULL
+          AND submission.submitted_at >= params.startAt
+          AND submission.submitted_at < params.endAt
+          AND LOWER(class.owner_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as recordingsReceived,
+      (SELECT COUNT(*) FROM period_successful_ai) as successfulAiReviews,
+      (SELECT COUNT(*) FROM ai_grading_attempts, params
+        WHERE COALESCE(completed_at, created_at) >= params.startAt
+          AND COALESCE(completed_at, created_at) < params.endAt
+          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as aiAttempts,
+      (SELECT COUNT(*) FROM ai_grading_attempts, params
+        WHERE (
+            status <> 'completed'
+            OR delivery_status NOT IN ('delivered', 'not_applicable')
+            OR suggested_score IS NULL
+            OR TRIM(error_code) <> ''
+            OR teacher_attention = 'unable_to_grade'
+          )
+          AND COALESCE(completed_at, created_at) >= params.startAt
+          AND COALESCE(completed_at, created_at) < params.endAt
+          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as aiFailures,
+      (SELECT COALESCE(SUM(retries), 0) FROM ai_grading_attempts, params
+        WHERE COALESCE(completed_at, created_at) >= params.startAt
+          AND COALESCE(completed_at, created_at) < params.endAt
+          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as retryCount,
+      (SELECT COUNT(*) FROM ranked_durations) as durationSampleCount,
+      COALESCE((SELECT durationSeconds FROM ranked_durations
+        WHERE rowNumber = CAST((sampleCount + 1) / 2 AS INTEGER)
+        LIMIT 1), 0) as medianDurationSeconds,
+      COALESCE((SELECT durationSeconds FROM ranked_durations
+        WHERE rowNumber = CAST((sampleCount * 9 + 9) / 10 AS INTEGER)
+        LIMIT 1), 0) as p90DurationSeconds,
+      (SELECT count FROM active_paid) as activePaidTeachers,
+      (SELECT COALESCE(SUM(
+        CASE WHEN eventType = 'subscription.started'
+          THEN CAST(json_extract(payload, '$.amountCents') AS INTEGER)
+          ELSE 0 END
+      ), 0) FROM period_revenue_events) as newMrrCents,
+      (SELECT COALESCE(SUM(
+        CASE WHEN eventType IN ('subscription.started', 'subscription.renewed')
+          THEN CAST(json_extract(payload, '$.amountCents') AS INTEGER)
+          ELSE 0 END
+      ), 0) FROM period_revenue_events) as recognizedRevenueCents,
+      (SELECT COUNT(*) FROM period_revenue_events
+        WHERE eventType = 'subscription.cancelled') as cancellations,
+      (SELECT COALESCE(SUM(
+        CASE WHEN eventType = 'refund.issued'
+          THEN CAST(json_extract(payload, '$.amountCents') AS INTEGER)
+          ELSE 0 END
+      ), 0) FROM period_revenue_events) as refundsCents,
+      (SELECT COUNT(*) FROM period_revenue_events
+        WHERE eventType = 'payment.failed') as failedPayments,
+      (SELECT COALESCE(SUM(estimated_cost_microusd), 0)
+        FROM grading_provider_requests, params
+        WHERE created_at >= params.startAt
+          AND created_at < params.endAt
+          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as estimatedProviderSpendMicrousd,
+      (SELECT COUNT(*) FROM period_revenue_events
+        WHERE eventType IN ('subscription.started', 'subscription.renewed')) as successfulCharges,
+      (SELECT COUNT(*) FROM period_revenue_events
+        WHERE eventType = 'trial.exhausted') as freeTrialsExhausted,
+      (SELECT COUNT(*) FROM period_revenue_events
+        WHERE eventType = 'allowance.near_limit') as nearPaidLimitTeachers,
+      (SELECT COUNT(*) FROM period_revenue_events
+        WHERE eventType = 'allowance.exhausted') as paidLimitExhaustedTeachers,
+      (SELECT COUNT(*) FROM period_revenue_events
+        WHERE eventType = 'school.lead') as schoolLeads`,
+    [
+      startAt,
+      endAt,
+      snapshotAt,
+      scope.livemode,
+      scope.environment,
+      ...INTERNAL_TEST_EMAILS,
+      STRIPE_CATALOG_MANIFEST.priceBookId,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+    ],
+  );
+  const row = result.rows[0];
+  const activePaidTeachers = toNumber(row?.activePaidTeachers);
+  const recognizedRevenueCents = toNumber(row?.recognizedRevenueCents);
+  const refundsCents = toNumber(row?.refundsCents);
+  const estimatedProviderSpendCents = estimatedProviderCents(
+    row?.estimatedProviderSpendMicrousd,
+  );
+  const estimatedStripeFeesCents = estimatedStripeFeeCents(
+    toNumber(row?.successfulCharges),
+  );
+  return {
+    newTeachers: toNumber(row?.newTeachers),
+    activatedTeachers: toNumber(row?.activatedTeachers),
+    newPaidTeachers: toNumber(row?.newPaidTeachers),
+    eligibleFreeTeachers: toNumber(row?.eligibleFreeTeachers),
+    convertedEligibleFreeTeachers: toNumber(row?.convertedEligibleFreeTeachers),
+    assignmentsPublished: toNumber(row?.assignmentsPublished),
+    recordingsReceived: toNumber(row?.recordingsReceived),
+    successfulAiReviews: toNumber(row?.successfulAiReviews),
+    aiAttempts: toNumber(row?.aiAttempts),
+    aiFailures: toNumber(row?.aiFailures),
+    retryCount: toNumber(row?.retryCount),
+    durationSampleCount: toNumber(row?.durationSampleCount),
+    medianDurationSeconds: toNumber(row?.medianDurationSeconds),
+    p90DurationSeconds: toNumber(row?.p90DurationSeconds),
+    activePaidTeachers,
+    mrrCents: activePaidTeachers * TEACHER_PLAN_MONTHLY_CENTS,
+    newMrrCents: toNumber(row?.newMrrCents),
+    recognizedRevenueCents,
+    cancellations: toNumber(row?.cancellations),
+    refundsCents,
+    failedPayments: toNumber(row?.failedPayments),
+    estimatedProviderSpendCents,
+    estimatedStripeFeesCents,
+    estimatedContributionCents:
+      recognizedRevenueCents
+      - refundsCents
+      - estimatedProviderSpendCents
+      - estimatedStripeFeesCents,
+    freeTrialsExhausted: toNumber(row?.freeTrialsExhausted),
+    nearPaidLimitTeachers: toNumber(row?.nearPaidLimitTeachers),
+    paidLimitExhaustedTeachers: toNumber(row?.paidLimitExhaustedTeachers),
+    schoolLeads: toNumber(row?.schoolLeads),
+  };
+}
+
+/** Returns cumulative, aggregate-only values used to dedupe milestone alerts. */
+export async function getAdminAlertMilestoneAggregate(input: {
+  now?: number;
+  environment: AdminAlertEnvironment;
+  livemode: boolean;
+}): Promise<AdminAlertMilestoneAggregate> {
+  const now = requireNonNegativeInteger("admin alert milestone now", input.now ?? Date.now());
+  const scope = validateAdminAlertAggregateScope(input);
+  const result = await query(
+    `WITH
+      params AS (
+        SELECT ? AS now, ? AS livemode, ? AS environment
+      ),
+      internal_accounts(email) AS (
+        VALUES (LOWER(?)), (LOWER(?)), (LOWER(?))
+      ),
+      unique_successful_ai AS (
+        SELECT
+          LOWER(teacher_email) as teacherEmail,
+          CASE WHEN TRIM(cache_key) <> '' THEN cache_key ELSE id END as semanticKey
+        FROM ai_grading_attempts, params
+        WHERE status = 'completed'
+          AND delivery_status IN ('delivered', 'not_applicable')
+          AND suggested_score IS NOT NULL
+          AND TRIM(error_code) = ''
+          AND teacher_attention <> 'unable_to_grade'
+          AND COALESCE(completed_at, created_at) <= params.now
+          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+        GROUP BY
+          LOWER(teacher_email),
+          CASE WHEN TRIM(cache_key) <> '' THEN cache_key ELSE id END
+      ),
+      active_paid AS (
+        SELECT COUNT(*) as count
+        FROM stripe_billing_accounts account, params
+        WHERE account.subscription_status = 'active'
+          AND TRIM(account.stripe_subscription_id) <> ''
+          AND account.created_at <= params.now
+          AND account.subscription_period_end > params.now
+          AND account.livemode = params.livemode
+          AND account.price_book_id = ?
+          AND account.catalog_fingerprint = ?
+          AND LOWER(account.teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      )
+    SELECT
+      (SELECT COUNT(*) FROM users, params
+        WHERE role = 'teacher'
+          AND created_at <= params.now
+          AND LOWER(email) NOT IN (SELECT email FROM internal_accounts)
+      ) as totalTeachers,
+      (SELECT COUNT(DISTINCT LOWER(c.owner_email))
+        FROM submissions s
+        JOIN assignments a ON a.id = s.assignment_id
+        JOIN classes c ON c.id = a.class_id
+        JOIN params
+        WHERE s.submitted_at <= params.now
+          AND s.deleted_at IS NULL
+          AND a.deleted_at IS NULL
+          AND c.deleted_at IS NULL
+          AND LOWER(c.owner_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as activatedTeachers,
+      (SELECT count FROM active_paid) as paidTeachers,
+      (SELECT COUNT(*) FROM unique_successful_ai) as successfulAiReviews,
+      (SELECT COUNT(*)
+        FROM submissions s
+        JOIN assignments a ON a.id = s.assignment_id
+        JOIN classes c ON c.id = a.class_id
+        JOIN params
+        WHERE s.submitted_at <= params.now
+          AND s.deleted_at IS NULL
+          AND a.deleted_at IS NULL
+          AND c.deleted_at IS NULL
+          AND LOWER(c.owner_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as studentRecordings,
+      (SELECT COUNT(*) FROM admin_alert_outbox, params
+        WHERE admin_alert_outbox.environment = params.environment
+          AND destination = 'revenue'
+          AND event_type = 'school.lead'
+          AND created_at <= params.now) as schoolLeads,
+      (SELECT COALESCE(SUM(estimated_cost_microusd), 0)
+        FROM grading_provider_requests, params
+        WHERE created_at <= params.now
+          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as estimatedProviderCostMicrousd`,
+    [
+      now,
+      scope.livemode,
+      scope.environment,
+      ...INTERNAL_TEST_EMAILS,
+      STRIPE_CATALOG_MANIFEST.priceBookId,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+    ],
+  );
+  const row = result.rows[0];
+  const paidTeachers = toNumber(row?.paidTeachers);
+  return {
+    totalTeachers: toNumber(row?.totalTeachers),
+    activatedTeachers: toNumber(row?.activatedTeachers),
+    paidTeachers,
+    successfulAiReviews: toNumber(row?.successfulAiReviews),
+    studentRecordings: toNumber(row?.studentRecordings),
+    mrrCents: paidTeachers * TEACHER_PLAN_MONTHLY_CENTS,
+    schoolLeads: toNumber(row?.schoolLeads),
+    estimatedProviderCostCents: estimatedProviderCents(
+      row?.estimatedProviderCostMicrousd,
+    ),
+  };
+}
+
+/**
+ * Returns aggregate-only AI operating health for the current UTC month and a
+ * rolling 24-hour delivery window.
+ */
+export async function getAdminAlertOperationalAggregate(
+  now = Date.now(),
+): Promise<AdminAlertOperationalAggregate> {
+  const safeNow = requireNonNegativeInteger("admin alert operational now", now);
+  const date = new Date(safeNow);
+  const monthStartAt = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  const rollingWindowStartAt = Math.max(0, safeNow - 24 * 60 * 60 * 1_000);
+  const budgetPeriod = `${date.getUTCFullYear().toString().padStart(4, "0")}-${(date
+    .getUTCMonth() + 1).toString().padStart(2, "0")}`;
+  const result = await query(
+    `WITH
+      params AS (
+        SELECT ? AS monthStartAt, ? AS windowStartAt, ? AS now
+      ),
+      internal_accounts(email) AS (
+        VALUES (LOWER(?)), (LOWER(?)), (LOWER(?))
+      ),
+      completed_attempts AS (
+        SELECT
+          latency_ms as latencyMs,
+          CASE
+            WHEN status = 'completed'
+              AND delivery_status IN ('delivered', 'not_applicable')
+              AND suggested_score IS NOT NULL
+              AND TRIM(error_code) = ''
+              AND teacher_attention <> 'unable_to_grade'
+            THEN 1 ELSE 0
+          END as usable
+        FROM ai_grading_attempts, params
+        WHERE status IN ('completed', 'failed')
+          AND COALESCE(completed_at, created_at) >= params.windowStartAt
+          AND COALESCE(completed_at, created_at) <= params.now
+          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      ),
+      ranked_latency AS (
+        SELECT
+          latencyMs,
+          ROW_NUMBER() OVER (ORDER BY latencyMs ASC) as rowNumber,
+          COUNT(*) OVER () as sampleCount
+        FROM completed_attempts
+        WHERE latencyMs > 0
+      )
+    SELECT
+      (SELECT COALESCE(SUM(estimated_cost_microusd), 0)
+        FROM grading_provider_requests, params
+        WHERE created_at >= params.monthStartAt
+          AND created_at <= params.now
+          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      ) as providerSpendMicrousd,
+      (SELECT COUNT(*) FROM completed_attempts) as completedAttempts,
+      (SELECT COALESCE(SUM(usable), 0) FROM completed_attempts) as usableAttempts,
+      (SELECT COUNT(*) FROM ranked_latency) as latencySampleCount,
+      COALESCE((SELECT latencyMs FROM ranked_latency
+        WHERE rowNumber = CAST((sampleCount * 95 + 99) / 100 AS INTEGER)
+        LIMIT 1), 0) as p95LatencyMs`,
+    [monthStartAt, rollingWindowStartAt, safeNow, ...INTERNAL_TEST_EMAILS],
+  );
+  const row = result.rows[0];
+  return {
+    budgetPeriod,
+    providerSpendMicrousd: toNumber(row?.providerSpendMicrousd),
+    rollingWindowStartAt,
+    rollingWindowEndAt: safeNow,
+    completedAttempts: toNumber(row?.completedAttempts),
+    usableAttempts: toNumber(row?.usableAttempts),
+    latencySampleCount: toNumber(row?.latencySampleCount),
+    p95LatencyMs: toNumber(row?.p95LatencyMs),
+  };
 }
 
 function normalizeUserRole(value: unknown): UserRole {
@@ -4105,6 +5170,24 @@ export async function getAiReviewAllowanceSummary(input: {
 }
 
 /**
+ * Returns the lifetime Free reviews already delivered before a teacher moves
+ * onto a paid allowance. This historical count remains available after the
+ * active allowance switches to the Stripe-backed Teacher period.
+ */
+export async function getConsumedFreeAiReviewCount(teacherEmail: string): Promise<number> {
+  const normalized = normalizeBillingTeacherEmail(teacherEmail);
+  const result = await query(
+    `SELECT COUNT(*) as count
+      FROM ai_review_allowance_reservations_v1
+      WHERE LOWER(teacher_email) = LOWER(?)
+        AND allowance_kind = 'free_lifetime'
+        AND status = 'consumed'`,
+    [normalized],
+  );
+  return Math.min(AI_REVIEW_FREE_LIFETIME_LIMIT, toNumber(result.rows[0]?.count));
+}
+
+/**
  * Atomically claims one potential successful review before any AI provider is
  * called. Reserved rows count against the cap, so concurrent requests cannot
  * oversubscribe it. A consumed semantic key is reusable without another unit.
@@ -4386,6 +5469,102 @@ export async function recordProcessedStripeWebhookEvent(input: {
     [eventId, eventType, stripeEventCreated, processedAt]
   );
   return toNumber(result.rowsAffected) === 1;
+}
+
+/**
+ * Atomically records a verified Stripe event and its safe notification intents.
+ * Call only after the event's idempotent local business projection succeeds.
+ */
+export async function recordProcessedStripeWebhookEventWithAdminAlerts(input: {
+  eventId: string;
+  eventType: string;
+  stripeEventCreated: number;
+  processedAt?: number;
+  alerts: readonly AdminAlertOutboxInsert[];
+}): Promise<{ recorded: boolean; insertedAlertCount: number }> {
+  const eventId = requireTrimmedValue("eventId", input.eventId);
+  const eventType = requireTrimmedValue("eventType", input.eventType);
+  const stripeEventCreated = requireNonNegativeInteger(
+    "stripeEventCreated",
+    input.stripeEventCreated,
+  );
+  const processedAt = requireNonNegativeInteger("processedAt", input.processedAt ?? Date.now());
+  if (input.alerts.length > 20) {
+    throw new RangeError("At most 20 admin alerts can accompany one Stripe event.");
+  }
+  const alerts = input.alerts.map(normalizeAdminAlertOutboxInsert);
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  try {
+    const marker = await transaction.execute({
+      sql: `INSERT INTO stripe_webhook_events (
+        event_id, event_type, stripe_event_created, processed_at
+      ) VALUES (?, ?, ?, ?)
+      ON CONFLICT(event_id) DO NOTHING`,
+      args: [eventId, eventType, stripeEventCreated, processedAt],
+    });
+    if (toNumber(marker.rowsAffected) !== 1) {
+      await transaction.commit();
+      return { recorded: false, insertedAlertCount: 0 };
+    }
+    let insertedAlertCount = 0;
+    for (const alert of alerts) {
+      const result = await transaction.execute({
+        sql: `INSERT INTO admin_alert_outbox (
+          id,
+          dedupe_key,
+          event_type,
+          destination,
+          safe_payload_json,
+          environment,
+          status,
+          attempt_count,
+          next_attempt_at,
+          created_at,
+          delivered_at,
+          last_error_code,
+          lease_token,
+          lease_expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, NULL, '', '', 0)
+        ON CONFLICT(dedupe_key) DO NOTHING`,
+        args: [
+          alert.id,
+          alert.dedupeKey,
+          alert.eventType,
+          alert.destination,
+          alert.safePayloadJson,
+          alert.environment,
+          alert.nextAttemptAt,
+          alert.createdAt,
+        ],
+      });
+      const inserted = toNumber(result.rowsAffected);
+      insertedAlertCount += inserted;
+      if (inserted === 0) {
+        const existing = await transaction.execute({
+          sql: `${ADMIN_ALERT_OUTBOX_SELECT} WHERE dedupe_key = ? LIMIT 1`,
+          args: [alert.dedupeKey],
+        });
+        const row = existing.rows[0];
+        if (!row) throw new Error("Admin alert outbox conflict could not be verified.");
+        const stored = rowToAdminAlertOutbox(row);
+        if (
+          stored.eventType !== alert.eventType
+          || stored.destination !== alert.destination
+          || stored.environment !== alert.environment
+        ) {
+          throw new Error("Admin alert outbox dedupe conflict.");
+        }
+      }
+    }
+    await transaction.commit();
+    return { recorded: true, insertedAlertCount };
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
 }
 
 export async function countQualifyingAiBillingClasses(teacherEmail: string): Promise<number> {

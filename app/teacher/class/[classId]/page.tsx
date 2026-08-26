@@ -194,10 +194,10 @@ function bulkAiLimitDescription(preflight: BulkAiPreflight) {
   if (allowance && preflight.ungradedCount > allowance.remaining) {
     const nextStep =
       allowance.status === "teacher_period"
-        ? "Need more AI reviews? Ask your school about a TryHabla School Pilot."
+        ? "Need more AI reviews? Explore TryHabla for Schools."
         : allowance.status === "free_lifetime"
           ? "Choose Teacher for 300 AI reviews per Stripe billing period."
-          : "Contact us to scope a TryHabla School Pilot.";
+          : "Contact TryHabla for Schools to discuss larger or custom needs.";
     return `This run needs ${preflight.ungradedCount} AI reviews, but ${allowance.remaining} remain in your current allowance. ${nextStep} Recording, playback, and manual grading remain available.`;
   }
   return `This needs ${preflight.ungradedCount} AI generations but only ${preflight.remaining} remain today. Grade some by hand, or try again tomorrow when the limit resets.`;
