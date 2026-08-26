@@ -125,7 +125,7 @@ export function getAiConfig(): AiConfig {
   };
 }
 
-export function assertAiProviderConfig(config: AiConfig) {
+export function assertAiTranscriptionProviderConfig(config: AiConfig) {
   if (!config.enabled) return;
   if (!config.isDev && !config.studentDataApproved) {
     throw new Error(
@@ -139,13 +139,6 @@ export function assertAiProviderConfig(config: AiConfig) {
         : "OPENAI_API_KEY is required when AI_TRANSCRIPTION_PROVIDER=openai and Gateway is disabled."
     );
   }
-  if (config.gradingProvider === "openai" && !hasHostedAiCredentials()) {
-    throw new Error(
-      shouldUseAiGateway()
-        ? "Vercel AI Gateway credentials are required when AI_GRADING_PROVIDER=openai."
-        : "OPENAI_API_KEY is required when AI_GRADING_PROVIDER=openai and Gateway is disabled."
-    );
-  }
   if (config.monthlyBudgetUsd <= 0 || config.reservedCostUsdPerGeneration <= 0) {
     throw new Error("AI monthly budget and per-generation reservation must both be greater than zero.");
   }
@@ -156,6 +149,18 @@ export function assertAiProviderConfig(config: AiConfig) {
   ) {
     throw new Error(
       "AI_ACCESS_MODE=all cannot be combined with open teacher self-registration in production."
+    );
+  }
+}
+
+export function assertAiProviderConfig(config: AiConfig) {
+  assertAiTranscriptionProviderConfig(config);
+  if (!config.enabled) return;
+  if (config.gradingProvider === "openai" && !hasHostedAiCredentials()) {
+    throw new Error(
+      shouldUseAiGateway()
+        ? "Vercel AI Gateway credentials are required when AI_GRADING_PROVIDER=openai."
+        : "OPENAI_API_KEY is required when AI_GRADING_PROVIDER=openai and Gateway is disabled."
     );
   }
 }

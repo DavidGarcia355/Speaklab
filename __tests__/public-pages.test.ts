@@ -10,11 +10,13 @@ describe("pricing page", () => {
     expect(markup).toContain("Start free. Add AI when it saves you time.");
     expect(markup).toContain("The complete audio classroom, plus a lifetime AI allowance");
     expect(markup).toContain("$0");
-    expect(markup).toContain("30 successful AI reviews for the lifetime of your teacher account");
+    expect(markup).toContain("30 AI-assisted recordings for the lifetime of your teacher account");
     expect(markup).toContain("no card required");
     expect(markup).toContain("Teacher");
     expect(markup).toContain("$20");
-    expect(markup).toContain("300 successful AI reviews in each Stripe billing period");
+    expect(markup).toContain("300 AI-assisted recordings in each Stripe billing period");
+    expect(markup).toContain("A clean transcript is included; AI grading is optional");
+    expect(markup).toContain("Transcribing and grading the same recording uses one unit total");
     expect(markup).toContain("full assignments for one class of 30 students");
     expect(markup).toContain("full assignments across five classes of 30 students");
     expect(markup).toContain("No automatic overages");
@@ -36,7 +38,7 @@ describe("pricing page", () => {
     expect(markup).toContain("not a usage charge or invoice");
     expect(markup).toContain("TryHabla for Schools - Contact us");
     expect(markup).toContain("Larger and custom school needs.");
-    expect(markup).toContain("Need more AI reviews? Explore TryHabla for Schools.");
+    expect(markup).toContain("Need more AI-assisted recordings? Explore TryHabla for Schools.");
     expect(markup).toContain("Contact us");
     expect(markup).toContain("/feedback");
     expect(markup).toContain("does not currently imply a school admin console or district approval");
@@ -76,10 +78,10 @@ describe("billing page", () => {
     expect(markup).toContain("Checking your billing access");
     expect(markup).toContain("Stripe is TryHabla&#x27;s only product-payment method");
     expect(markup).toContain("voluntary, non-tax-deductible donations only");
-    expect(markup).toContain("30 successful AI reviews per teacher account");
-    expect(markup).toContain("$20 per month for 300 successful reviews");
+    expect(markup).toContain("30 AI-assisted recordings per teacher account");
+    expect(markup).toContain("$20 per month for 300 per Stripe billing period");
     expect(markup).toContain("no automatic overages");
-    expect(markup).toContain("never purchase access, start or extend a subscription, or add AI reviews");
+    expect(markup).toContain("never purchase access, start or extend a subscription, or add AI-assisted recording units");
     expect(markup).not.toContain("paypal.me");
     expect(markup).not.toMatch(/\bHabla\b/);
     expect(markup).toContain("/pricing");
@@ -95,7 +97,7 @@ describe("public audience paths", () => {
     const markup = renderToStaticMarkup(SiteFooter());
 
     expect(markup).toContain("keeps the core classroom free forever");
-    expect(markup).toContain("lifetime allowance of 30 successful reviews");
+    expect(markup).toContain("lifetime allowance of 30 AI-assisted recordings");
     expect(markup).not.toMatch(/pilot|request access|invite-only/i);
   });
 
@@ -111,13 +113,13 @@ describe("public audience paths", () => {
     expect(markup).not.toContain("<strong>37</strong>");
     expect(markup).not.toContain("<strong>141</strong>");
     expect(markup).not.toContain("<strong>585</strong>");
-    expect(markup).toContain("AI grades. Teachers stay in control.");
-    expect(markup).toContain("edit the grade anytime");
+    expect(markup).toContain("Transcribe first. Grade with AI only when it helps.");
+    expect(markup).toContain("generate a clean transcript to copy or download");
     expect(markup).not.toContain("June 2026");
     expect(markup).toContain(
-      "Free includes the complete audio classroom and a lifetime allowance of 30 successful AI",
+      "Free includes the complete audio classroom and a lifetime allowance of 30 AI-assisted",
     );
-    expect(markup).toContain("Teacher adds 300 reviews per Stripe billing period for $20");
+    expect(markup).toContain("Teacher adds 300 per Stripe billing period for $20");
     expect(markup).toContain("Larger and custom needs can go through TryHabla for Schools");
     expect(markup).not.toContain("Habla points");
     expect(markup).not.toContain("badges");
@@ -136,8 +138,8 @@ describe("public audience paths", () => {
     const studentMarkup = renderToStaticMarkup(await StudentsPage());
     const districtMarkup = renderToStaticMarkup(await DistrictPage());
 
-    expect(teacherMarkup).toContain("Grade with AI");
-    expect(teacherMarkup).toContain("review or edit every result");
+    expect(teacherMarkup).toContain("Transcribe or grade with AI");
+    expect(teacherMarkup).toContain("Generate a transcript to copy or download");
     expect(studentMarkup).toContain("Record in browser");
     expect(studentMarkup).toContain("Teacher feedback");
     expect(studentMarkup).not.toContain("Habla points");
@@ -194,17 +196,18 @@ describe("faq pricing copy", () => {
 
     expect(markup).toContain("Access and district review");
     expect(markup).toContain(
-      "lifetime allowance of 30 successful AI reviews per teacher account",
+      "lifetime allowance of 30 AI-assisted recordings per teacher account",
     );
     expect(markup).toContain("How does optional AI pricing work?");
     expect(markup).toContain(
-      "Teacher is $20 per month and includes 300 successful AI reviews in each Stripe billing period",
+      "Teacher is $20 per month and includes 300 AI-assisted recordings in each Stripe billing period",
     );
     expect(markup).toContain("there are no automatic overages");
     expect(markup).toContain("Contact TryHabla for Schools");
     expect(markup).toContain("larger and custom path for schools");
     expect(markup).toContain("does not currently include a school admin console");
     expect(markup).toContain("Does AI save the grade automatically?");
+    expect(markup).toContain("generate, copy, or download a transcript without requesting an AI grade");
     expect(markup).toContain("saves a whole-point score");
     expect(markup).toContain("Getting started");
     expect(markup).toContain("Students and submissions");

@@ -47,6 +47,9 @@ const mocks = vi.hoisted(() => ({
   })),
   releaseAiReviewAllowanceReservation: vi.fn(async () => true),
   getReusableAiReviewAttempt: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null),
+  findSubmissionTranscriptByIdForOwner: vi.fn(async () => null),
+  findSubmissionTranscriptForOwner: vi.fn(async () => null),
+  findSubmissionTranscriptForOwnerBySemanticKey: vi.fn(async () => null),
   countAiAttemptsForSubmission: vi.fn(async () => 0),
   countAiAttemptsForTeacherSince: vi.fn(async () => 0),
   countAiAttemptsSince: vi.fn(async () => 0),
@@ -60,6 +63,9 @@ const mocks = vi.hoisted(() => ({
     errorCode: "",
     errorMessage: "",
     ...input,
+  })),
+  copyConsumedReviewTranscriptToSubmission: vi.fn(async () => ({
+    id: "tr_duplicate",
   })),
   finalizeAiGradeDelivery: vi.fn<
     (_input: unknown) => Promise<FinalizeAiGradeDeliveryResult>
@@ -114,6 +120,10 @@ vi.mock("@/lib/db", () => ({
   reserveAiReviewAllowance: mocks.reserveAiReviewAllowance,
   releaseAiReviewAllowanceReservation: mocks.releaseAiReviewAllowanceReservation,
   getReusableAiReviewAttempt: mocks.getReusableAiReviewAttempt,
+  findSubmissionTranscriptByIdForOwner: mocks.findSubmissionTranscriptByIdForOwner,
+  findSubmissionTranscriptForOwner: mocks.findSubmissionTranscriptForOwner,
+  findSubmissionTranscriptForOwnerBySemanticKey:
+    mocks.findSubmissionTranscriptForOwnerBySemanticKey,
   countAiAttemptsForSubmission: mocks.countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince: mocks.countAiAttemptsForTeacherSince,
   countAiAttemptsSince: mocks.countAiAttemptsSince,
@@ -121,6 +131,8 @@ vi.mock("@/lib/db", () => ({
   latestAiAttemptCreatedAt: mocks.latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission: mocks.listAiGradingAttemptsForSubmission,
   createAiGradingAttempt: mocks.createAiGradingAttempt,
+  copyConsumedReviewTranscriptToSubmission:
+    mocks.copyConsumedReviewTranscriptToSubmission,
   finalizeAiGradeDelivery: mocks.finalizeAiGradeDelivery,
   markAiGradingAttemptNotApplicable: mocks.markAiGradingAttemptNotApplicable,
   withholdAiGradingAttemptResult: mocks.withholdAiGradingAttemptResult,

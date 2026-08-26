@@ -12,7 +12,7 @@ export const SITE_DESCRIPTION =
 export const PAYPAL_DONATION_URL = "https://paypal.me/DavidGarcia355";
 
 export const PAYPAL_DONATION_DISCLOSURE =
-  "PayPal is for voluntary, non-tax-deductible donations only. A donation does not purchase TryHabla, activate AI access, start or extend a subscription, add AI reviews, or provide any other product or service. TryHabla product billing is handled only through Stripe.";
+  "PayPal is for voluntary, non-tax-deductible donations only. A donation does not purchase TryHabla, activate AI access, start or extend a subscription, add AI-assisted recording units, or provide any other product or service. TryHabla product billing is handled only through Stripe.";
 
 export const CONTACT_LINKS = {
   linkedin: "https://www.linkedin.com/in/david-garcia-78b93328a",

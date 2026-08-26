@@ -98,7 +98,7 @@ export default function TeacherRegisterPage() {
         </h2>
         <p className="meta">
           {registrationState === "available"
-            ? "Continue to open your teacher dashboard. Core classroom features are free forever, and Free includes 30 successful AI reviews for the lifetime of your teacher account."
+            ? "Continue to open your teacher dashboard. Core classroom features are free forever, and Free includes 30 AI-assisted recordings for the lifetime of your teacher account."
             : registrationState === "checking"
               ? "Checking whether teacher setup is available for your signed-in account."
               : registrationState === "signed-out"

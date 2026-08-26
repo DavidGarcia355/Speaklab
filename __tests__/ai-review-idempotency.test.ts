@@ -4,8 +4,12 @@ import type { AiGradingAttemptRow, SubmissionForAiGradeRow } from "@/lib/db";
 
 const mocks = vi.hoisted(() => ({
   createAttempt: vi.fn(),
+  copyConsumedTranscript: vi.fn(),
   finalizeDelivery: vi.fn(),
   getReusableAttempt: vi.fn(),
+  findTranscriptById: vi.fn(),
+  findTranscriptForOwner: vi.fn(),
+  findTranscriptForOwnerBySemanticKey: vi.fn(),
   reserveAllowance: vi.fn(),
   releaseAllowance: vi.fn(),
   fetchAudio: vi.fn(),
@@ -16,8 +20,13 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({
   createAiGradingAttempt: mocks.createAttempt,
+  copyConsumedReviewTranscriptToSubmission: mocks.copyConsumedTranscript,
   finalizeAiGradeDelivery: mocks.finalizeDelivery,
   getReusableAiReviewAttempt: mocks.getReusableAttempt,
+  findSubmissionTranscriptByIdForOwner: mocks.findTranscriptById,
+  findSubmissionTranscriptForOwner: mocks.findTranscriptForOwner,
+  findSubmissionTranscriptForOwnerBySemanticKey:
+    mocks.findTranscriptForOwnerBySemanticKey,
   hasAudioTooLongFailure: vi.fn(async () => false),
   markAiGradingAttemptNotApplicable: vi.fn(),
   releaseAiReviewAllowanceReservation: mocks.releaseAllowance,
@@ -111,6 +120,7 @@ const source: AiGradingAttemptRow = {
   errorCode: "",
   errorMessage: "",
   cacheKey: "semantic-key",
+  assignmentFingerprint: "assignment-fingerprint",
   cacheHit: false,
   inputTokens: 1,
   cachedInputTokens: 0,
@@ -158,6 +168,10 @@ describe("AI review semantic retry", () => {
       periodEnd: null,
     });
     mocks.getReusableAttempt.mockResolvedValue(source);
+    mocks.copyConsumedTranscript.mockResolvedValue({ id: "tr_duplicate" });
+    mocks.findTranscriptById.mockResolvedValue(null);
+    mocks.findTranscriptForOwner.mockResolvedValue(null);
+    mocks.findTranscriptForOwnerBySemanticKey.mockResolvedValue(null);
   });
 
   it("returns the durable source for an exact retry without another attempt or provider", async () => {

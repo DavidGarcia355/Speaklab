@@ -6,7 +6,7 @@ import BillingPanel from "@/app/billing/BillingPanel";
 
 export const metadata: Metadata = {
   title: "AI Billing",
-  description: "Check Free and Teacher AI review access for your TryHabla teacher account.",
+  description: "Check Free and Teacher AI-assisted recording access for your TryHabla teacher account.",
   robots: { index: false, follow: false },
 };
 
@@ -20,9 +20,9 @@ export default function BillingPage() {
           <p className="pill">Optional AI</p>
           <h1>Keep the classroom free. Choose Teacher when AI helps.</h1>
           <p>
-            Free includes a lifetime allowance of 30 successful AI reviews per teacher account.
-            Teacher is $20 per month for 300 successful reviews in each Stripe billing period, with
-            no automatic overages.
+            Free includes a lifetime allowance of 30 AI-assisted recordings per teacher account.
+            Teacher is $20 per month for 300 per Stripe billing period. Each includes a transcript,
+            optional grading, and no automatic overages.
           </p>
         </div>
         <div className="billing-hero-mark" aria-hidden="true">
@@ -38,8 +38,8 @@ export default function BillingPage() {
         <p>
           Stripe is TryHabla&apos;s only product-payment method. Separate PayPal links on TryHabla
           are for voluntary, non-tax-deductible donations only; they never purchase access, start or
-          extend a subscription, or add AI reviews. Stripe handles checkout and card details.
-          TryHabla stores only the identifiers and review counts needed to provide the selected
+          extend a subscription, or add AI-assisted recording units. Stripe handles checkout and
+          card details. TryHabla stores only the identifiers and usage counts needed to provide the selected
           option, never full card details. Existing Stripe customers can use Manage billing for
           invoices, payment methods, and cancellation, or email{" "}
           <a href="mailto:davidsgarcia325@gmail.com?subject=TryHabla%20billing%20support">

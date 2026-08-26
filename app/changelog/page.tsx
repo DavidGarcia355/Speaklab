@@ -10,6 +10,23 @@ export const metadata = createPublicMetadata({
 
 const RELEASES = [
   {
+    date: "August 26, 2026",
+    items: [
+      {
+        type: "new" as const,
+        text: "Generate a clean transcript without requesting an AI grade, then copy it or download it as a text file.",
+      },
+      {
+        type: "new" as const,
+        text: "Open a student's oral portfolio from the class roster to replay and download recordings across assignments.",
+      },
+      {
+        type: "new" as const,
+        text: "Students can replay their own past submissions from their private TryHabla history.",
+      },
+    ],
+  },
+  {
     date: "March 31, 2026",
     items: [
       {

@@ -14,7 +14,8 @@ This document describes implemented behavior in the repository. It is not legal 
 | Feedback/contact messages | Retained until admin deletion. | No soft-delete. | Admin delete removes the DB row. |
 | Activity logs | Retained indefinitely in `activity_events`. | No soft-delete. | No automated deletion currently implemented. |
 | User accounts | Retained indefinitely in `users`. | Account deletion is not currently supported. | Decision required. |
-| AI grading attempts | Full transcript, suggestion, evidence, provider/model metadata, and safe error classification are retained in `ai_grading_attempts` while the related submission exists. | Follows the related submission's soft-delete period. | Cascades when the submission is hard-deleted after 30 days; no shorter AI-specific TTL currently exists. |
+| AI transcripts | A teacher-requested transcript and its provider/model, duration, cost-estimate, and latency metadata are retained in `submission_transcripts` while the related submission exists. | Follows the related submission's soft-delete period. | Cascades when the submission is hard-deleted after 30 days; no shorter transcript-specific TTL currently exists. |
+| AI grading attempts | Suggestions, transcript copy, evidence, provider/model metadata, and safe error classification are retained in `ai_grading_attempts` while the related submission exists. | Follows the related submission's soft-delete period. | Cascades when the submission is hard-deleted after 30 days; no shorter AI-specific TTL currently exists. |
 
 ## Cleanup Behavior
 

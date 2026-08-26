@@ -2081,6 +2081,17 @@ h3 {
   gap: 0.5rem;
 }
 
+.audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.audio-download-action {
+  white-space: nowrap;
+}
+
 .audio-toggle {
   width: 34px;
   height: 34px;
@@ -2209,6 +2220,73 @@ h3 {
   grid-column: 1 / -1;
   margin: 0.1rem 0 0;
   font-size: 0.82rem;
+}
+
+.submission-transcript {
+  margin-top: 0.62rem;
+  padding: 0.68rem;
+  border: 1px solid #d5dfed;
+  border-radius: 11px;
+  background: #fffdf8;
+}
+
+.submission-transcript-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.submission-transcript-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  margin: 0 0 0.16rem;
+  font-size: 0.94rem;
+}
+
+.submission-transcript-status {
+  margin: 0.48rem 0 0;
+}
+
+.submission-transcript-text {
+  max-height: 15rem;
+  margin-top: 0.52rem;
+  padding: 0.68rem 0.72rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid #d4dfeb;
+  border-radius: 9px;
+  background: #fff;
+  color: #1e293b;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.submission-transcript-text:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.submission-transcript-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin-top: 0.52rem;
+}
+
+.submission-transcript-allowance {
+  flex: 1 1 18rem;
+}
+
+.submission-transcript-action-message {
+  margin: 0.38rem 0 0;
+}
+
+.submission-transcript-action-message:empty {
+  display: none;
 }
 
 /* ── Auth UI components ── */
@@ -3019,6 +3097,17 @@ html.dark .audio-speed-btn {
 html.dark .audio-speed-btn.active {
   background: rgba(59, 130, 246, 0.18);
   color: #93c5fd;
+}
+
+html.dark .submission-transcript {
+  border-color: #2a313d;
+  background: linear-gradient(180deg, #12151a 0%, #0d1014 100%);
+}
+
+html.dark .submission-transcript-text {
+  border-color: #2a313d;
+  background: #090b0e;
+  color: #d7dde7;
 }
 
 /* ── Notice dark mode ── */

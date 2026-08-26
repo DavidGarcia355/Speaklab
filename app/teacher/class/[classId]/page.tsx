@@ -4,12 +4,22 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, Check, CheckCircle2, Clock3, Pencil, Trash2, X } from "lucide-react";
+import AiGradeReviewBadge from "@/app/components/AiGradeReviewBadge";
 import AudioPlayer from "@/app/components/AudioPlayer";
 import BrandBar from "@/app/components/BrandBar";
+import {
+  BULK_AI_CANCEL_LABEL,
+  BULK_AI_CONFIRM_LABEL,
+  BULK_AI_REVIEW_DISCLOSURE,
+  bulkAiConfirmationTitle,
+} from "@/app/components/bulk-ai-grading-presentation";
 import ConfirmModal from "@/app/components/ConfirmModal";
 import PageTitle from "@/app/components/PageTitle";
 import RubricBuilder, { type RubricCriterionDraft } from "@/app/components/RubricBuilder";
+import SubmissionTranscript from "@/app/components/SubmissionTranscript";
+import StudentOralPortfolio from "@/app/components/StudentOralPortfolio";
 import UndoToast from "@/app/components/UndoToast";
+import { buildSubmissionDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 
 type AssignmentSummary = {
   id: string;
@@ -46,6 +56,7 @@ type SubmissionItem = {
   submittedAt: number;
   feedback: string;
   grade: number | null;
+  gradeSource: "teacher" | "ai";
   rubricScores: {
     criterionId: string;
     criterionName: string;
@@ -99,6 +110,7 @@ type AiReviewAllowance = {
 };
 type BulkAiPreflight = {
   ungradedCount: number;
+  newUnitsRequired: number;
   remaining: number;
   fits: boolean;
   estimatedSeconds: number;
@@ -135,6 +147,7 @@ type StudentDetailPayload = {
     maxPoints: number;
     createdAt: number;
     submissionId: string | null;
+    audioData: string | null;
     submittedAt: number | null;
     grade: number | null;
     feedback: string;
@@ -174,33 +187,47 @@ function pluralize(count: number, singular: string, plural?: string) {
 }
 
 function bulkAiLimitTitle(preflight: BulkAiPreflight) {
+  if (preflight.ungradedCount === 0) {
+    return "No eligible submissions";
+  }
   if (preflight.allowance?.status === "subscription_unavailable") {
     return "AI billing needs attention";
   }
   if (
     preflight.allowance &&
-    preflight.ungradedCount > preflight.allowance.remaining
+    preflight.newUnitsRequired > preflight.allowance.remaining
   ) {
-    return "Not enough AI reviews in this allowance";
+    return "Not enough AI-assisted recording units";
   }
   return "Not enough AI grading left today";
 }
 
 function bulkAiLimitDescription(preflight: BulkAiPreflight) {
   const allowance = preflight.allowance;
-  if (allowance?.status === "subscription_unavailable") {
-    return "Your billing period could not be verified. Refresh billing or contact support before using another AI review. Recording, playback, and manual grading remain available.";
+  if (preflight.ungradedCount === 0) {
+    return "There are no ungraded submissions with audio available for this run.";
   }
-  if (allowance && preflight.ungradedCount > allowance.remaining) {
+  if (allowance?.status === "subscription_unavailable") {
+    return "Your billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording unit. Recording, playback, and manual grading remain available.";
+  }
+  if (allowance && preflight.newUnitsRequired > allowance.remaining) {
     const nextStep =
       allowance.status === "teacher_period"
-        ? "Need more AI reviews? Explore TryHabla for Schools."
+        ? "Need more? Explore TryHabla for Schools."
         : allowance.status === "free_lifetime"
-          ? "Choose Teacher for 300 AI reviews per Stripe billing period."
+          ? "Choose Teacher for 300 AI-assisted recordings per Stripe billing period."
           : "Contact TryHabla for Schools to discuss larger or custom needs.";
-    return `This run needs ${preflight.ungradedCount} AI reviews, but ${allowance.remaining} remain in your current allowance. ${nextStep} Recording, playback, and manual grading remain available.`;
+    return `This run will grade ${pluralize(preflight.ungradedCount, "submission")} and needs ${pluralize(preflight.newUnitsRequired, "new AI-assisted recording unit")}, but ${allowance.remaining} remain in your current allowance. Recordings already transcribed for this assignment do not use another unit. ${nextStep} Recording, playback, and manual grading remain available.`;
   }
-  return `This needs ${preflight.ungradedCount} AI generations but only ${preflight.remaining} remain today. Grade some by hand, or try again tomorrow when the limit resets.`;
+  return `This run includes ${pluralize(preflight.ungradedCount, "submission")}, but only ${preflight.remaining} AI grading generations remain today. Saved transcripts do not use another allowance unit, but grading still needs generation capacity. Grade some by hand, or try again tomorrow when the limit resets.`;
+}
+
+function bulkAiRunDescription(preflight: BulkAiPreflight) {
+  const minutes = Math.max(1, Math.round(preflight.estimatedSeconds / 60));
+  const usage = preflight.newUnitsRequired === 0
+    ? "Every eligible recording already has a saved transcript, so this run uses no new AI-assisted recording units."
+    : `${pluralize(preflight.newUnitsRequired, "new AI-assisted recording unit")} will be used. Recordings already transcribed for this assignment are not counted again.`;
+  return `${usage} ${BULK_AI_REVIEW_DISCLOSURE} You can review and edit every saved grade afterward. This takes about ${minutes} minute${minutes === 1 ? "" : "s"}.`;
 }
 
 function autoResizeTextarea(element: HTMLTextAreaElement) {
@@ -739,7 +766,13 @@ export default function ClassDetailPage() {
     updatePayloadSubmissions((items) =>
       items.map((row) =>
         row.id === submissionId
-          ? { ...row, grade: parsedGrade, feedback: draft.feedback, rubricScores }
+          ? {
+              ...row,
+              grade: parsedGrade,
+              feedback: draft.feedback,
+              gradeSource: "teacher",
+              rubricScores,
+            }
           : row
       )
     );
@@ -772,6 +805,7 @@ export default function ClassDetailPage() {
                 ...row,
                 grade: existing.grade,
                 feedback: existing.feedback,
+                gradeSource: existing.gradeSource,
                 rubricScores: existing.rubricScores,
               }
             : row
@@ -843,6 +877,7 @@ export default function ClassDetailPage() {
                   ...row,
                   grade: attempt.suggestedScore,
                   feedback: attempt.feedback,
+                  gradeSource: "ai",
                   rubricScores: attempt.rubricScores.length > 0 ? attempt.rubricScores : null,
                 }
               : row,
@@ -930,6 +965,7 @@ export default function ClassDetailPage() {
                           ...row,
                           grade: attempt.suggestedScore,
                           feedback: attempt.feedback,
+                          gradeSource: "ai",
                           rubricScores: attempt.rubricScores.length > 0 ? attempt.rubricScores : null,
                         }
                       : row,
@@ -1484,18 +1520,18 @@ export default function ClassDetailPage() {
                 {bulkAiError ? <p className="card-inline-error">{bulkAiError}</p> : null}
                 {bulkAiRunning ? (
                   <div className="notice info">
-                    Generating and saving AI grades. Leave this page open until the run finishes.
+                    Generating AI grades. Grades that pass safeguards will be saved and marked for teacher review. Leave this page open until the run finishes.
                   </div>
                 ) : null}
                 {bulkAiResult ? (
                   <div className="notice info">
                     <strong>
-                      {bulkAiResult.graded} of {bulkAiResult.total} grade
-                      {bulkAiResult.graded === 1 ? "" : "s"} saved automatically.
+                      {bulkAiResult.graded} of {bulkAiResult.total} eligible AI grade
+                      {bulkAiResult.graded === 1 ? "" : "s"} saved and marked Needs teacher review.
                     </strong>{" "}
                     {bulkAiResult.skipped > 0 ? `${bulkAiResult.skipped} skipped. ` : ""}
                     {bulkAiResult.failed > 0 ? `${bulkAiResult.failed} failed. ` : ""}
-                    Students can see saved results immediately; every grade remains editable below.
+                    Students can see saved results immediately; review or edit every AI grade below.
                   </div>
                 ) : null}
 
@@ -1516,6 +1552,12 @@ export default function ClassDetailPage() {
                           }, 0)
                         : null;
                       const aiSuggestion = aiSuggestions[submission.id] ?? null;
+                      const downloadFilenameBase = buildSubmissionDownloadFilenameBase({
+                        studentName: submission.studentName,
+                        assignmentTitle: activeAssignment.title,
+                        submittedAt: submission.submittedAt,
+                        submissionId: submission.id,
+                      });
                       return (
                         <div key={submission.id} className="card submission-card">
                           <div className="dense-row">
@@ -1592,7 +1634,21 @@ export default function ClassDetailPage() {
                               <div className="score-control"><label className="meta score-label" htmlFor={`grade-${submission.id}`}>Score</label><div className="score-field"><input id={`grade-${submission.id}`} className="input score-input" type="number" min={0} max={activeAssignment.maxPoints} step={1} inputMode="numeric" placeholder="0" value={draft.gradeInput} onChange={(event) => setDraft(submission.id, { gradeInput: event.target.value })} /><span className="score-suffix">/{activeAssignment.maxPoints}</span></div></div>
                             )}
                           </div>
-                          <AudioPlayer src={submission.audioData} variant="compact" downloadFilename={submission.studentName} />
+                          <AiGradeReviewBadge
+                            grade={submission.grade}
+                            gradeSource={submission.gradeSource}
+                          />
+                          <AudioPlayer
+                            src={submission.audioData}
+                            variant="compact"
+                            downloadFilename={downloadFilenameBase}
+                          />
+                          {aiGradingEnabled ? (
+                            <SubmissionTranscript
+                              submissionId={submission.id}
+                              downloadFilenameBase={downloadFilenameBase}
+                            />
+                          ) : null}
                           {activeAssignment.rubric ? (
                             <div className="grid section-gap">
                               {activeAssignment.rubric.criteria.map((criterion) => (
@@ -1645,7 +1701,11 @@ export default function ClassDetailPage() {
                               </p>
                               <p className="meta" style={{ marginBottom: "0.35rem" }}>
                                 <span className="status-badge status-warning">
-                                  {aiSuggestion.gradeApplied ? "Grade saved by AI" : "Review before applying"}
+                                  {aiSuggestion.teacherAttention === "unable_to_grade"
+                                    ? "AI could not grade this"
+                                    : aiSuggestion.gradeApplied
+                                      ? "AI grade saved: teacher review needed"
+                                      : "AI suggestion: review before applying"}
                                 </span>{" "}
                                 {aiSuggestion.confidence ? (
                                   <span className="pill pill-subtle">AI confidence: {aiSuggestion.confidence}</span>
@@ -1654,6 +1714,8 @@ export default function ClassDetailPage() {
                                   <span className="pill pill-subtle">Flagged: check this one closely</span>
                                 ) : aiSuggestion.teacherAttention === "unable_to_grade" ? (
                                   <span className="pill pill-subtle">AI could not grade this</span>
+                                ) : aiSuggestion.teacherAttention === "review" ? (
+                                  <span className="pill pill-subtle">Human review required</span>
                                 ) : null}
                               </p>
                               {aiSuggestion.suggestedScore !== null ? (
@@ -1687,7 +1749,7 @@ export default function ClassDetailPage() {
                           ) : null}
                           <div className="actions submission-actions">
                             {aiGradingEnabled ? (
-                              <button type="button" className="btn btn-ghost" onClick={() => void aiGradeSubmission(submission.id)} disabled={aiGrading[submission.id] || draft.saving}>{aiGrading[submission.id] ? "Grading & saving..." : "AI grade & save"}</button>
+                              <button type="button" className="btn btn-ghost" onClick={() => void aiGradeSubmission(submission.id)} disabled={aiGrading[submission.id] || draft.saving}>{aiGrading[submission.id] ? "Grading & saving..." : "Optional: AI grade & save"}</button>
                             ) : null}
                             <button type="button" className="btn btn-primary" onClick={() => void saveSubmission(submission.id)} disabled={draft.saving}>{draft.saving ? "Saving..." : "Save grade"}</button>
                           </div>
@@ -1840,24 +1902,13 @@ export default function ClassDetailPage() {
               studentDetail.assignments.length === 0 ? (
                 <p className="empty">No assignments in this class yet.</p>
               ) : (
-                <div className="grid submission-grid">
-                  {studentDetail.assignments.map((item) => (
-                    <div key={item.assignmentId} className="card">
-                      <strong>{item.assignmentTitle}</strong>
-                      {item.submissionId ? (
-                        <>
-                          <div className="meta">Submitted {formatDateTime(item.submittedAt!)}</div>
-                          <div className="meta">
-                            Score: {item.grade !== null ? `${item.grade} / ${item.maxPoints}` : "Not graded"}
-                          </div>
-                          {item.feedback ? <div className="meta">Feedback: {item.feedback}</div> : null}
-                        </>
-                      ) : (
-                        <div className="meta empty">No submission</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                <StudentOralPortfolio
+                  studentName={
+                    roster.find((entry) => entry.studentEmail === selectedStudentEmail)?.studentName ??
+                    selectedStudentEmail
+                  }
+                  items={studentDetail.assignments}
+                />
               )
             ) : (
               <p className="empty">Could not load assignment data.</p>
@@ -1885,15 +1936,17 @@ export default function ClassDetailPage() {
         title={
           bulkAiPreflight && !bulkAiPreflight.fits
             ? bulkAiLimitTitle(bulkAiPreflight)
-            : `AI grade ${bulkAiPreflight?.ungradedCount ?? 0} submission${bulkAiPreflight?.ungradedCount === 1 ? "" : "s"}?`
+            : bulkAiConfirmationTitle(bulkAiPreflight?.ungradedCount ?? 0)
         }
         description={
           bulkAiPreflight && !bulkAiPreflight.fits
             ? bulkAiLimitDescription(bulkAiPreflight)
-            : `Every eligible submission gets an AI score, rubric breakdown, and feedback saved automatically and visible to that student immediately. You can review and edit every grade afterward. This takes about ${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60))} minute${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60)) === 1 ? "" : "s"}.`
+            : bulkAiPreflight
+              ? bulkAiRunDescription(bulkAiPreflight)
+              : ""
         }
-        confirmLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "OK" : "Grade with AI"}
-        cancelLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "Close" : "Cancel"}
+        confirmLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "OK" : BULK_AI_CONFIRM_LABEL}
+        cancelLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "Close" : BULK_AI_CANCEL_LABEL}
         onCancel={() => setBulkAiPreflight(null)}
         onConfirm={() => {
           const canRun = bulkAiPreflight?.fits === true;

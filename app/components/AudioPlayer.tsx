@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Download, Pause, Play } from "lucide-react";
+import { sanitizeDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 
 type AudioPlayerProps = {
   src: string;
@@ -21,6 +22,21 @@ function formatTime(seconds: number) {
 
 function formatSpeed(value: number) {
   return Number.isInteger(value) ? `${value}.0x` : `${value}x`;
+}
+
+function audioFileExtension(contentType: string) {
+  const normalized = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  const knownExtensions: Record<string, string> = {
+    "audio/aac": "aac",
+    "audio/flac": "flac",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/ogg": "ogg",
+    "audio/wav": "wav",
+    "audio/webm": "webm",
+    "audio/x-m4a": "m4a",
+  };
+  return knownExtensions[normalized] ?? "webm";
 }
 
 export default function AudioPlayer({
@@ -110,11 +126,11 @@ export default function AudioPlayer({
       if (!res.ok) throw new Error(`Download request failed with status ${res.status}.`);
       const blob = await res.blob();
       if (blob.size === 0) throw new Error("The downloaded recording was empty.");
-      const ext = blob.type.split("/")[1]?.split(";")[0] ?? "webm";
+      const ext = audioFileExtension(blob.type);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${downloadFilename}.${ext}`;
+      a.download = `${sanitizeDownloadFilenameBase(downloadFilename)}.${ext}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -139,26 +155,28 @@ export default function AudioPlayer({
     <div className={`audio-shell ${variant === "compact" ? "audio-shell-compact" : ""}`}>
       <audio ref={audioRef} src={src} preload="metadata" />
 
-      <button
-        type="button"
-        className={`audio-toggle ${isPlaying ? "is-playing" : ""}`}
-        onClick={togglePlay}
-        aria-label={isPlaying ? "Pause audio" : "Play audio"}
-      >
-        {isPlaying ? <Pause size={16} strokeWidth={2.3} /> : <Play size={16} strokeWidth={2.3} />}
-      </button>
-
-      {downloadFilename ? (
+      <div className="audio-controls">
         <button
           type="button"
-          className="audio-toggle"
-          onClick={() => void handleDownload()}
-          disabled={downloading}
-          aria-label="Download recording"
+          className={`audio-toggle ${isPlaying ? "is-playing" : ""}`}
+          onClick={togglePlay}
+          aria-label={isPlaying ? "Pause audio" : "Play audio"}
         >
-          <Download size={16} strokeWidth={2.3} />
+          {isPlaying ? <Pause size={16} strokeWidth={2.3} /> : <Play size={16} strokeWidth={2.3} />}
         </button>
-      ) : null}
+
+        {downloadFilename ? (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm audio-download-action"
+            onClick={() => void handleDownload()}
+            disabled={downloading}
+          >
+            <Download size={15} strokeWidth={2.3} aria-hidden="true" />
+            {downloading ? "Downloading..." : "Download recording"}
+          </button>
+        ) : null}
+      </div>
 
       <div className="audio-main">
         <div className="audio-progress-row">

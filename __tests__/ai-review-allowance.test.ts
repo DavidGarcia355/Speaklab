@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { STRIPE_CATALOG_MANIFEST } from "@/lib/billing/catalog-manifest";
 import { STRIPE_API_VERSION } from "@/lib/billing/config";
 import { getStripeBillingContractId } from "@/lib/billing/contract";
+import { processedAssignmentFingerprint } from "@/lib/ai/recording-identity";
+import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapter";
 
 const runtimeMocks = vi.hoisted(() => ({
   subscriptionReady: vi.fn(async () => true),
@@ -35,6 +37,11 @@ async function createCompletedAttempt(
   db: Awaited<ReturnType<typeof loadDb>>,
   teacherEmail: string,
   cacheKey: string,
+  options: {
+    transcript?: string;
+    suggestedScore?: number | null;
+    assignmentFingerprint?: string;
+  } = {},
 ) {
   const classroom = await db.createClass("Allowance class", teacherEmail);
   const assignment = await db.createAssignment({
@@ -63,15 +70,33 @@ async function createCompletedAttempt(
     studentEmail: "student@example.com",
     audioBlobUrl: "submissions/allowance/answer.webm",
   });
+  const assignmentFingerprint =
+    options.assignmentFingerprint ??
+    processedAssignmentFingerprint(
+      legacyAssignmentToGradingAssignment({
+        submissionId: submission.id,
+        assignmentId: assignment.id,
+        assignmentTitle: assignment.title,
+        audioBlobUrl: submission.audioBlobUrl,
+        description: assignment.description,
+        instructions: assignment.instructions,
+        targetLanguage: assignment.targetLanguage,
+        rubric: assignment.rubric,
+        maxPoints: assignment.maxPoints,
+        finalGrade: null,
+        finalFeedback: "",
+      }),
+    );
   const attempt = await db.createAiGradingAttempt({
     submissionId: submission.id,
     teacherEmail,
     status: "completed",
-    transcript: "Hola.",
+    transcript: options.transcript ?? "Hola.",
     detectedLanguage: "Spanish",
     transcriptQuality: "good",
     durationSeconds: 5,
-    suggestedScore: 8,
+    suggestedScore:
+      options.suggestedScore === undefined ? 8 : options.suggestedScore,
     rubricScores: [],
     feedback: "Good work.",
     strengths: ["Clear"],
@@ -85,9 +110,10 @@ async function createCompletedAttempt(
     transcriptionModel: "mock",
     gradingModel: "mock",
     cacheKey,
+    assignmentFingerprint,
     promptVersion: "allowance-test-v1",
   });
-  return { submission, attempt };
+  return { assignment, assignmentFingerprint, submission, attempt };
 }
 
 describe("atomic AI review allowance", () => {
@@ -189,6 +215,451 @@ describe("atomic AI review allowance", () => {
       reservationStatus: "duplicate",
       sourceAttemptId: fixture.attempt.id,
       used: 1,
+    });
+  });
+
+  it("persists an owner-scoped transcript and transfers its one unit to grading", async () => {
+    const teacherEmail = "transcript-then-grade@example.com";
+    const semanticKey = "semantic-transcript-then-grade";
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedAttempt(db, teacherEmail, semanticKey);
+    const reservation = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    if (reservation.reservationStatus !== "reserved") {
+      throw new Error("Expected a transcript reservation.");
+    }
+
+    const transcript = await db.finalizeSubmissionTranscriptDelivery({
+      reservationId: reservation.reservationId,
+      value: {
+        submissionId: fixture.submission.id,
+        teacherEmail,
+        semanticKey,
+        assignmentFingerprint: fixture.assignmentFingerprint,
+        transcriptCacheKey: "transcript-cache-key",
+        transcript: "Hola, esta es mi respuesta.",
+        detectedLanguage: "Spanish",
+        transcriptQuality: "good",
+        durationSeconds: 5,
+        transcriptionProvider: "mock",
+        transcriptionModel: "mock-transcriber",
+      },
+    });
+    expect(transcript).toMatchObject({
+      submissionId: fixture.submission.id,
+      teacherEmail,
+      semanticKey,
+      transcript: "Hola, esta es mi respuesta.",
+    });
+    await expect(
+      db.findSubmissionTranscriptForOwner(fixture.submission.id, "other@example.com"),
+    ).resolves.toBeNull();
+    await expect(db.getAiReviewAllowanceSummary({ teacherEmail })).resolves.toMatchObject({
+      reserved: 0,
+      consumed: 1,
+      remaining: 29,
+    });
+
+    const duplicate = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    expect(duplicate).toMatchObject({
+      reservationStatus: "duplicate",
+      reservationId: reservation.reservationId,
+      sourceKind: "transcript",
+      sourceResultId: transcript?.id,
+      used: 1,
+    });
+    if (duplicate.reservationStatus !== "duplicate") {
+      throw new Error("Expected the consumed transcript reservation.");
+    }
+
+    await expect(
+      db.finalizeAiGradeDelivery({
+        attemptId: fixture.attempt.id,
+        ownerEmail: teacherEmail,
+        priceBookId: STRIPE_CATALOG_MANIFEST.priceBookId,
+        billingCandidate: false,
+        allowUnmeteredAccess: false,
+        reviewReservationId: duplicate.reservationId,
+      }),
+    ).resolves.toEqual({ status: "applied", billingRequired: false });
+    await expect(db.getAiReviewAllowanceSummary({ teacherEmail })).resolves.toMatchObject({
+      reserved: 0,
+      consumed: 1,
+      remaining: 29,
+    });
+    await expect(db.reserveAiReviewAllowance({ teacherEmail, semanticKey })).resolves.toMatchObject({
+      reservationStatus: "duplicate",
+      sourceKind: "grading",
+      sourceResultId: fixture.attempt.id,
+      used: 1,
+    });
+  });
+
+  it("consumes a clean transcript even when grading cannot suggest a score", async () => {
+    const teacherEmail = "transcript-no-score@example.com";
+    const semanticKey = "semantic-transcript-no-score";
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedAttempt(db, teacherEmail, semanticKey, {
+      suggestedScore: null,
+    });
+    const reservation = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    if (reservation.reservationStatus !== "reserved") {
+      throw new Error("Expected a review reservation.");
+    }
+
+    await expect(
+      db.markAiGradingAttemptNotApplicable({
+        attemptId: fixture.attempt.id,
+        ownerEmail: teacherEmail,
+        reviewReservationId: reservation.reservationId,
+      }),
+    ).resolves.toBe(true);
+    await expect(db.getAiReviewAllowanceSummary({ teacherEmail })).resolves.toMatchObject({
+      reserved: 0,
+      consumed: 1,
+      remaining: 29,
+    });
+    const duplicate = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    expect(duplicate).toMatchObject({
+      reservationStatus: "duplicate",
+      sourceKind: "grading",
+      sourceResultId: fixture.attempt.id,
+    });
+    await expect(
+      db.getReusableAiReviewAttempt({
+        attemptId: fixture.attempt.id,
+        teacherEmail,
+        semanticKey,
+      }),
+    ).resolves.toMatchObject({
+      id: fixture.attempt.id,
+      suggestedScore: null,
+      transcript: "Hola.",
+      deliveryStatus: "not_applicable",
+    });
+    await expect(
+      db.listUngradedSubmissionsForAiGrade(fixture.submission.assignmentId, teacherEmail),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        submissionId: fixture.submission.id,
+        consumedTranscriptFingerprints: [
+          fixture.assignmentFingerprint,
+        ],
+      }),
+    ]);
+
+    const duplicateSubmission = await db.createSubmission({
+      assignmentId: fixture.submission.assignmentId,
+      studentName: "Second student",
+      studentEmail: "second-student@example.com",
+      audioBlobUrl: "submissions/allowance/answer-copy.webm",
+    });
+    const copied = await db.copyConsumedReviewTranscriptToSubmission({
+      reservationId: reservation.reservationId,
+      sourceResultId: fixture.attempt.id,
+      sourceKind: "grading",
+      submissionId: duplicateSubmission.id,
+      teacherEmail,
+      semanticKey,
+      assignmentFingerprint: fixture.assignmentFingerprint,
+    });
+    expect(copied).toMatchObject({
+      submissionId: duplicateSubmission.id,
+      semanticKey,
+      assignmentFingerprint: fixture.assignmentFingerprint,
+      transcript: "Hola.",
+    });
+  });
+
+  it("retrieves the exact consumed attempt after more than twenty retries", async () => {
+    const teacherEmail = "many-retries@example.com";
+    const semanticKey = "semantic-many-retries";
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedAttempt(db, teacherEmail, semanticKey, {
+      suggestedScore: null,
+    });
+    const reservation = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    if (reservation.reservationStatus !== "reserved") {
+      throw new Error("Expected a review reservation.");
+    }
+    await db.markAiGradingAttemptNotApplicable({
+      attemptId: fixture.attempt.id,
+      ownerEmail: teacherEmail,
+      reviewReservationId: reservation.reservationId,
+    });
+
+    for (let index = 0; index < 21; index += 1) {
+      const retry = await db.createAiGradingAttempt({
+        submissionId: fixture.submission.id,
+        teacherEmail,
+        status: "completed",
+        transcript: fixture.attempt.transcript,
+        detectedLanguage: fixture.attempt.detectedLanguage,
+        transcriptQuality: fixture.attempt.transcriptQuality,
+        durationSeconds: fixture.attempt.durationSeconds,
+        suggestedScore: null,
+        rubricScores: fixture.attempt.rubricScores,
+        feedback: fixture.attempt.feedback,
+        strengths: fixture.attempt.strengths,
+        improvements: fixture.attempt.improvements,
+        evidence: fixture.attempt.evidence,
+        confidence: fixture.attempt.confidence,
+        warnings: fixture.attempt.warnings,
+        teacherAttention: fixture.attempt.teacherAttention,
+        transcriptionProvider: fixture.attempt.transcriptionProvider,
+        gradingProvider: fixture.attempt.gradingProvider,
+        transcriptionModel: fixture.attempt.transcriptionModel,
+        gradingModel: fixture.attempt.gradingModel,
+        cacheKey: semanticKey,
+        assignmentFingerprint: fixture.assignmentFingerprint,
+        promptVersion: fixture.attempt.promptVersion,
+        resultSource: "allowance_duplicate",
+      });
+      await db.markAiGradingAttemptNotApplicable({
+        attemptId: retry.id,
+        ownerEmail: teacherEmail,
+      });
+    }
+
+    await expect(
+      db.getReusableAiReviewAttempt({
+        attemptId: fixture.attempt.id,
+        teacherEmail,
+        semanticKey,
+      }),
+    ).resolves.toMatchObject({
+      id: fixture.attempt.id,
+      suggestedScore: null,
+      transcript: "Hola.",
+    });
+  });
+
+  it("refuses to consume a reservation for a blank transcript", async () => {
+    const teacherEmail = "blank-transcript@example.com";
+    const semanticKey = "semantic-blank-transcript";
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedAttempt(db, teacherEmail, semanticKey, {
+      transcript: "   ",
+      suggestedScore: null,
+    });
+    const reservation = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    if (reservation.reservationStatus !== "reserved") {
+      throw new Error("Expected a review reservation.");
+    }
+
+    await expect(
+      db.markAiGradingAttemptNotApplicable({
+        attemptId: fixture.attempt.id,
+        ownerEmail: teacherEmail,
+        reviewReservationId: reservation.reservationId,
+      }),
+    ).resolves.toBe(false);
+    await expect(db.getAiReviewAllowanceSummary({ teacherEmail })).resolves.toMatchObject({
+      reserved: 1,
+      consumed: 0,
+      used: 1,
+    });
+    await db.releaseAiReviewAllowanceReservation({
+      reservationId: reservation.reservationId,
+      teacherEmail,
+    });
+  });
+
+  it("withholds an automatic grade when the assignment changes during provider work", async () => {
+    const teacherEmail = "assignment-race-grade@example.com";
+    const semanticKey = "semantic-assignment-race-grade";
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedAttempt(db, teacherEmail, semanticKey);
+    const reservation = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    if (reservation.reservationStatus !== "reserved") {
+      throw new Error("Expected a review reservation.");
+    }
+    await db.updateAssignment(fixture.assignment.id, teacherEmail, {
+      title: fixture.assignment.title,
+      description: fixture.assignment.description,
+      instructions: `${fixture.assignment.instructions} Updated while grading.`,
+      targetLanguage: fixture.assignment.targetLanguage,
+      maxPoints: fixture.assignment.maxPoints,
+      maxSubmissions: fixture.assignment.maxSubmissions,
+      maxRecordingSeconds: fixture.assignment.maxRecordingSeconds,
+      rubric: fixture.assignment.rubric,
+      attachmentName: fixture.assignment.attachmentName,
+      attachmentUrl: fixture.assignment.attachmentUrl,
+      attachmentContentType: fixture.assignment.attachmentContentType,
+    });
+
+    await expect(
+      db.finalizeAiGradeDelivery({
+        attemptId: fixture.attempt.id,
+        ownerEmail: teacherEmail,
+        priceBookId: STRIPE_CATALOG_MANIFEST.priceBookId,
+        billingCandidate: false,
+        allowUnmeteredAccess: false,
+        reviewReservationId: reservation.reservationId,
+      }),
+    ).resolves.toEqual({
+      status: "not_applied",
+      billingRequired: false,
+      reason: "submission_changed",
+    });
+    await expect(db.findOwnedSubmissionForAiReview(fixture.submission.id, teacherEmail)).resolves
+      .toMatchObject({ finalGrade: null, finalFeedback: "" });
+    await expect(db.getAiReviewAllowanceSummary({ teacherEmail })).resolves.toMatchObject({
+      reserved: 1,
+      consumed: 0,
+    });
+    await db.releaseAiReviewAllowanceReservation({
+      reservationId: reservation.reservationId,
+      teacherEmail,
+    });
+  });
+
+  it("withholds a non-applicable result when the assignment changes during provider work", async () => {
+    const teacherEmail = "assignment-race-review@example.com";
+    const semanticKey = "semantic-assignment-race-review";
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedAttempt(db, teacherEmail, semanticKey, {
+      suggestedScore: null,
+    });
+    const reservation = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    if (reservation.reservationStatus !== "reserved") {
+      throw new Error("Expected a review reservation.");
+    }
+    await db.updateAssignment(fixture.assignment.id, teacherEmail, {
+      title: fixture.assignment.title,
+      description: fixture.assignment.description,
+      instructions: fixture.assignment.instructions,
+      targetLanguage: fixture.assignment.targetLanguage,
+      maxPoints: fixture.assignment.maxPoints + 5,
+      maxSubmissions: fixture.assignment.maxSubmissions,
+      maxRecordingSeconds: fixture.assignment.maxRecordingSeconds,
+      rubric: fixture.assignment.rubric,
+      attachmentName: fixture.assignment.attachmentName,
+      attachmentUrl: fixture.assignment.attachmentUrl,
+      attachmentContentType: fixture.assignment.attachmentContentType,
+    });
+
+    await expect(
+      db.markAiGradingAttemptNotApplicable({
+        attemptId: fixture.attempt.id,
+        ownerEmail: teacherEmail,
+        reviewReservationId: reservation.reservationId,
+      }),
+    ).resolves.toBe(false);
+    await expect(db.getAiReviewAllowanceSummary({ teacherEmail })).resolves.toMatchObject({
+      reserved: 1,
+      consumed: 0,
+    });
+    await db.releaseAiReviewAllowanceReservation({
+      reservationId: reservation.reservationId,
+      teacherEmail,
+    });
+  });
+
+  it("does not treat an unmetered transcript as a reusable paid unit", async () => {
+    const teacherEmail = "unmetered-transcript@example.com";
+    const semanticKey = "semantic-unmetered-transcript";
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedAttempt(db, teacherEmail, "unused-attempt-key");
+    await db.saveUnmeteredSubmissionTranscript({
+      value: {
+        submissionId: fixture.submission.id,
+        teacherEmail,
+        semanticKey,
+        assignmentFingerprint: "assignment-fingerprint-unmetered",
+        transcript: "Transcript created before metering.",
+        detectedLanguage: "English",
+        transcriptQuality: "good",
+        durationSeconds: 5,
+        transcriptionProvider: "mock",
+        transcriptionModel: "mock-transcriber",
+      },
+    });
+
+    await expect(
+      db.listUngradedSubmissionsForAiGrade(fixture.submission.assignmentId, teacherEmail),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        submissionId: fixture.submission.id,
+        hasPersistedTranscript: true,
+        consumedTranscriptFingerprints: [],
+      }),
+    ]);
+
+    const reservation = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    if (reservation.reservationStatus !== "reserved") {
+      throw new Error("Expected the first metered transcript reservation.");
+    }
+    await db.finalizeSubmissionTranscriptDelivery({
+      reservationId: reservation.reservationId,
+      value: {
+        submissionId: fixture.submission.id,
+        teacherEmail,
+        semanticKey,
+        assignmentFingerprint: "assignment-fingerprint-unmetered",
+        transcript: "Transcript created before metering.",
+        detectedLanguage: "English",
+        transcriptQuality: "good",
+        durationSeconds: 5,
+        transcriptionProvider: "mock",
+        transcriptionModel: "mock-transcriber",
+      },
+    });
+    await expect(
+      db.listUngradedSubmissionsForAiGrade(fixture.submission.assignmentId, teacherEmail),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        submissionId: fixture.submission.id,
+        hasPersistedTranscript: true,
+        consumedTranscriptFingerprints: ["assignment-fingerprint-unmetered"],
+      }),
+    ]);
+  });
+
+  it("keeps an old consumed transcript source immutable after a second semantic save", async () => {
+    const teacherEmail = "immutable-transcript-source@example.com";
+    const oldKey = "semantic-transcript-old";
+    const newKey = "semantic-transcript-new";
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedAttempt(db, teacherEmail, "unused-immutable-key");
+
+    const save = async (semanticKey: string, transcript: string) => {
+      const reservation = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+      if (reservation.reservationStatus !== "reserved") {
+        throw new Error("Expected a transcript reservation.");
+      }
+      const item = await db.finalizeSubmissionTranscriptDelivery({
+        reservationId: reservation.reservationId,
+        value: {
+          submissionId: fixture.submission.id,
+          teacherEmail,
+          semanticKey,
+          assignmentFingerprint: `assignment-fingerprint-${semanticKey}`,
+          transcript,
+          detectedLanguage: "English",
+          transcriptQuality: "good",
+          durationSeconds: 5,
+          transcriptionProvider: "mock",
+          transcriptionModel: "mock-transcriber",
+        },
+      });
+      if (!item) throw new Error("Expected a saved transcript.");
+      return item;
+    };
+
+    const oldTranscript = await save(oldKey, "Original transcript.");
+    const newTranscript = await save(newKey, "New semantic transcript.");
+    expect(newTranscript.id).not.toBe(oldTranscript.id);
+    await expect(
+      db.findSubmissionTranscriptByIdForOwner(oldTranscript.id, teacherEmail),
+    ).resolves.toMatchObject({
+      id: oldTranscript.id,
+      semanticKey: oldKey,
+      transcript: "Original transcript.",
+    });
+    await expect(db.reserveAiReviewAllowance({ teacherEmail, semanticKey: oldKey })).resolves.toMatchObject({
+      reservationStatus: "duplicate",
+      sourceKind: "transcript",
+      sourceResultId: oldTranscript.id,
     });
   });
 

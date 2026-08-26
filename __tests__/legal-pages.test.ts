@@ -11,7 +11,7 @@ describe("public legal terminology and safeguards", () => {
     expect(publicCopy).toContain("Privacy Notice");
     expect(markup).toContain("It is not a claim that a school or district has approved TryHabla");
     expect(markup).toContain("audio recording");
-    expect(markup).toContain("recorded answer, transcript, assignment");
+    expect(markup).toContain("A transcript can be generated without an AI grade");
     expect(markup).toContain("production service identifies OpenAI");
     expect(markup).toContain("TryHabla does not promise a particular provider retention mode");
     expect(markup).toContain("30-day recovery period");
@@ -28,11 +28,12 @@ describe("public legal terminology and safeguards", () => {
 
     expect(publicCopy).toContain("Terms of Use");
     expect(markup).toContain("They are not a statement that any school or district has approved TryHabla");
-    expect(markup).toContain("Free includes one lifetime allowance of 30 successful AI reviews");
+    expect(markup).toContain("Free includes one lifetime allowance of 30 AI-assisted recordings");
     expect(markup).toContain("Teacher costs $20 per month");
-    expect(markup).toContain("300 successful AI reviews in each Stripe billing period");
+    expect(markup).toContain("300 AI-assisted recordings in each Stripe billing period");
+    expect(markup).toContain("does not use another unit");
     expect(markup).toContain("neither option has automatic overages");
-    expect(markup).toContain("recording, playback, and manual grading remain available");
+    expect(markup).toContain("recording, playback, downloads, and manual grading remain available");
     expect(markup).toContain("TryHabla for Schools is a contact-based option");
     expect(markup).toContain("does not promise a school administrator console");
     expect(markup).toContain("consolidated school billing, or district approval");

@@ -9,11 +9,25 @@ import {
 import { HttpError, withApiHandler } from "@/lib/http";
 import { assertAiProviderConfig, getAiConfig, isAiTeacherDenied, isLocalMockAi } from "@/lib/ai/config";
 import { gradeOneSubmission } from "@/lib/ai/grade-one";
+import { processedAssignmentFingerprint } from "@/lib/ai/recording-identity";
 import { assertGradingProviderConfiguration, getGradingConfig } from "@/lib/grading/config";
+import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapter";
 
 export const runtime = "nodejs";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+function requiresNewProcessedRecordingUnit(
+  submission: Awaited<ReturnType<typeof listUngradedSubmissionsForAiGrade>>[number],
+) {
+  const currentFingerprint = processedAssignmentFingerprint(
+    legacyAssignmentToGradingAssignment(submission),
+  );
+  return (
+    !currentFingerprint ||
+    !submission.consumedTranscriptFingerprints.includes(currentFingerprint)
+  );
+}
 
 async function remainingQuota(teacherEmail: string, dailyTeacherLimit: number, dailyGlobalLimit: number) {
   const since = Date.now() - DAY_MS;
@@ -41,6 +55,7 @@ export async function GET(
     const { assignmentId } = await context.params;
 
     const pending = await listUngradedSubmissionsForAiGrade(assignmentId, teacherEmail);
+    const newUnitsRequired = pending.filter(requiresNewProcessedRecordingUnit).length;
     const [quota, allowance] = await Promise.all([
       remainingQuota(teacherEmail, config.dailyTeacherLimit, config.dailyGlobalLimit),
       config.accessMode === "paid" && !isLocalMockAi(config)
@@ -52,12 +67,13 @@ export async function GET(
 
     return NextResponse.json({
       ungradedCount: pending.length,
+      newUnitsRequired,
       remaining: quota.remaining,
       fits:
         pending.length > 0 &&
         pending.length <= quota.remaining &&
         allowanceReady &&
-        pending.length <= allowanceRemaining,
+        newUnitsRequired <= allowanceRemaining,
       estimatedSeconds: pending.length * config.cooldownSeconds,
       allowance,
     });
@@ -92,6 +108,7 @@ export async function POST(
     if (pending.length === 0) {
       throw new HttpError(400, "There are no ungraded submissions with audio in this assignment.");
     }
+    const newUnitsRequired = pending.filter(requiresNewProcessedRecordingUnit).length;
 
     // Refuse a batch we cannot finish rather than stopping halfway through a
     // class and leaving the teacher to work out who did and did not get graded.
@@ -104,19 +121,19 @@ export async function POST(
     if (allowance?.status === "subscription_unavailable") {
       throw new HttpError(
         409,
-        "Your billing period could not be verified. Refresh billing or contact support before using another AI review.",
+        "Your billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording.",
       );
     }
-    if (allowance && pending.length > allowance.remaining) {
+    if (allowance && newUnitsRequired > allowance.remaining) {
       const nextStep =
         allowance.status === "teacher_period"
-          ? "Need more AI reviews? Explore TryHabla for Schools."
+          ? "Need more? Explore TryHabla for Schools."
           : allowance.status === "free_lifetime"
-            ? "Choose Teacher for 300 AI reviews per Stripe billing period."
+            ? "Choose Teacher for 300 AI-assisted recordings per Stripe billing period."
             : "Contact TryHabla for Schools to discuss larger or custom needs.";
       throw new HttpError(
         429,
-        `This run needs ${pending.length} AI reviews, but ${allowance.remaining} remain in your current allowance. ${nextStep}`,
+        `This run needs ${newUnitsRequired} new AI-assisted recording unit${newUnitsRequired === 1 ? "" : "s"}, but ${allowance.remaining} remain in your current allowance. ${nextStep}`,
       );
     }
     if (pending.length > quota.remaining) {

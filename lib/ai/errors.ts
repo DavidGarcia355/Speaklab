@@ -137,6 +137,24 @@ export function toPublicAiError(error: unknown): PublicAiError {
   const status = metadata.status;
   const providerCode = metadata.code ?? "";
 
+  if (
+    name === "AiProviderBudgetExhaustedError" ||
+    name === "TranscriptProviderBudgetExhaustedError"
+  ) {
+    return {
+      code: "provider_budget_exhausted",
+      message: "The monthly AI usage limit has been reached. Try again next month.",
+    };
+  }
+
+  if (name === "GradingUsageLimitError") {
+    const message =
+      providerCode === "daily_request_limit"
+        ? "The daily AI processing limit has been reached. Try again tomorrow."
+        : "The monthly AI processing limit has been reached. Try again next month.";
+    return { code: "usage_limit_reached", message };
+  }
+
   if (name === "AI_NoTranscriptGeneratedError") {
     return {
       code: "no_speech_detected",
@@ -173,4 +191,37 @@ export function toPublicAiError(error: unknown): PublicAiError {
   }
 
   return { code: "provider_error", message: "AI grading failed. Please try again or grade manually." };
+}
+
+export function toPublicTranscriptionError(error: unknown): PublicAiError {
+  const metadata = getSafeAiProviderMetadata(error);
+  if (metadata.status === 404) {
+    return { code: "no_audio", message: "Audio not found." };
+  }
+  if (metadata.status === 413) {
+    return {
+      code: "audio_too_large",
+      message: "Audio file is too large to transcribe (max 25 MB).",
+    };
+  }
+  if (metadata.status === 410) {
+    return {
+      code: "audio_storage_migration_required",
+      message: "This recording needs a storage update before it can be transcribed.",
+    };
+  }
+  const mapped = toPublicAiError(error);
+  const messages: Record<string, string> = {
+    no_speech_detected: "No clear speech was detected. Record a longer response and try again.",
+    provider_timeout: "Transcription timed out. Please try again.",
+    provider_spend_limit:
+      "Transcription has reached its provider spending limit. Please contact the administrator.",
+    provider_rate_limit: "Transcription is busy right now. Please try again shortly.",
+    provider_configuration:
+      "Transcription is temporarily unavailable because its provider configuration needs attention.",
+    provider_unavailable: "The transcription provider is temporarily unavailable. Please try again.",
+    usage_limit_reached: mapped.message.replace("AI processing", "transcription"),
+    provider_error: "Transcription failed. Please try again or review the recording manually.",
+  };
+  return { code: mapped.code, message: messages[mapped.code] ?? messages.provider_error };
 }

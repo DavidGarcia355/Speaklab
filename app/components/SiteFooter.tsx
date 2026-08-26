@@ -7,7 +7,7 @@ export default function SiteFooter() {
       <div className="site-footer-inner">
         <p>
           <strong>{APP_NAME}</strong> keeps the core classroom free forever. Optional AI starts
-          with a lifetime allowance of 30 successful reviews.
+          with a lifetime allowance of 30 AI-assisted recordings.
         </p>
         <nav className="site-footer-links" aria-label="Legal and support links">
           <Link className="btn btn-sm btn-primary site-footer-support" href="/about">

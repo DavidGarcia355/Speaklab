@@ -121,7 +121,24 @@ describe("tracking db helpers", () => {
       audioBlobUrl: "https://blob.example/audio.webm",
     });
 
-    expect(await db.listSubmissionsByStudentEmail(studentEmail)).toHaveLength(1);
+    expect(await db.listSubmissionsByStudentEmail(studentEmail)).toEqual([
+      expect.objectContaining({
+        id: submission.id,
+        audioData: `/api/student/submissions/${submission.id}/audio`,
+      }),
+    ]);
+    await expect(
+      db.findStudentSubmissionAudioAccessById(submission.id, studentEmail)
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: submission.id,
+        studentEmail,
+        audioBlobUrl: "https://blob.example/audio.webm",
+      })
+    );
+    await expect(
+      db.findStudentSubmissionAudioAccessById(submission.id, "other-student@example.com")
+    ).resolves.toBeNull();
     expect(await db.listStudentAssignmentHistoryByEmail(studentEmail)).toEqual([
       expect.objectContaining({
         assignmentId: assignment.id,
@@ -133,6 +150,9 @@ describe("tracking db helpers", () => {
 
     await expect(db.deleteSubmissionByStudent(submission.id, studentEmail)).resolves.toBe(true);
     await expect(db.listSubmissionsByStudentEmail(studentEmail)).resolves.toHaveLength(0);
+    await expect(
+      db.findStudentSubmissionAudioAccessById(submission.id, studentEmail)
+    ).resolves.toBeNull();
     await expect(db.listStudentAssignmentHistoryByEmail(studentEmail)).resolves.toEqual([
       expect.objectContaining({
         assignmentId: assignment.id,
@@ -178,6 +198,76 @@ describe("tracking db helpers", () => {
     await expect(db.findSubmissionById(submission.id, teacherEmail)).resolves.toEqual(
       expect.objectContaining({ grade: 9 })
     );
+  });
+
+  it("returns an owner-scoped oral portfolio with protected audio newest first", async () => {
+    const db = await loadDbModule();
+    const teacherEmail = "portfolio-teacher@example.com";
+    const studentEmail = "portfolio-student@example.com";
+    const createdClass = await db.createClass("Portfolio Class", teacherEmail);
+    const olderAssignment = await db.createAssignment({
+      classId: createdClass.id,
+      ownerEmail: teacherEmail,
+      title: "Earlier speaking check",
+      description: "",
+      instructions: "Speak.",
+      maxPoints: 10,
+      maxSubmissions: 0,
+      maxRecordingSeconds: 180,
+      rubric: null,
+      attachmentName: "",
+      attachmentUrl: "",
+      attachmentContentType: "",
+    });
+    const olderSubmission = await db.createSubmission({
+      assignmentId: olderAssignment.id,
+      studentName: "Portfolio Student",
+      studentEmail,
+      audioBlobUrl: "submissions/portfolio/older.webm",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const newerAssignment = await db.createAssignment({
+      classId: createdClass.id,
+      ownerEmail: teacherEmail,
+      title: "Later speaking check",
+      description: "",
+      instructions: "Speak again.",
+      maxPoints: 10,
+      maxSubmissions: 0,
+      maxRecordingSeconds: 180,
+      rubric: null,
+      attachmentName: "",
+      attachmentUrl: "",
+      attachmentContentType: "",
+    });
+    const newerSubmission = await db.createSubmission({
+      assignmentId: newerAssignment.id,
+      studentName: "Portfolio Student",
+      studentEmail,
+      audioBlobUrl: "submissions/portfolio/newer.webm",
+    });
+
+    const rows = await db.listStudentAssignmentSummaries(
+      createdClass.id,
+      studentEmail,
+      teacherEmail
+    );
+
+    expect(rows.map((row) => row.submissionId)).toEqual([
+      newerSubmission.id,
+      olderSubmission.id,
+    ]);
+    expect(rows.map((row) => row.audioData)).toEqual([
+      `/api/submissions/${newerSubmission.id}/audio`,
+      `/api/submissions/${olderSubmission.id}/audio`,
+    ]);
+    await expect(
+      db.listStudentAssignmentSummaries(
+        createdClass.id,
+        studentEmail,
+        "unrelated-teacher@example.com"
+      )
+    ).resolves.toEqual([]);
   });
 
   it("rejects duplicate class names for the same teacher", async () => {

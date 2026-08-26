@@ -1,5 +1,5 @@
-import { requireTeacherEmail } from "@/lib/authz";
-import { findSubmissionAccessById } from "@/lib/db";
+import { requireSchoolStudentEmail } from "@/lib/authz";
+import { findStudentSubmissionAudioAccessById } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 import { createSubmissionAudioResponse } from "@/lib/submission-audio-response";
 
@@ -10,11 +10,11 @@ export async function GET(
   context: { params: Promise<{ submissionId: string }> }
 ) {
   return withApiHandler(request, async () => {
-    const email = await requireTeacherEmail();
+    const studentEmail = await requireSchoolStudentEmail();
     const { submissionId } = await context.params;
-    const found = await findSubmissionAccessById(submissionId, email);
+    const found = await findStudentSubmissionAudioAccessById(submissionId, studentEmail);
     if (!found) {
-      throw new HttpError(403, "You don't have access to this page.");
+      throw new HttpError(404, "Audio not found.");
     }
 
     return createSubmissionAudioResponse({

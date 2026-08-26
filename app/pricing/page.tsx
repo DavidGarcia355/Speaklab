@@ -17,12 +17,12 @@ import { createPublicMetadata } from "@/lib/public-metadata";
 export const metadata = createPublicMetadata({
   title: "Pricing",
   description:
-    "Start with TryHabla Free, add 300 successful AI reviews with Teacher, or contact TryHabla for Schools for larger needs.",
+    "Start with TryHabla Free, add 300 AI-assisted recordings with Teacher, or contact TryHabla for Schools for larger needs.",
   path: "/pricing",
 });
 
 const FREE_FEATURES = [
-  "30 successful AI reviews for the lifetime of your teacher account",
+  "30 AI-assisted recordings for the lifetime of your teacher account",
   "Classes, rosters, and speaking assignments",
   "Student audio recording and submissions",
   "Teacher playback, rubrics, grading, and feedback",
@@ -30,10 +30,12 @@ const FREE_FEATURES = [
 ] as const;
 
 const TEACHER_RULES = [
-  "300 successful AI reviews in each Stripe billing period",
+  "300 AI-assisted recordings in each Stripe billing period",
+  "A clean transcript is included; AI grading is optional",
+  "Transcribing and grading the same recording uses one unit total",
   "Recordings can be up to five minutes each",
-  "Failures, unable-to-grade results, and exact retries do not use another review",
-  "Unused reviews do not roll over",
+  "Provider failures, unusable transcripts, and exact retries do not use another unit",
+  "Unused units do not roll over",
   "No automatic overages; AI pauses at the limit while the free classroom stays available",
 ] as const;
 
@@ -47,9 +49,9 @@ export default function PricingPage() {
           <p className="pill">Clear classroom pricing</p>
           <h1>Start free. Add AI when it saves you time.</h1>
           <p>
-            Free includes the complete audio classroom and a lifetime allowance of 30 successful AI
-            reviews. Teacher is $20 per month for 300 reviews per Stripe billing period, with no
-            automatic overages.
+            Free includes the complete audio classroom and a lifetime allowance of 30 AI-assisted
+            recordings. Teacher is $20 per month for 300 per Stripe billing period, with transcripts
+            included, grading optional, and no automatic overages.
           </p>
           <div className="actions hero-actions">
             <Link className="btn btn-primary" href="/teacher/register">
@@ -66,7 +68,7 @@ export default function PricingPage() {
           <span className="pricing-signal-orbit pricing-signal-orbit-two" />
           <AudioLines size={78} strokeWidth={1.7} />
           <strong>$0 to start</strong>
-          <small>30 lifetime AI reviews</small>
+          <small>30 lifetime AI-assisted recordings</small>
         </div>
       </section>
 
@@ -138,13 +140,13 @@ export default function PricingPage() {
             <BrainCircuit size={25} />
           </div>
           <p className="pill pill-subtle">Teacher</p>
-          <h2>AI feedback for regular classroom use</h2>
+          <h2>Transcripts and optional AI feedback for regular classroom use</h2>
           <p className="pricing-value-price">$20</p>
           <p className="pricing-value-cadence">per month</p>
           <div className="pricing-rate-grid" aria-label="Teacher plan classroom capacity">
             <div>
               <strong>300</strong>
-              <span>successful AI reviews per Stripe billing period</span>
+              <span>AI-assisted recordings per Stripe billing period</span>
             </div>
             <div>
               <strong>10</strong>
@@ -168,7 +170,7 @@ export default function PricingPage() {
             <ArrowRight size={17} aria-hidden="true" />
           </Link>
           <p className="pricing-note">
-            Need more AI reviews? Explore TryHabla for Schools.
+            Need more AI-assisted recordings? Explore TryHabla for Schools.
           </p>
         </article>
       </section>
@@ -187,8 +189,8 @@ export default function PricingPage() {
             <h2 id="ai-calculator-heading">See which option fits your classes</h2>
           </div>
           <p>
-            Estimate how many successful AI reviews your classes would use. This is a planning tool,
-            not a usage charge or invoice.
+            Estimate how many recordings your classes would transcribe or grade with AI. This is a
+            planning tool, not a usage charge or invoice.
           </p>
         </div>
         <PricingCalculator />
@@ -207,8 +209,11 @@ export default function PricingPage() {
             <p>Reaching an AI limit pauses AI only. Recording, teaching, and manual grading remain available.</p>
           </article>
           <article>
-            <strong>Only successful reviews count</strong>
-            <p>Failures, unable-to-grade results, and exact retries do not use another review.</p>
+            <strong>One recording, one unit</strong>
+            <p>
+              A delivered transcript uses one unit. Optional grading for that same recording and
+              assignment is included; failures and exact retries do not use another unit.
+            </p>
           </article>
           <article>
             <strong>One known monthly price</strong>
@@ -228,7 +233,7 @@ export default function PricingPage() {
           <p className="pill pill-subtle">TryHabla for Schools - Contact us</p>
           <h2>Larger and custom school needs.</h2>
           <p>
-            Contact David to discuss teacher cohort size, expected review volume, onboarding,
+            Contact David to discuss teacher cohort size, expected AI recording volume, onboarding,
             privacy review, and custom terms. TryHabla for Schools is a contact-based option; it
             does not currently imply a school admin console or district approval.
           </p>
@@ -239,11 +244,13 @@ export default function PricingPage() {
       </section>
 
       <p className="pricing-rollout-note">
-        Prices are in USD. Free includes a lifetime allowance of 30 successful AI reviews per
-        teacher account. Teacher includes 300 reviews per Stripe billing period for $20 per month;
-        unused reviews do not roll over, and there are no automatic overages. Stripe shows the final
-        amount before payment. PayPal donations are separate from TryHabla product billing and do
-        not buy access or AI reviews. Larger and custom school terms are scoped directly.
+        Prices are in USD. Free includes a lifetime allowance of 30 AI-assisted recordings per
+        teacher account. Teacher includes 300 per Stripe billing period for $20 per month. A
+        successful transcript uses one unit, and optional grading for that same recording and
+        assignment is included. Unused units do not roll over, and there are no automatic overages.
+        Stripe shows the final amount before payment. PayPal donations are separate from TryHabla
+        product billing and do not buy access or AI-assisted recording units. Larger and custom
+        school terms are scoped directly.
       </p>
     </main>
   );

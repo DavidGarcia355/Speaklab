@@ -12,7 +12,7 @@ describe("public legal surface", () => {
     expect(markup).toContain("TryHabla is operated by David Garcia.");
     expect(markup).toContain("Last updated: August 26, 2026");
     expect(markup).toContain("Information TryHabla handles");
-    expect(markup).toContain("Optional AI grading");
+    expect(markup).toContain("Optional AI transcription and grading");
     expect(markup).toContain("recorded answer");
     expect(markup).toContain("may be shown to the student before a teacher");
     expect(markup).toContain("production service identifies OpenAI");
@@ -39,7 +39,7 @@ describe("public legal surface", () => {
 
     expect(markup).toContain("Terms of Use");
     expect(markup).toContain("TryHabla is operated by David Garcia.");
-    expect(markup).toContain("Optional AI results");
+    expect(markup).toContain("Optional AI transcription and results");
     expect(markup).toContain("Paid functionality is available only when it is enabled");
     expect(markup).toContain("voluntary, non-tax-deductible donations");
     expect(markup).toContain("does not purchase TryHabla, activate AI access");
@@ -67,7 +67,7 @@ describe("public legal surface", () => {
     expect(markup).toContain("My story &amp; donations");
     expect(markup).toContain("mailto:davidsgarcia325@gmail.com");
     expect(markup).toContain("keeps the core classroom free forever");
-    expect(markup).toContain("30 successful reviews");
+    expect(markup).toContain("30 AI-assisted recordings");
     expect(markup).not.toMatch(/teacher pilot/i);
     expect(markup).not.toContain("paypal.me");
   });

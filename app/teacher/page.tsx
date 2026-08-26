@@ -60,6 +60,8 @@ function pluralize(count: number, singular: string, plural?: string) {
   return `${count} ${plural ?? `${singular}s`}`;
 }
 
+const CHANGELOG_SEEN_KEY = "tryhabla-changelog-seen-2026-08-26";
+
 export default function TeacherPage() {
   const [classes, setClasses] = useState<ClassSummary[]>([]);
   const [classStatus, setClassStatus] = useState<Record<string, ClassStatus>>({});
@@ -70,11 +72,11 @@ export default function TeacherPage() {
   const [showChangelogBanner, setShowChangelogBanner] = useState(false);
 
   useEffect(() => {
-    if (!localStorage.getItem("habla-changelog-seen-v1")) setShowChangelogBanner(true);
+    if (!localStorage.getItem(CHANGELOG_SEEN_KEY)) setShowChangelogBanner(true);
   }, []);
 
   function dismissChangelogBanner() {
-    localStorage.setItem("habla-changelog-seen-v1", "1");
+    localStorage.setItem(CHANGELOG_SEEN_KEY, "1");
     setShowChangelogBanner(false);
   }
 
@@ -323,7 +325,7 @@ export default function TeacherPage() {
       {showChangelogBanner ? (
         <div className="notice info" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.85rem" }}>
           <span>
-            <strong>What&apos;s new:</strong> Download recordings, expanded playback speeds, and more.{" "}
+            <strong>What&apos;s new:</strong> Clean transcripts, recording downloads, and student oral portfolios.{" "}
             <Link className="teacher-access-link" href="/changelog">See patch notes</Link>
           </span>
           <button type="button" className="icon-btn" onClick={dismissChangelogBanner} aria-label="Dismiss">

@@ -676,7 +676,7 @@ describe("billing status route", () => {
       clientConfigured: true,
       runtimeAvailable: true,
       checkoutAvailable: false,
-      checkoutUnavailableReason: "AI grading is not enabled for this deployment.",
+      checkoutUnavailableReason: "AI transcription and grading are not enabled for this deployment.",
       access: "inactive",
     });
   });

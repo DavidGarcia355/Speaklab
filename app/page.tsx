@@ -126,9 +126,10 @@ export default function Home() {
           </p>
           <h2>Start with one class. Prove the workflow before a wider rollout.</h2>
           <p className="meta">
-            Free includes the complete audio classroom and a lifetime allowance of 30 successful AI
-            reviews per teacher account. Teacher adds 300 reviews per Stripe billing period for $20
-            per month. Larger and custom needs can go through TryHabla for Schools.
+            Free includes the complete audio classroom and a lifetime allowance of 30 AI-assisted
+            recordings per teacher account. Teacher adds 300 per Stripe billing period for $20 per
+            month. Each includes a transcript, with grading optional. Larger and custom needs can go
+            through TryHabla for Schools.
           </p>
         </div>
         <div className="actions home-district-actions">
@@ -161,10 +162,11 @@ export default function Home() {
         </article>
         <article>
           <BrainCircuit size={20} aria-hidden="true" />
-          <h2>AI grades. Teachers stay in control.</h2>
+          <h2>Transcribe first. Grade with AI only when it helps.</h2>
           <p className="meta">
-            When enabled, TryHabla saves a whole-point score, rubric breakdown, and feedback after a
-            successful AI review. Teachers can inspect the evidence and edit the grade anytime.
+            Teachers can generate a clean transcript to copy or download, then provide their own
+            feedback. Optional AI grading can add a whole-point score, rubric breakdown, and
+            editable feedback without using another unit for the same recording.
           </p>
           <Link className="student-text-link" href="/teachers">
             See the teacher workflow

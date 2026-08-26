@@ -115,7 +115,7 @@ blocker.
 
 | Name | Purpose | Required | Scope | Absent behavior |
 | --- | --- | --- | --- | --- |
-| `AI_GRADING_ENABLED` | Enables prototype AI grading route/UI when `true`. | Optional | Server | Defaults disabled; API returns unavailable before audio/model calls. |
+| `AI_GRADING_ENABLED` | Enables teacher-requested AI transcription and optional grading routes/UI when `true`. | Optional | Server | Defaults disabled; APIs return unavailable before audio/model calls. |
 | `AI_BULK_GRADING_ENABLED` | Enables synchronous grade-all separately from single grading. | Optional | Server | Defaults disabled; keep off until bulk work runs as a durable resumable job. |
 | `AI_TRANSCRIPTION_PROVIDER` | Selects `openai` or local `mock`. | Required for a reviewed launch | Server | Defaults to `openai`. |
 | `AI_GRADING_PROVIDER` | Selects `openai`, `ollama`, or local `mock`. | Required for a reviewed launch | Server | Defaults to `openai` in production and local `ollama` otherwise; set it explicitly for deployments. |
@@ -176,7 +176,7 @@ internal provider retries, and failed or unable-to-grade results consume no addi
 
 The active Stripe price book is `tryhabla-teacher-usd-v3`: one customer-facing Product named
 `TryHabla` and one licensed recurring USD Price at $20 per month, quantity 1. The application grants
-300 successful AI reviews per Stripe billing period and pauses only AI at the limit; there are no
+300 AI-assisted recordings per Stripe billing period and pauses only AI at the limit; there are no
 automatic overages or Stripe meter events. Keep all Stripe values server-only; never expose them
 through a `NEXT_PUBLIC_*` name.
 

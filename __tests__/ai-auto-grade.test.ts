@@ -17,11 +17,23 @@ const mocks = vi.hoisted(() => {
 
   return {
     finalizeAiGradeDelivery: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+    copyConsumedReviewTranscriptToSubmission: vi.fn<
+      (...args: unknown[]) => Promise<unknown>
+    >(),
     markAiGradingAttemptNotApplicable: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     withholdAiGradingAttemptResult: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     reserveAiReviewAllowance: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
     releaseAiReviewAllowanceReservation: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     getReusableAiReviewAttempt: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+    findSubmissionTranscriptByIdForOwner: vi.fn<
+      (...args: unknown[]) => Promise<unknown>
+    >(),
+    findSubmissionTranscriptForOwner: vi.fn<
+      (...args: unknown[]) => Promise<unknown>
+    >(),
+    findSubmissionTranscriptForOwnerBySemanticKey: vi.fn<
+      (...args: unknown[]) => Promise<unknown>
+    >(),
     createAiGradingAttempt: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
     hasAudioTooLongFailure: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     fetchAuthorizedAudioBuffer: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
@@ -40,11 +52,18 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@/lib/db", () => ({
   finalizeAiGradeDelivery: mocks.finalizeAiGradeDelivery,
+  copyConsumedReviewTranscriptToSubmission:
+    mocks.copyConsumedReviewTranscriptToSubmission,
   markAiGradingAttemptNotApplicable: mocks.markAiGradingAttemptNotApplicable,
   withholdAiGradingAttemptResult: mocks.withholdAiGradingAttemptResult,
   reserveAiReviewAllowance: mocks.reserveAiReviewAllowance,
   releaseAiReviewAllowanceReservation: mocks.releaseAiReviewAllowanceReservation,
   getReusableAiReviewAttempt: mocks.getReusableAiReviewAttempt,
+  findSubmissionTranscriptByIdForOwner:
+    mocks.findSubmissionTranscriptByIdForOwner,
+  findSubmissionTranscriptForOwner: mocks.findSubmissionTranscriptForOwner,
+  findSubmissionTranscriptForOwnerBySemanticKey:
+    mocks.findSubmissionTranscriptForOwnerBySemanticKey,
   createAiGradingAttempt: mocks.createAiGradingAttempt,
   hasAudioTooLongFailure: mocks.hasAudioTooLongFailure,
 }));
@@ -70,7 +89,14 @@ vi.mock("@/lib/grading/store", () => ({
 }));
 
 import { gradeOneSubmission } from "@/lib/ai/grade-one";
-import { gradingResultToLegacySuggestion } from "@/lib/grading/legacy-adapter";
+import {
+  processedAssignmentFingerprint,
+  processedRecordingKey,
+} from "@/lib/ai/recording-identity";
+import {
+  gradingResultToLegacySuggestion,
+  legacyAssignmentToGradingAssignment,
+} from "@/lib/grading/legacy-adapter";
 
 const aiConfig: AiConfig = {
   enabled: true,
@@ -295,6 +321,9 @@ describe("automatic AI grade persistence", () => {
       status: "applied",
       billingRequired: Boolean((input as { billingCandidate?: boolean }).billingCandidate),
     }));
+    mocks.copyConsumedReviewTranscriptToSubmission.mockResolvedValue({
+      id: "tr_duplicate",
+    });
     mocks.markAiGradingAttemptNotApplicable.mockReset();
     mocks.markAiGradingAttemptNotApplicable.mockResolvedValue(true);
     mocks.withholdAiGradingAttemptResult.mockReset();
@@ -318,6 +347,12 @@ describe("automatic AI grade persistence", () => {
     mocks.releaseAiReviewAllowanceReservation.mockResolvedValue(true);
     mocks.getReusableAiReviewAttempt.mockReset();
     mocks.getReusableAiReviewAttempt.mockResolvedValue(null);
+    mocks.findSubmissionTranscriptByIdForOwner.mockReset();
+    mocks.findSubmissionTranscriptByIdForOwner.mockResolvedValue(null);
+    mocks.findSubmissionTranscriptForOwner.mockReset();
+    mocks.findSubmissionTranscriptForOwner.mockResolvedValue(null);
+    mocks.findSubmissionTranscriptForOwnerBySemanticKey.mockReset();
+    mocks.findSubmissionTranscriptForOwnerBySemanticKey.mockResolvedValue(null);
     mocks.createAiGradingAttempt.mockImplementation(async (input) => ({
       id: "attempt-1",
       createdAt: 1,
@@ -603,10 +638,263 @@ describe("automatic AI grade persistence", () => {
       gradeApplied: false,
     });
     expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
+    expect(mocks.markAiGradingAttemptNotApplicable).toHaveBeenCalledWith({
+      attemptId: "attempt-1",
+      ownerEmail: "teacher@example.com",
+      reviewReservationId: "air_test",
+    });
     expect(mocks.releaseAiReviewAllowanceReservation).toHaveBeenCalledWith({
       reservationId: "air_test",
       teacherEmail: "teacher@example.com",
     });
+  });
+
+  it("grades a consumed standalone transcript without transcribing or consuming a second unit", async () => {
+    const pending = submission();
+    const semanticKey = processedRecordingKey(
+      Buffer.from("test audio"),
+      "audio/wav",
+      legacyAssignmentToGradingAssignment(pending),
+    );
+    mocks.reserveAiReviewAllowance.mockResolvedValue({
+      reservationStatus: "duplicate",
+      reservationId: "air_transcript",
+      sourceAttemptId: "tr_1",
+      sourceResultId: "tr_1",
+      sourceKind: "transcript",
+      teacherEmail: "teacher@example.com",
+      status: "free_lifetime",
+      limit: 30,
+      reserved: 0,
+      consumed: 1,
+      used: 1,
+      remaining: 29,
+      stripeSubscriptionId: null,
+      periodStart: null,
+      periodEnd: null,
+    });
+    mocks.findSubmissionTranscriptByIdForOwner.mockResolvedValue({
+      id: "tr_1",
+      submissionId: pending.submissionId,
+      teacherEmail: "teacher@example.com",
+      semanticKey,
+      assignmentFingerprint: processedAssignmentFingerprint(
+        legacyAssignmentToGradingAssignment(pending),
+      ),
+      transcriptCacheKey: "transcript-cache-key",
+      transcript: "The answer explains the claim with supporting evidence.",
+      detectedLanguage: "en",
+      transcriptQuality: "good",
+      durationSeconds: 30,
+      transcriptionProvider: "openai",
+      transcriptionModel: "whisper-1",
+      estimatedCostMicrousd: 5,
+      latencyMs: 10,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "transcribe_then_grade",
+      model: gradingConfig.defaultModel,
+      upload: "transcription_provider",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.runGradingPipeline.mockImplementationOnce(async (_input, options) => {
+      const pipelineOptions = options as {
+        store: {
+          assertProviderCallAllowed?: (request: Record<string, unknown>) => Promise<void>;
+        };
+      };
+      await pipelineOptions.store.assertProviderCallAllowed?.({
+        teacherEmail: "teacher@example.com",
+        stage: "cheap",
+        config: gradingConfig,
+        now: Date.now(),
+      });
+      return textResult();
+    });
+
+    const outcome = await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: pending,
+    });
+
+    expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
+    expect(mocks.transcribeAudio).not.toHaveBeenCalled();
+    expect(mocks.reserveGenerationBudget).toHaveBeenCalledOnce();
+    expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ reviewReservationId: "air_transcript" }),
+    );
+  });
+
+  it("does not reserve provider budget when persisted transcript grading is a cache hit", async () => {
+    const pending = submission();
+    const assignment = legacyAssignmentToGradingAssignment(pending);
+    const semanticKey = processedRecordingKey(
+      Buffer.from("test audio"),
+      "audio/wav",
+      assignment,
+    );
+    mocks.findSubmissionTranscriptForOwner.mockResolvedValue({
+      id: "tr_cached",
+      submissionId: pending.submissionId,
+      teacherEmail: "teacher@example.com",
+      semanticKey,
+      assignmentFingerprint: processedAssignmentFingerprint(assignment),
+      transcriptCacheKey: "transcript-cache-key",
+      transcript: "The answer explains the claim with supporting evidence.",
+      detectedLanguage: "en",
+      transcriptQuality: "good",
+      durationSeconds: 30,
+      transcriptionProvider: "openai",
+      transcriptionModel: "whisper-1",
+      estimatedCostMicrousd: 5,
+      latencyMs: 10,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "transcribe_then_grade",
+      model: gradingConfig.defaultModel,
+      upload: "transcription_provider",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    // A cache hit returns without invoking the store's provider-call guard.
+    mocks.runGradingPipeline.mockResolvedValueOnce(
+      textResult(providerResult(), { cacheHit: true, source: "cache" }),
+    );
+
+    const outcome = await gradeOneSubmission({
+      config: { ...aiConfig, accessMode: "all" },
+      teacherEmail: "teacher@example.com",
+      data: pending,
+    });
+
+    expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
+    expect(mocks.transcribeAudio).not.toHaveBeenCalled();
+    expect(mocks.reserveGenerationBudget).not.toHaveBeenCalled();
+  });
+
+  it("never reuses a stale assignment semantic key after assignment edits", async () => {
+    const pending = submission({ instructions: "Use the newly edited prompt." });
+    const assignment = legacyAssignmentToGradingAssignment(pending);
+    const currentSemanticKey = processedRecordingKey(
+      Buffer.from("test audio"),
+      "audio/wav",
+      assignment,
+    );
+    const currentFingerprint = processedAssignmentFingerprint(assignment);
+    mocks.findSubmissionTranscriptForOwner.mockResolvedValue({
+      id: "tr_old_assignment",
+      submissionId: pending.submissionId,
+      teacherEmail: "teacher@example.com",
+      semanticKey: "old-semantic-key",
+      assignmentFingerprint: "old-assignment-fingerprint",
+      transcriptCacheKey: "transcript-cache-key",
+      transcript: "The recording transcript is still reusable.",
+      detectedLanguage: "en",
+      transcriptQuality: "good",
+      durationSeconds: 30,
+      transcriptionProvider: "openai",
+      transcriptionModel: "whisper-1",
+      estimatedCostMicrousd: 5,
+      latencyMs: 10,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "transcribe_then_grade",
+      model: gradingConfig.defaultModel,
+      upload: "transcription_provider",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.runGradingPipeline.mockResolvedValue(textResult());
+
+    const outcome = await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: pending,
+    });
+
+    expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
+    expect(mocks.reserveAiReviewAllowance).toHaveBeenCalledWith({
+      teacherEmail: "teacher@example.com",
+      semanticKey: currentSemanticKey,
+    });
+    expect(currentSemanticKey).not.toBe("old-semantic-key");
+    expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: currentSemanticKey,
+        assignmentFingerprint: currentFingerprint,
+      }),
+    );
+    expect(mocks.transcribeAudio).not.toHaveBeenCalled();
+  });
+
+  it("releases the allowance without delivery when transcription is blank", async () => {
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "transcribe_then_grade",
+      model: gradingConfig.defaultModel,
+      upload: "transcription_provider",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.transcribeAudio.mockResolvedValue({
+      transcript: "   ",
+      detectedLanguage: "",
+      quality: "poor",
+      durationSeconds: 3,
+    });
+
+    const outcome = await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission(),
+    });
+
+    expect(outcome).toMatchObject({ status: "failed", code: "no_speech_detected" });
+    expect(mocks.createAiGradingAttempt).not.toHaveBeenCalled();
+    expect(mocks.markAiGradingAttemptNotApplicable).not.toHaveBeenCalled();
+    expect(mocks.releaseAiReviewAllowanceReservation).toHaveBeenCalledWith({
+      reservationId: "air_test",
+      teacherEmail: "teacher@example.com",
+    });
+  });
+
+  it("falls back from a blank direct-audio transcript and still does not consume blank output", async () => {
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "gemini_direct",
+      model: gradingConfig.audioModel,
+      upload: "inline",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.runDirectAudioGradingPipeline.mockResolvedValue({
+      ...directResult(),
+      transcript: "   ",
+    });
+    mocks.transcribeAudio.mockResolvedValue({
+      transcript: "   ",
+      detectedLanguage: "",
+      quality: "poor",
+      durationSeconds: 3,
+    });
+
+    const outcome = await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission(),
+    });
+
+    expect(outcome).toMatchObject({ status: "failed", code: "no_speech_detected" });
+    expect(mocks.runDirectAudioGradingPipeline).toHaveBeenCalledOnce();
+    expect(mocks.transcribeAudio).toHaveBeenCalledOnce();
+    expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
+    expect(mocks.markAiGradingAttemptNotApplicable).not.toHaveBeenCalled();
   });
 
   it.each([

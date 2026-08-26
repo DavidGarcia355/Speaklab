@@ -36,8 +36,8 @@ const teacherBenefits = [
   },
   {
     icon: BrainCircuit,
-    title: "Grade with AI",
-    description: "When enabled, save rubric-aligned scores and feedback automatically, then review or edit every result.",
+    title: "Transcribe or grade with AI",
+    description: "Generate a transcript to copy or download, then optionally add rubric-aligned scoring and editable feedback.",
   },
   {
     icon: Download,
@@ -61,8 +61,8 @@ export default function TeachersPage() {
         <h1>More student speaking. Less grading drag.</h1>
         <p>
           TryHabla helps language teachers assign prompts, collect recordings, grade responses, and keep
-          every class organized. Optional AI can save rubric-aligned scores and feedback automatically,
-          while the teacher can review and edit every result.
+          every class organized. Optional AI can generate a transcript without grading, or add
+          rubric-aligned scores and feedback that the teacher can review and edit.
         </p>
         <div className="actions hero-actions">
           <Link className="btn btn-primary" href="/teacher/register">

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { processedAssignmentFingerprint } from "@/lib/ai/recording-identity";
+import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapter";
 
 const mocks = vi.hoisted(() => ({
   requireTeacherEmail: vi.fn(),
@@ -86,9 +88,42 @@ const teacherAllowance = {
 };
 
 const pending = [
-  { submissionId: "sub_1", studentName: "Student One" },
-  { submissionId: "sub_2", studentName: "Student Two" },
+  {
+    submissionId: "sub_1",
+    studentName: "Student One",
+    assignmentId: "asg_1",
+    assignmentTitle: "Speaking",
+    audioBlobUrl: "private/sub_1.webm",
+    description: "",
+    instructions: "Speak.",
+    targetLanguage: "Spanish",
+    rubric: null,
+    maxPoints: 10,
+    finalGrade: null,
+    finalFeedback: "",
+    hasPersistedTranscript: false,
+    consumedTranscriptFingerprints: [],
+  },
+  {
+    submissionId: "sub_2",
+    studentName: "Student Two",
+    assignmentId: "asg_1",
+    assignmentTitle: "Speaking",
+    audioBlobUrl: "private/sub_2.webm",
+    description: "",
+    instructions: "Speak.",
+    targetLanguage: "Spanish",
+    rubric: null,
+    maxPoints: 10,
+    finalGrade: null,
+    finalFeedback: "",
+    hasPersistedTranscript: false,
+    consumedTranscriptFingerprints: [],
+  },
 ];
+const currentAssignmentFingerprint = processedAssignmentFingerprint(
+  legacyAssignmentToGradingAssignment(pending[0]),
+);
 
 function request(method = "GET") {
   return new Request("https://tryhabla.com/api/assignments/asg_1/ai-grade-all", {
@@ -128,6 +163,7 @@ describe("bulk AI allowance preflight", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       ungradedCount: 2,
+      newUnitsRequired: 2,
       remaining: 100,
       fits: false,
       allowance: teacherAllowance,
@@ -142,10 +178,64 @@ describe("bulk AI allowance preflight", () => {
     expect(response.status).toBe(429);
     await expect(response.json()).resolves.toEqual({
       error:
-        "This run needs 2 AI reviews, but 0 remain in your current allowance. Need more AI reviews? Explore TryHabla for Schools.",
+        "This run needs 2 new AI-assisted recording units, but 0 remain in your current allowance. Need more? Explore TryHabla for Schools.",
     });
     expect(mocks.reserveGenerationBudget).not.toHaveBeenCalled();
     expect(mocks.gradeOneSubmission).not.toHaveBeenCalled();
+  });
+
+  it("allows grading saved transcripts when no new allowance units remain", async () => {
+    mocks.listUngradedSubmissionsForAiGrade.mockResolvedValue(
+      pending.map((item) => ({
+        ...item,
+        hasPersistedTranscript: true,
+        consumedTranscriptFingerprints: [currentAssignmentFingerprint],
+      })),
+    );
+    mocks.gradeOneSubmission.mockResolvedValue({
+      status: "completed",
+      gradeApplied: true,
+      teacherAttention: "none",
+      confidence: "high",
+    });
+    const { GET, POST } = await import(
+      "@/app/api/assignments/[assignmentId]/ai-grade-all/route"
+    );
+
+    const preflight = await GET(request(), context);
+    expect(preflight.status).toBe(200);
+    await expect(preflight.json()).resolves.toMatchObject({
+      ungradedCount: 2,
+      newUnitsRequired: 0,
+      fits: true,
+    });
+
+    const response = await POST(request("POST"), context);
+    expect(response.status).toBe(200);
+    expect(mocks.gradeOneSubmission).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["an unmetered transcript", []],
+    ["a stale assignment transcript", ["old-assignment-fingerprint"]],
+  ])("still requires a unit for %s", async (_case, fingerprints) => {
+    mocks.listUngradedSubmissionsForAiGrade.mockResolvedValue(
+      pending.map((item) => ({
+        ...item,
+        hasPersistedTranscript: true,
+        consumedTranscriptFingerprints: fingerprints,
+      })),
+    );
+    const { GET } = await import(
+      "@/app/api/assignments/[assignmentId]/ai-grade-all/route"
+    );
+
+    const response = await GET(request(), context);
+    await expect(response.json()).resolves.toMatchObject({
+      ungradedCount: 2,
+      newUnitsRequired: 2,
+      fits: false,
+    });
   });
 
   it("fails closed before provider work when the Stripe period cannot be verified", async () => {
@@ -164,7 +254,7 @@ describe("bulk AI allowance preflight", () => {
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
       error:
-        "Your billing period could not be verified. Refresh billing or contact support before using another AI review.",
+        "Your billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording.",
     });
     expect(mocks.reserveGenerationBudget).not.toHaveBeenCalled();
     expect(mocks.gradeOneSubmission).not.toHaveBeenCalled();

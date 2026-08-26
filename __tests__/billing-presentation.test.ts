@@ -67,7 +67,7 @@ describe("billing presentation", () => {
     const presentation = deriveBillingPresentation(status());
 
     expect(presentation).toMatchObject({
-      heading: "Start with 30 free AI reviews",
+      heading: "Start with 30 free AI-assisted recordings",
       showCheckout: true,
       showPortal: false,
       showRefresh: false,

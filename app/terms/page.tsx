@@ -49,8 +49,8 @@ export default function TermsPage() {
           <p>
             TryHabla provides a browser-based workflow for speaking assignments, recordings, rosters,
             teacher review, grading, feedback, and exports. Some deployments may also offer optional
-            AI grading and billing. Service features can change, be limited, or be temporarily
-            unavailable while the service is tested and improved.
+            AI transcription, AI grading, and billing. Service features can change, be limited, or
+            be temporarily unavailable while the service is tested and improved.
           </p>
           <p>
             TryHabla is not an emergency service, an official student information system, or a
@@ -91,13 +91,15 @@ export default function TermsPage() {
         </section>
 
         <section className="legal-section" aria-labelledby="terms-ai">
-          <h2 id="terms-ai">Optional AI results</h2>
+          <h2 id="terms-ai">Optional AI transcription and results</h2>
           <p>
-            When AI grading is enabled, configured providers may process a recorded answer,
-            transcript, assignment instructions, and rubric and may produce a score, rubric details,
-            feedback, and evidence. AI results can be incomplete, inaccurate, or inappropriate for
-            a particular classroom. AI-generated results are labeled, and a teacher can review,
-            edit, or replace them.
+            When AI transcription or grading is enabled, configured providers may process a recorded
+            answer and generate a transcript. Transcription can be used without AI grading. If a
+            teacher requests grading, providers may also process the transcript, assignment
+            instructions, and rubric and may produce a score, rubric details, feedback, and evidence.
+            Transcripts and AI results can be incomplete, inaccurate, or inappropriate for a
+            particular classroom. AI-generated grades and feedback are labeled, and a teacher can
+            review, edit, or replace them.
           </p>
           <p>
             Teachers remain responsible for grading decisions and should not rely on an AI result
@@ -116,15 +118,16 @@ export default function TermsPage() {
             Contact TryHabla about a billing error before making another payment.
           </p>
           <p>
-            Free includes one lifetime allowance of 30 successful AI reviews per teacher account.
-            Teacher costs $20 per month and includes 300 successful AI reviews in each Stripe billing
-            period. Each distinct recording submitted for review is a separate result. A review is
-            used only when TryHabla successfully delivers a usable AI result; failures,
-            unable-to-grade results, and exact retries of the same recording for the same assignment
-            do not use another review. Recordings submitted for AI review can be up to five minutes.
-            Unused reviews do not roll over, and neither option has automatic overages. Reaching an
-            allowance pauses AI review while recording, playback, and manual grading remain
-            available.
+            Free includes one lifetime allowance of 30 AI-assisted recordings per teacher account.
+            Teacher costs $20 per month and includes 300 AI-assisted recordings in each Stripe
+            billing period. One allowance unit is used when TryHabla successfully generates and
+            delivers a transcript for a distinct submitted recording. Optional AI grading for that
+            same recording and assignment is included and does not use another unit. Provider
+            failures, empty or unusable transcripts, and exact retries of the same recording for the
+            same assignment do not use another unit. Recordings processed by AI can be up to five
+            minutes. Unused units do not roll over, and neither option has automatic overages.
+            Reaching an allowance pauses AI transcription and grading while recording, playback,
+            downloads, and manual grading remain available.
           </p>
           <p>
             Teachers can review invoices, update payment details, or request cancellation through
@@ -142,8 +145,8 @@ export default function TermsPage() {
           <p>
             A separate PayPal link may be available for voluntary, non-tax-deductible donations
             only. A PayPal donation does not purchase TryHabla, activate AI access, start or extend
-            a subscription, add AI reviews, or provide any other product or service. TryHabla product
-            billing is handled only through Stripe.
+            a subscription, add AI-assisted recording units, or provide any other product or service.
+            TryHabla product billing is handled only through Stripe.
           </p>
         </section>
 

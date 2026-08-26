@@ -60,7 +60,8 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong>Product billing information, only when paid features are used:</strong> Stripe
-              billing status, AI review allowance totals, and identifiers returned by Stripe.
+              billing status, AI-assisted recording allowance totals, and identifiers returned by
+              Stripe.
               Stripe handles product-payment credentials on its own checkout and portal pages.
             </li>
             <li>
@@ -72,22 +73,24 @@ export default function PrivacyPage() {
         </section>
 
         <section className="legal-section" aria-labelledby="privacy-ai">
-          <h2 id="privacy-ai">Optional AI grading</h2>
+          <h2 id="privacy-ai">Optional AI transcription and grading</h2>
           <p>
-            AI grading is optional and controlled by deployment settings and teacher actions. When it is
-            enabled for an assignment, a student&apos;s recorded answer, transcript, assignment
-            instructions, and rubric may be processed by the AI service provider or providers
-            configured for that TryHabla deployment. TryHabla may store the transcript, AI-generated
-            score, rubric details, feedback, evidence excerpts, provider and model identifiers,
-            usage details, and attempt status with the submission.
+            AI transcription and grading are optional and controlled by deployment settings and
+            teacher actions. When a teacher asks TryHabla to transcribe or grade a submission, the
+            student&apos;s recorded answer may be processed by the AI service provider or providers
+            configured for that TryHabla deployment. A transcript can be generated without an AI
+            grade. If grading is requested, the transcript, assignment instructions, and rubric may
+            also be processed. TryHabla may store the transcript, AI-generated score, rubric details,
+            feedback, evidence excerpts, provider and model identifiers, usage details, and attempt
+            status with the submission.
           </p>
           <p>
-            AI-generated results are labeled and may be shown to the student before a teacher
-            reviews them. Teachers can review, edit, or replace a result. TryHabla does not promise
-            that an AI result is accurate, and teachers remain responsible for classroom grading
-            decisions. The teacher or school is responsible for deciding whether AI is authorized
-            for the activity. That decision does not remove TryHabla&apos;s responsibility for its own
-            processing and notices.
+            AI-generated grades and feedback are labeled and may be shown to the student before a
+            teacher reviews them. Teachers can review, edit, or replace a result. TryHabla does not
+            promise that a transcript or AI result is accurate, and teachers remain responsible for
+            classroom grading decisions. The teacher or school is responsible for deciding whether
+            AI is authorized for the activity. That decision does not remove TryHabla&apos;s
+            responsibility for its own processing and notices.
           </p>
           <p>
             As of this notice&apos;s update date, the production service identifies OpenAI as its
@@ -102,7 +105,10 @@ export default function PrivacyPage() {
           <ul>
             <li>Authenticate users and provide the teacher and student classroom workflows.</li>
             <li>Store, play back, grade, and display speaking submissions.</li>
-            <li>Operate optional AI grading and enforce AI review allowances when those features are enabled.</li>
+            <li>
+              Operate optional AI transcription and grading and enforce AI recording allowances
+              when those features are enabled.
+            </li>
             <li>Prevent abuse, enforce limits, troubleshoot problems, and secure the service.</li>
             <li>Respond to support messages and understand basic service activity.</li>
           </ul>
@@ -143,10 +149,10 @@ export default function PrivacyPage() {
             attempts to delete associated media.
           </p>
           <p>
-            AI attempt records follow the related submission. Contact messages remain until an
-            administrator deletes them. Account records and basic activity events do not yet have
-            an automatic deletion schedule. Service-provider logs and backups may follow separate
-            schedules that are still being verified for district use.
+            AI transcript and attempt records follow the related submission. Contact messages remain
+            until an administrator deletes them. Account records and basic activity events do not
+            yet have an automatic deletion schedule. Service-provider logs and backups may follow
+            separate schedules that are still being verified for district use.
           </p>
         </section>
 

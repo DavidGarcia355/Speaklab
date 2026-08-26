@@ -199,7 +199,7 @@ function stateCopy(status: BillingStatus) {
     return {
       heading: "Teacher is active",
       description:
-        "$20 per month includes 300 successful AI reviews in each verified Stripe billing period, with no automatic overages.",
+        "$20 per month includes 300 AI-assisted recordings in each verified Stripe billing period, with transcripts included, grading optional, and no automatic overages.",
     };
   }
   if (status.access === "pilot") {
@@ -231,9 +231,9 @@ function stateCopy(status: BillingStatus) {
     };
   }
   return {
-    heading: "Start with 30 free AI reviews",
+    heading: "Start with 30 free AI-assisted recordings",
     description:
-      "Your one-time Free allowance works without a card. Choose Teacher for 300 reviews in each Stripe billing period. Stripe is the only product-payment method.",
+      "Your one-time Free allowance works without a card. Choose Teacher for 300 AI-assisted recordings in each Stripe billing period. Stripe is the only product-payment method.",
   };
 }
 

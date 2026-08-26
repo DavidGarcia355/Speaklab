@@ -6,6 +6,8 @@ import { createClient } from "@libsql/client";
 import { STRIPE_CATALOG_MANIFEST } from "@/lib/billing/catalog-manifest";
 import { STRIPE_API_VERSION } from "@/lib/billing/config";
 import { getStripeBillingContractId } from "@/lib/billing/contract";
+import { processedAssignmentFingerprint } from "@/lib/ai/recording-identity";
+import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapter";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 
 const billingRuntimeMocks = vi.hoisted(() => ({
@@ -206,6 +208,21 @@ async function createCompletedGradingFixture(
     transcriptionModel: "mock-transcriber",
     gradingModel: "mock-grader",
     cacheKey,
+    assignmentFingerprint: processedAssignmentFingerprint(
+      legacyAssignmentToGradingAssignment({
+        submissionId: submission.id,
+        assignmentId: assignment.id,
+        assignmentTitle: assignment.title,
+        audioBlobUrl: submission.audioBlobUrl,
+        description: assignment.description,
+        instructions: assignment.instructions,
+        targetLanguage: assignment.targetLanguage,
+        rubric: assignment.rubric,
+        maxPoints: assignment.maxPoints,
+        finalGrade: null,
+        finalFeedback: "",
+      }),
+    ),
     promptVersion: "prompt-v1",
   });
   return { classroom, assignment, submission, attempt, cacheKey };

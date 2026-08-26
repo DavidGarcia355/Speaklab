@@ -1,8 +1,11 @@
 import "server-only";
-import { createHash } from "node:crypto";
 import {
+  copyConsumedReviewTranscriptToSubmission,
   createAiGradingAttempt,
   finalizeAiGradeDelivery,
+  findSubmissionTranscriptByIdForOwner,
+  findSubmissionTranscriptForOwner,
+  findSubmissionTranscriptForOwnerBySemanticKey,
   getReusableAiReviewAttempt,
   hasAudioTooLongFailure,
   markAiGradingAttemptNotApplicable,
@@ -11,23 +14,26 @@ import {
   withholdAiGradingAttemptResult,
   type AiGradingAttemptRow,
   type SubmissionForAiGradeRow,
+  type SubmissionTranscriptRow,
 } from "@/lib/db";
 import { fetchAuthorizedAudioBuffer } from "@/lib/ai/audio";
 import { reserveGenerationBudget } from "@/lib/ai/budget";
 import { isLocalMockAi, type AiConfig } from "@/lib/ai/config";
 import { toPublicAiError } from "@/lib/ai/errors";
-import { transcribeAudio } from "@/lib/ai/providers";
+import {
+  processedAssignmentFingerprint,
+  processedRecordingKey,
+} from "@/lib/ai/recording-identity";
+import { resolveSubmissionTranscript } from "@/lib/ai/transcript-one";
 import { runDirectAudioGradingPipeline } from "@/lib/grading/audio-pipeline";
 import { getGradingConfig } from "@/lib/grading/config";
-import type { GradingAssignment } from "@/lib/grading/contracts";
-import { canonicalStringify } from "@/lib/grading/hash";
 import {
   gradingResultToLegacySuggestion,
   legacyAssignmentToGradingAssignment,
   transcriptGradingInput,
 } from "@/lib/grading/legacy-adapter";
 import { runGradingPipeline } from "@/lib/grading/pipeline";
-import { estimateTranscriptionCostMicrousd } from "@/lib/grading/pricing";
+import type { GradingPipelineStore } from "@/lib/grading/pipeline";
 import { routeAudioGrading } from "@/lib/grading/routing";
 import { createDatabaseGradingStore } from "@/lib/grading/store";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
@@ -46,67 +52,18 @@ export type GradeOneOutcome =
   | { status: "skipped"; reason: "audio_too_long" | "no_audio" }
   | { status: "failed"; code: string; message: string };
 
-type CachedTranscript = {
-  kind: "transcript-v1";
+type TranscriptSnapshot = {
   transcript: string;
   detectedLanguage: string;
   quality: string;
   durationSeconds: number;
 };
 
-function transcriptCacheKey(buffer: Buffer, contentType: string, provider: string, model: string) {
-  return createHash("sha256")
-    .update("transcript-v1\0", "utf8")
-    .update(contentType.toLowerCase(), "utf8")
-    .update("\0", "utf8")
-    .update(provider, "utf8")
-    .update("\0", "utf8")
-    .update(model, "utf8")
-    .update("\0", "utf8")
-    .update(buffer)
-    .digest("hex");
-}
-
-function billingResultKey(
-  buffer: Buffer,
-  contentType: string,
-  assignment: GradingAssignment,
-) {
-  const assignmentId = assignment.id?.trim() ?? "";
-  const assignmentVersion = assignment.version.trim();
-  if (!assignmentId || !assignmentVersion) return "";
-  const assignmentIdentity = canonicalStringify({
-    assignmentId,
-    assignmentVersion,
-    rubricVersion: assignment.rubric?.version.trim() || null,
-  });
-  return createHash("sha256")
-    .update("ai-billing-result-v2\0", "utf8")
-    .update(contentType.trim().toLowerCase(), "utf8")
-    .update("\0", "utf8")
-    .update(assignmentIdentity, "utf8")
-    .update("\0", "utf8")
-    .update(buffer)
-    .digest("hex");
-}
-
-function parseCachedTranscript(value: unknown): CachedTranscript | null {
-  if (!value || typeof value !== "object") return null;
-  const item = value as Partial<CachedTranscript>;
-  return item.kind === "transcript-v1" &&
-    typeof item.transcript === "string" &&
-    typeof item.detectedLanguage === "string" &&
-    typeof item.quality === "string" &&
-    typeof item.durationSeconds === "number"
-    ? (item as CachedTranscript)
-    : null;
-}
-
 async function saveTooLongAttempt(input: {
   data: SubmissionForAiGradeRow;
   teacherEmail: string;
   config: AiConfig;
-  transcript: CachedTranscript;
+  transcript: TranscriptSnapshot;
   provider: string;
   model: string;
   costMicrousd?: number;
@@ -116,9 +73,12 @@ async function saveTooLongAttempt(input: {
     submissionId: input.data.submissionId,
     teacherEmail: input.teacherEmail,
     status: "failed",
-    transcript: input.transcript.transcript,
-    detectedLanguage: input.transcript.detectedLanguage,
-    transcriptQuality: input.transcript.quality,
+    // Over-limit audio is not a delivered review. Do not make its provider
+    // transcript readable through legacy attempt fallbacks without consuming a
+    // processed-recording unit.
+    transcript: "",
+    detectedLanguage: "",
+    transcriptQuality: "",
     durationSeconds: input.transcript.durationSeconds,
     suggestedScore: null,
     rubricScores: [],
@@ -180,8 +140,15 @@ async function finalizeCompletedAiGrade(input: {
     const marked = await markAiGradingAttemptNotApplicable({
       attemptId: input.attemptId,
       ownerEmail: input.teacherEmail,
+      reviewReservationId: input.reviewReservationId,
     });
-    if (!marked) return withholdResult("AI result disposition could not be persisted.");
+    if (!marked) {
+      return withholdResult(
+        input.reviewReservationId
+          ? "AI-assisted recording allowance changed before transcript delivery."
+          : "AI result disposition could not be persisted.",
+      );
+    }
     return {
       gradeApplied: false,
       billingMarked: false,
@@ -195,7 +162,11 @@ async function finalizeCompletedAiGrade(input: {
       ownerEmail: input.teacherEmail,
       reviewReservationId: input.reviewReservationId,
     });
-    if (!marked) return withholdResult("AI review allowance changed before delivery.");
+    if (!marked) {
+      return withholdResult(
+        "AI-assisted recording allowance changed before delivery.",
+      );
+    }
     return {
       gradeApplied: false,
       billingMarked: false,
@@ -272,14 +243,14 @@ async function deliverReusableAiReview(input: {
       status: "failed",
       code: "submission_already_graded",
       message:
-        "This submission's saved grade or feedback has changed. The AI review was not reapplied.",
+        "This submission's saved grade or feedback has changed. The AI result was not reapplied.",
     };
   }
   if (data.finalGrade !== null) {
     return {
       status: "failed",
       code: "submission_already_graded",
-      message: "This submission already has a grade. The saved AI review was not applied.",
+      message: "This submission already has a grade. The saved AI result was not applied.",
     };
   }
   const suggestion = {
@@ -308,6 +279,7 @@ async function deliverReusableAiReview(input: {
     transcriptionModel: source.transcriptionModel,
     gradingModel: source.gradingModel,
     cacheKey: source.cacheKey,
+    assignmentFingerprint: source.assignmentFingerprint,
     cacheHit: true,
     inputTokens: 0,
     cachedInputTokens: 0,
@@ -336,7 +308,7 @@ async function deliverReusableAiReview(input: {
       status: "failed",
       code: "result_not_delivered",
       message:
-        "The submission changed before the saved AI review could be applied. No additional review was used.",
+        "The submission changed before the saved AI result could be applied. No additional unit was used.",
     };
   }
   return {
@@ -370,7 +342,25 @@ export async function gradeOneSubmission(input: {
   }
 
   const gradingConfig = getGradingConfig();
-  const store = createDatabaseGradingStore();
+  const baseStore = createDatabaseGradingStore();
+  let providerBudgetReserved = isLocalMockAi(config);
+  const ensureProviderBudget = async () => {
+    if (providerBudgetReserved) return true;
+    const reserved = await reserveGenerationBudget({ config });
+    if (reserved) providerBudgetReserved = true;
+    return reserved;
+  };
+  const store: GradingPipelineStore = {
+    ...baseStore,
+    assertProviderCallAllowed: async (request) => {
+      await baseStore.assertProviderCallAllowed?.(request);
+      if (!(await ensureProviderBudget())) {
+        throw Object.assign(new Error("Provider budget exhausted."), {
+          name: "AiProviderBudgetExhaustedError",
+        });
+      }
+    },
+  };
   const baseProviderMeta = {
     transcriptionProvider: config.transcriptionProvider,
     gradingProvider: gradingConfig.defaultModel.provider,
@@ -378,6 +368,7 @@ export async function gradeOneSubmission(input: {
     gradingModel: gradingConfig.defaultModel.model,
   };
   let reviewReservationId: string | null = null;
+  let consumedTranscriptSource: SubmissionTranscriptRow | null = null;
 
   try {
     const audio =
@@ -385,17 +376,29 @@ export async function gradeOneSubmission(input: {
         ? { buffer: Buffer.from("mock audio"), contentType: "audio/webm" }
         : await fetchAuthorizedAudioBuffer(data.audioBlobUrl);
     const assignment = legacyAssignmentToGradingAssignment(data);
-    const deliveryCacheKey = billingResultKey(
+    const deliveryCacheKey = processedRecordingKey(
       audio.buffer,
       audio.contentType,
       assignment,
     );
+    const assignmentFingerprint = processedAssignmentFingerprint(assignment);
+    const latestPersistedTranscript =
+      await findSubmissionTranscriptForOwner(submissionId, teacherEmail);
+    const exactPersistedTranscript =
+      latestPersistedTranscript?.semanticKey === deliveryCacheKey
+        ? latestPersistedTranscript
+        : await findSubmissionTranscriptForOwnerBySemanticKey(
+            submissionId,
+            deliveryCacheKey,
+            teacherEmail,
+          );
     if (config.accessMode === "paid" && !isLocalMockAi(config)) {
       if (!deliveryCacheKey) {
         return {
           status: "failed",
           code: "review_identity_unavailable",
-          message: "This recording could not be assigned a stable AI review identity.",
+          message:
+            "This recording could not be assigned a stable AI-assisted recording identity.",
         };
       }
       const reservation = await reserveAiReviewAllowance({
@@ -407,7 +410,7 @@ export async function gradeOneSubmission(input: {
           status: "failed",
           code: "billing_sync_required",
           message:
-            "Your billing period could not be verified. Refresh billing or contact support before using another AI review.",
+            "Your billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording.",
         };
       }
       if (reservation.reservationStatus === "exhausted") {
@@ -416,8 +419,8 @@ export async function gradeOneSubmission(input: {
           code: "ai_review_limit_reached",
           message:
             reservation.status === "teacher_period"
-              ? "This billing period's 300 AI reviews have been used. Recording, playback, and manual grading are still available. Need more AI reviews? Explore TryHabla for Schools."
-              : `Your ${reservation.limit}-review lifetime allowance has been used. Recording, playback, and manual grading are still available.`,
+              ? "This billing period's 300 AI-assisted recordings have been used. Recording, playback, and manual grading are still available. Need more? Explore TryHabla for Schools."
+              : `Your ${reservation.limit} lifetime AI-assisted recordings have been used. Recording, playback, and manual grading are still available.`,
         };
       }
       if (reservation.reservationStatus === "in_flight") {
@@ -428,21 +431,62 @@ export async function gradeOneSubmission(input: {
         };
       }
       if (reservation.reservationStatus === "duplicate") {
-        const source = await getReusableAiReviewAttempt({
-          attemptId: reservation.sourceAttemptId,
-          teacherEmail,
-          semanticKey: deliveryCacheKey,
-        });
-        if (!source) {
-          return {
-            status: "failed",
-            code: "saved_review_unavailable",
-            message: "The saved AI review could not be verified. Contact support before retrying.",
-          };
+        if (reservation.sourceKind === "transcript") {
+          const sourceResultId =
+            reservation.sourceResultId ?? reservation.sourceAttemptId;
+          const source = await findSubmissionTranscriptByIdForOwner(
+            sourceResultId,
+            teacherEmail,
+          );
+          if (!source || source.semanticKey !== deliveryCacheKey) {
+            return {
+              status: "failed",
+              code: "saved_review_unavailable",
+              message:
+                "The saved transcript could not be verified. Contact support before retrying.",
+            };
+          }
+          consumedTranscriptSource = source;
+          reviewReservationId = reservation.reservationId;
+        } else {
+          const source = await getReusableAiReviewAttempt({
+            attemptId: reservation.sourceAttemptId,
+            teacherEmail,
+            semanticKey: deliveryCacheKey,
+          });
+          if (!source) {
+            return {
+              status: "failed",
+              code: "saved_review_unavailable",
+              message:
+                "The saved AI result could not be verified. Contact support before retrying.",
+            };
+          }
+          const durableTranscript =
+            await copyConsumedReviewTranscriptToSubmission({
+              reservationId: reservation.reservationId,
+              sourceResultId:
+                reservation.sourceResultId ?? reservation.sourceAttemptId,
+              sourceKind: "grading",
+              submissionId,
+              teacherEmail,
+              semanticKey: deliveryCacheKey,
+              assignmentFingerprint,
+            });
+          if (!durableTranscript) {
+            return {
+              status: "failed",
+              code: "saved_review_unavailable",
+              message:
+                "The saved transcript could not be verified. Contact support before retrying.",
+            };
+          }
+          return deliverReusableAiReview({ source, data, teacherEmail });
         }
-        return deliverReusableAiReview({ source, data, teacherEmail });
       }
-      reviewReservationId = reservation.reservationId;
+      if (reservation.reservationStatus === "reserved") {
+        reviewReservationId = reservation.reservationId;
+      }
     }
     if (data.finalGrade !== null) {
       return {
@@ -450,19 +494,6 @@ export async function gradeOneSubmission(input: {
         code: "submission_already_graded",
         message: "This submission already has a grade. AI did not replace it.",
       };
-    }
-    // Reserve the internal provider-cost ceiling only after the customer
-    // allowance has admitted a new review. Caps and exact retries must never
-    // drain provider budget without making a provider call.
-    if (!isLocalMockAi(config)) {
-      const providerBudgetReserved = await reserveGenerationBudget({ config });
-      if (!providerBudgetReserved) {
-        return {
-          status: "failed",
-          code: "provider_budget_exhausted",
-          message: "The monthly AI usage limit has been reached. Try again next month.",
-        };
-      }
     }
     const audioRoute = routeAudioGrading({
       config: gradingConfig,
@@ -473,8 +504,15 @@ export async function gradeOneSubmission(input: {
       enhanced: input.enhanced,
     });
     const routeWarnings: string[] = [];
+    const persistedTranscript =
+      consumedTranscriptSource ??
+      exactPersistedTranscript ??
+      (latestPersistedTranscript?.assignmentFingerprint &&
+      latestPersistedTranscript.assignmentFingerprint !== assignmentFingerprint
+        ? latestPersistedTranscript
+        : null);
 
-    if (audioRoute.strategy === "gemini_direct") {
+    if (audioRoute.strategy === "gemini_direct" && !persistedTranscript) {
       try {
         const direct = await runDirectAudioGradingPipeline({
           config: gradingConfig,
@@ -501,13 +539,15 @@ export async function gradeOneSubmission(input: {
           providerMeasuredDurationSeconds > 0
             ? providerMeasuredDurationSeconds
             : direct.durationSeconds;
-        const transcript: CachedTranscript = {
-          kind: "transcript-v1",
-          transcript: direct.transcript,
+        const transcript: TranscriptSnapshot = {
+          transcript: direct.transcript.trim(),
           detectedLanguage: direct.detectedLanguage,
           quality: direct.transcriptQuality,
           durationSeconds: durationForLimit,
         };
+        if (!transcript.transcript) {
+          throw new Error("Direct audio grading did not return a usable transcript.");
+        }
         if (durationForLimit > config.maxAudioSeconds) {
           await saveTooLongAttempt({
             data,
@@ -552,6 +592,7 @@ export async function gradeOneSubmission(input: {
           transcriptionModel: direct.model,
           gradingModel: direct.model,
           cacheKey: deliveryCacheKey,
+          assignmentFingerprint,
           cacheHit: direct.cacheHit,
           inputTokens: direct.usage.inputTokens,
           cachedInputTokens: direct.usage.cachedInputTokens,
@@ -598,74 +639,26 @@ export async function gradeOneSubmission(input: {
       }
     }
 
-    const transcriptKey = transcriptCacheKey(
-      audio.buffer,
-      audio.contentType,
-      config.transcriptionProvider,
-      config.transcriptionModel
-    );
-    const cached = await store.findCached({ cacheKey: transcriptKey, teacherEmail, now: Date.now() });
-    let transcript = parseCachedTranscript(cached?.result);
-    let transcriptionCostMicrousd = 0;
-    let transcriptionLatencyMs = 0;
-    let transcriptCacheHit = Boolean(transcript);
+    const transcript = await resolveSubmissionTranscript({
+      config,
+      gradingConfig,
+      teacherEmail,
+      submissionId,
+      buffer: audio.buffer,
+      contentType: audio.contentType,
+      persisted: persistedTranscript,
+      beforeProviderCall: isLocalMockAi(config) ? undefined : ensureProviderBudget,
+    });
+    const transcriptionCostMicrousd = transcript.estimatedCostMicrousd;
+    const transcriptionLatencyMs = transcript.latencyMs;
+    const transcriptCacheHit = transcript.cacheHit;
 
-    if (!transcript) {
-      await store.assertProviderCallAllowed?.({
-        teacherEmail,
-        stage: "transcription",
-        config: gradingConfig,
-        now: Date.now(),
-      });
-      const transcriptionStartedAt = Date.now();
-      const generated = await transcribeAudio({
-        config,
-        buffer: audio.buffer,
-        contentType: audio.contentType,
-      });
-      transcriptionLatencyMs = Date.now() - transcriptionStartedAt;
-      transcript = {
-        kind: "transcript-v1",
-        transcript: generated.transcript,
-        detectedLanguage: generated.detectedLanguage,
-        quality: generated.quality,
-        durationSeconds: generated.durationSeconds,
+    if (!transcript.transcript.trim()) {
+      return {
+        status: "failed",
+        code: "no_speech_detected",
+        message: "No clear speech was detected. Record a longer response and try again.",
       };
-      const transcriptionCost = estimateTranscriptionCostMicrousd({
-        provider: config.transcriptionProvider,
-        model: config.transcriptionModel,
-        durationSeconds: generated.durationSeconds,
-        configuredUsdPerMinute: gradingConfig.transcriptionUsdPerMinute ?? undefined,
-      });
-      transcriptionCostMicrousd = transcriptionCost.totalMicrousd;
-      await store.recordRequest({
-        submissionId,
-        teacherEmail,
-        stage: "transcription",
-        provider: config.transcriptionProvider,
-        model: config.transcriptionModel,
-        status: "completed",
-        usage: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
-        latencyMs: transcriptionLatencyMs,
-        retries: 0,
-        escalated: false,
-        escalationReason: "",
-        estimatedCostMicrousd: transcriptionCostMicrousd,
-        costKnown: transcriptionCost.costKnown,
-        promptVersion: gradingConfig.promptVersion,
-      });
-      await store.saveCached({
-        cacheKey: transcriptKey,
-        submissionId,
-        teacherEmail,
-        result: transcript,
-        provider: config.transcriptionProvider,
-        model: config.transcriptionModel,
-        promptVersion: "transcript-v1",
-        now: Date.now(),
-        expiresAt: Date.now() + gradingConfig.cacheTtlDays * 86_400_000,
-      });
-      transcriptCacheHit = false;
     }
 
     if (transcript.durationSeconds > config.maxAudioSeconds) {
@@ -716,6 +709,7 @@ export async function gradeOneSubmission(input: {
       transcriptionModel: config.transcriptionModel,
       gradingModel: pipeline.model,
       cacheKey: deliveryCacheKey,
+      assignmentFingerprint,
       cacheHit: pipeline.cacheHit && transcriptCacheHit,
       inputTokens: pipeline.usage.inputTokens,
       cachedInputTokens: pipeline.usage.cachedInputTokens,
@@ -761,6 +755,9 @@ export async function gradeOneSubmission(input: {
     };
   } catch (error) {
     const publicError = toPublicAiError(error);
+    if (publicError.code === "provider_budget_exhausted") {
+      return { status: "failed", code: publicError.code, message: publicError.message };
+    }
     await createAiGradingAttempt({
       submissionId,
       teacherEmail,

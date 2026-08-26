@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { CircleCheck, Clock3, Mic2, Sparkles, Trash2 } from "lucide-react";
+import AudioPlayer from "@/app/components/AudioPlayer";
 import BrandBar from "@/app/components/BrandBar";
 import ConfirmModal from "@/app/components/ConfirmModal";
 import SignInLink from "@/app/components/SignInLink";
@@ -20,6 +21,7 @@ type StudentSubmission = {
   className: string;
   maxPoints: number;
   studentName: string;
+  audioData: string;
   submittedAt: number;
   feedback: string;
   grade: number | null;
@@ -357,6 +359,10 @@ export default function StudentDashboardPage() {
                                 </button>
                               ) : null}
                             </div>
+                          </div>
+                          <div className="student-sub-details">
+                            <p className="label">Recording</p>
+                            <AudioPlayer src={sub.audioData} variant="compact" />
                           </div>
                           {sub.feedback ? (
                             <div className="student-sub-feedback">

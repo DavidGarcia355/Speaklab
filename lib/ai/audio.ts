@@ -28,7 +28,7 @@ export async function fetchAuthorizedAudioBuffer(
     try {
       const hostname = new URL(trimmed).hostname.toLowerCase();
       if (hostname.endsWith(".public.blob.vercel-storage.com")) {
-        throw new HttpError(410, "Audio storage needs migration before AI grading.");
+        throw new HttpError(410, "Audio storage needs migration before AI processing.");
       }
     } catch (error) {
       if (error instanceof HttpError) throw error;

@@ -260,13 +260,14 @@ export default function BillingPanel() {
         <div className="billing-plan-terms" aria-label="TryHabla Teacher plan terms">
           <strong>Teacher</strong>
           <p>
-            $20 per month includes 300 successful AI reviews in each Stripe billing period.
-            Recordings can be up to five minutes. A review is used only when TryHabla delivers a
-            usable AI result; failures, unable-to-grade results, and exact retries do not use
-            another review. Unused reviews do not roll over, and there are no automatic overages.
-            Reaching the limit pauses AI while recording, playback, and manual grading remain
-            available. You can cancel through Manage billing, where Stripe shows the effective date
-            before confirmation.
+            $20 per month includes 300 AI-assisted recordings in each Stripe billing period.
+            Recordings can be up to five minutes. One unit is used when TryHabla successfully
+            delivers a transcript; optional grading for that same recording and assignment is
+            included. Provider failures, empty or unusable transcripts, and exact retries do not use
+            another unit. Unused units do not roll over, and there are no automatic overages.
+            Reaching the limit pauses AI while recording, playback, downloads, and manual grading
+            remain available. You can cancel through Manage billing, where Stripe shows the
+            effective date before confirmation.
           </p>
         </div>
 
@@ -310,12 +311,12 @@ export default function BillingPanel() {
         ) : null}
       </div>
 
-      <aside className="billing-usage-card" aria-label="Current AI review usage">
-        <span>AI reviews remaining</span>
+      <aside className="billing-usage-card" aria-label="Current AI-assisted recording usage">
+        <span>AI-assisted recordings remaining</span>
         <strong>{status.usage.remainingReviews.toLocaleString()}</strong>
         <small>
           {status.usage.allowanceKind === "subscription_unavailable"
-            ? "Refresh billing or contact support before another AI review."
+            ? "Refresh billing or contact support before another AI-assisted recording."
             : `of ${status.usage.limit.toLocaleString()} in your ${allowanceLabel.toLowerCase()} allowance`}
         </small>
         <dl>
@@ -324,11 +325,11 @@ export default function BillingPanel() {
             <dd>{allowanceLabel}</dd>
           </div>
           <div>
-            <dt>Successful reviews used</dt>
+            <dt>Recordings used</dt>
             <dd>{status.usage.consumedReviews.toLocaleString()}</dd>
           </div>
           <div>
-            <dt>Reviews in progress</dt>
+            <dt>Recordings in progress</dt>
             <dd>{status.usage.reservedReviews.toLocaleString()}</dd>
           </div>
           <div>
@@ -337,7 +338,7 @@ export default function BillingPanel() {
           </div>
         </dl>
         <p className="billing-usage-caveat">
-          Need more AI reviews? Explore TryHabla for Schools.
+          Need more AI-assisted recordings? Explore TryHabla for Schools.
         </p>
       </aside>
     </section>

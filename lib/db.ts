@@ -25,6 +25,8 @@ import {
 import { getStripeAutomaticUsageRecoverySupportedSince } from "@/lib/billing/recovery-policy";
 import { INTERNAL_TEST_EMAILS } from "@/lib/internal-accounts";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
+import { processedAssignmentFingerprint } from "@/lib/ai/recording-identity";
+import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapter";
 import type { Rubric, RubricScore } from "@/lib/validation";
 
 const QUERY_TIMEOUT_MS = 5000;
@@ -102,6 +104,7 @@ export type StudentSubmissionRow = {
   className: string;
   maxPoints: number;
   studentName: string;
+  audioData: string;
   submittedAt: number;
   feedback: string;
   grade: number | null;
@@ -283,6 +286,7 @@ export type StudentAssignmentRow = {
   maxPoints: number;
   createdAt: number;
   submissionId: string | null;
+  audioData: string | null;
   submittedAt: number | null;
   grade: number | null;
   feedback: string;
@@ -321,6 +325,7 @@ export type AiGradingAttemptRow = {
   errorCode: string;
   errorMessage: string;
   cacheKey: string;
+  assignmentFingerprint: string;
   cacheHit: boolean;
   inputTokens: number;
   cachedInputTokens: number;
@@ -344,6 +349,25 @@ export type AiGradingAttemptRow = {
   billableOutputTokens: number;
   createdAt: number;
   completedAt: number | null;
+};
+
+export type SubmissionTranscriptRow = {
+  id: string;
+  submissionId: string;
+  teacherEmail: string;
+  semanticKey: string;
+  assignmentFingerprint: string;
+  transcriptCacheKey: string;
+  transcript: string;
+  detectedLanguage: string;
+  transcriptQuality: string;
+  durationSeconds: number;
+  transcriptionProvider: string;
+  transcriptionModel: string;
+  estimatedCostMicrousd: number;
+  latencyMs: number;
+  createdAt: number;
+  updatedAt: number;
 };
 
 export type GradingResultCacheRow = {
@@ -440,9 +464,17 @@ export type AiReviewAllowanceSummary = {
   periodEnd: number | null;
 };
 
+export type AiReviewSourceKind = "grading" | "transcript";
+
 export type AiReviewReservationResult =
   | ({ reservationStatus: "reserved"; reservationId: string } & AiReviewAllowanceSummary)
-  | ({ reservationStatus: "duplicate"; sourceAttemptId: string } & AiReviewAllowanceSummary)
+  | ({
+      reservationStatus: "duplicate";
+      reservationId: string;
+      sourceAttemptId: string;
+      sourceResultId: string;
+      sourceKind: AiReviewSourceKind;
+    } & AiReviewAllowanceSummary)
   | ({ reservationStatus: "in_flight" } & AiReviewAllowanceSummary)
   | ({ reservationStatus: "exhausted" } & AiReviewAllowanceSummary)
   | ({ reservationStatus: "subscription_unavailable" } & AiReviewAllowanceSummary);
@@ -629,9 +661,11 @@ async function ensureColumn(
     | "classes"
     | "assignments"
     | "submissions"
+    | "submission_transcripts"
     | "users"
     | "stripe_billing_accounts"
-    | "ai_grading_attempts",
+    | "ai_grading_attempts"
+    | "ai_review_allowance_reservations_v1",
   columnName: string,
   definition: string
 ) {
@@ -880,6 +914,7 @@ async function ensureInitialized() {
           error_code TEXT NOT NULL DEFAULT '',
           error_message TEXT NOT NULL DEFAULT '',
           cache_key TEXT NOT NULL DEFAULT '',
+          assignment_fingerprint TEXT NOT NULL DEFAULT '',
           cache_hit INTEGER NOT NULL DEFAULT 0,
           input_tokens INTEGER NOT NULL DEFAULT 0,
           cached_input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -905,6 +940,27 @@ async function ensureInitialized() {
           billable_output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (billable_output_tokens >= 0),
           created_at INTEGER NOT NULL,
           completed_at INTEGER,
+          FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS submission_transcripts (
+          id TEXT PRIMARY KEY,
+          submission_id TEXT NOT NULL,
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          semantic_key TEXT NOT NULL,
+          assignment_fingerprint TEXT NOT NULL DEFAULT '',
+          transcript_cache_key TEXT NOT NULL DEFAULT '',
+          transcript TEXT NOT NULL,
+          detected_language TEXT NOT NULL DEFAULT '',
+          transcript_quality TEXT NOT NULL DEFAULT '',
+          duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK (duration_seconds >= 0),
+          transcription_provider TEXT NOT NULL DEFAULT '',
+          transcription_model TEXT NOT NULL DEFAULT '',
+          estimated_cost_microusd INTEGER NOT NULL DEFAULT 0
+            CHECK (estimated_cost_microusd >= 0),
+          latency_ms INTEGER NOT NULL DEFAULT 0 CHECK (latency_ms >= 0),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(submission_id, semantic_key),
           FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE
         )`,
         `CREATE TABLE IF NOT EXISTS grading_result_cache (
@@ -989,6 +1045,7 @@ async function ensureInitialized() {
           period_end INTEGER NOT NULL DEFAULT 0 CHECK (period_end >= 0),
           status TEXT NOT NULL CHECK (status IN ('reserved', 'consumed', 'released')),
           attempt_id TEXT NOT NULL DEFAULT '',
+          source_kind TEXT NOT NULL DEFAULT 'grading',
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           consumed_at INTEGER,
@@ -1147,6 +1204,8 @@ async function ensureInitialized() {
         "CREATE INDEX IF NOT EXISTS idx_roster_class_id ON roster(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_submission ON ai_grading_attempts(submission_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_teacher ON ai_grading_attempts(LOWER(teacher_email), created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_submission_transcripts_owner ON submission_transcripts(LOWER(teacher_email), updated_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_submission_transcripts_semantic ON submission_transcripts(LOWER(teacher_email), semantic_key)",
         "CREATE INDEX IF NOT EXISTS idx_grading_result_cache_expiry ON grading_result_cache(expires_at)",
         "CREATE INDEX IF NOT EXISTS idx_grading_result_cache_submission ON grading_result_cache(submission_id)",
         "CREATE INDEX IF NOT EXISTS idx_grading_provider_requests_teacher ON grading_provider_requests(LOWER(teacher_email), created_at DESC)",
@@ -1210,6 +1269,11 @@ async function ensureInitialized() {
       await ensureColumn("submissions", "rubric_scores", "TEXT");
       await ensureColumn("submissions", "grade_source", "TEXT NOT NULL DEFAULT 'teacher'");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
+      await ensureColumn(
+        "ai_review_allowance_reservations_v1",
+        "source_kind",
+        "TEXT NOT NULL DEFAULT 'grading'",
+      );
       await ensureColumn("users", "is_paid", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn(
         "users",
@@ -1254,6 +1318,11 @@ async function ensureInitialized() {
         "INTEGER NOT NULL DEFAULT 0"
       );
       await ensureColumn("ai_grading_attempts", "cache_key", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn(
+        "ai_grading_attempts",
+        "assignment_fingerprint",
+        "TEXT NOT NULL DEFAULT ''",
+      );
       await ensureColumn("ai_grading_attempts", "cache_hit", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("ai_grading_attempts", "input_tokens", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("ai_grading_attempts", "cached_input_tokens", "INTEGER NOT NULL DEFAULT 0");
@@ -1462,6 +1531,10 @@ export function getAiBillingUtcMonth(now = Date.now()) {
 
 function toProtectedAudioPath(id: string) {
   return `/api/submissions/${id}/audio`;
+}
+
+function toStudentProtectedAudioPath(id: string) {
+  return `/api/student/submissions/${id}/audio`;
 }
 
 function parseJsonValue<T>(value: unknown): T | null {
@@ -2936,6 +3009,7 @@ export async function listSubmissionsByStudentEmail(studentEmail: string): Promi
     className: toStringValue(row.className),
     maxPoints: toNumber(row.maxPoints),
     studentName: toStringValue(row.studentName),
+    audioData: toStudentProtectedAudioPath(toStringValue(row.id)),
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
@@ -3067,6 +3141,35 @@ export async function findSubmissionAccessById(
       AND (? IS NULL OR LOWER(c.owner_email) = LOWER(?))
     LIMIT 1`,
     [submissionId, ownerEmail ?? null, ownerEmail ?? null]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: toStringValue(row.id),
+    studentEmail: toStringValue(row.studentEmail),
+    audioBlobUrl: toStringValue(row.audioBlobUrl),
+  };
+}
+
+export async function findStudentSubmissionAudioAccessById(
+  submissionId: string,
+  studentEmail: string
+): Promise<SubmissionAccessRow | null> {
+  const result = await query(
+    `SELECT
+      s.id as id,
+      s.student_email as studentEmail,
+      COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl
+    FROM submissions s
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE s.id = ?
+      AND LOWER(s.student_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    LIMIT 1`,
+    [submissionId, studentEmail]
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -3319,6 +3422,7 @@ export async function finalizeAiGradeDelivery(input: {
         ag.status as status,
         ag.delivery_status as deliveryStatus,
         ag.cache_key as cacheKey,
+        ag.assignment_fingerprint as assignmentFingerprint,
         ag.cache_hit as cacheHit,
         ag.suggested_score as suggestedScore,
         ag.feedback as feedback,
@@ -3327,6 +3431,12 @@ export async function finalizeAiGradeDelivery(input: {
         ag.result_source as resultSource,
         ag.confidence as confidence,
         COALESCE(ag.completed_at, ag.created_at) as occurredAt,
+        a.id as assignmentId,
+        a.title as assignmentTitle,
+        COALESCE(a.description, '') as assignmentDescription,
+        a.instructions as assignmentInstructions,
+        COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as assignmentTargetLanguage,
+        COALESCE(a.max_points, 100) as assignmentMaxPoints,
         a.rubric as assignmentRubric,
         EXISTS(
           SELECT 1
@@ -3350,6 +3460,16 @@ export async function finalizeAiGradeDelivery(input: {
     });
     const attempt = attemptResult.rows[0];
     if (!attempt) return await rollbackResult("attempt_ineligible");
+
+    const attemptAssignmentFingerprint = toStringValue(
+      attempt.assignmentFingerprint,
+    ).trim();
+    if (
+      !attemptAssignmentFingerprint ||
+      attemptAssignmentFingerprint !== assignmentFingerprintFromAttemptDeliveryRow(attempt)
+    ) {
+      return await rollbackResult("submission_changed");
+    }
 
     const suggestedScore = Number(attempt.suggestedScore);
     const baseAttemptEligible =
@@ -5238,7 +5358,8 @@ async function reserveAiReviewAllowanceAtomic(input: {
 
     const existingResult = await transaction.execute({
       sql: `SELECT id, status, scope_key as scopeKey,
-        attempt_id as attemptId, updated_at as updatedAt
+        attempt_id as attemptId, source_kind as sourceKind,
+        updated_at as updatedAt
       FROM ai_review_allowance_reservations_v1
       WHERE LOWER(teacher_email) = LOWER(?) AND semantic_key = ?
       LIMIT 1`,
@@ -5250,8 +5371,17 @@ async function reserveAiReviewAllowanceAtomic(input: {
       if (!sourceAttemptId) {
         throw new Error("Consumed AI review allowance is missing its source attempt.");
       }
+      const sourceKind: AiReviewSourceKind =
+        toStringValue(existing?.sourceKind) === "transcript" ? "transcript" : "grading";
       await transaction.commit();
-      return { ...baseSummary, reservationStatus: "duplicate", sourceAttemptId };
+      return {
+        ...baseSummary,
+        reservationStatus: "duplicate",
+        reservationId: toStringValue(existing.id),
+        sourceAttemptId,
+        sourceResultId: sourceAttemptId,
+        sourceKind,
+      };
     }
     if (
       toStringValue(existing?.status) === "reserved" &&
@@ -5273,7 +5403,8 @@ async function reserveAiReviewAllowanceAtomic(input: {
         sql: `UPDATE ai_review_allowance_reservations_v1
         SET allowance_kind = ?, scope_key = ?, stripe_subscription_id = ?,
             period_start = ?, period_end = ?, status = 'reserved', attempt_id = '',
-            updated_at = ?, consumed_at = NULL, released_at = NULL
+            source_kind = 'grading', updated_at = ?, consumed_at = NULL,
+            released_at = NULL
         WHERE id = ? AND LOWER(teacher_email) = LOWER(?)
           AND semantic_key = ?
           AND (status = 'released' OR (status = 'reserved' AND updated_at <= ?))`,
@@ -5381,25 +5512,112 @@ async function consumeAiReviewReservationInTransaction(input: {
     now: input.now,
   });
   if (!allowance.allowanceKind) return false;
+  await input.transaction.execute({
+    sql: `INSERT INTO submission_transcripts (
+      id, submission_id, teacher_email, semantic_key, assignment_fingerprint,
+      transcript_cache_key, transcript, detected_language, transcript_quality,
+      duration_seconds, transcription_provider, transcription_model,
+      estimated_cost_microusd, latency_ms, created_at, updated_at
+    )
+    SELECT ?, ag.submission_id, LOWER(ag.teacher_email), ag.cache_key,
+      ag.assignment_fingerprint, '', TRIM(ag.transcript), ag.detected_language,
+      ag.transcript_quality, ag.duration_seconds, ag.transcription_provider,
+      ag.transcription_model, 0, 0, ?, ?
+    FROM ai_grading_attempts ag
+    JOIN submissions s ON s.id = ag.submission_id
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE ag.id = ?
+      AND LOWER(ag.teacher_email) = LOWER(?)
+      AND ag.status = 'completed'
+      AND ag.delivery_status IN ('pending', 'not_applicable', 'delivered')
+      AND TRIM(ag.transcript) <> ''
+      AND TRIM(ag.error_code) = ''
+      AND TRIM(ag.cache_key) <> ''
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    ON CONFLICT(submission_id, semantic_key) DO UPDATE SET
+      id = submission_transcripts.id`,
+    args: [
+      makeId("tr"),
+      input.now,
+      input.now,
+      input.attemptId,
+      input.teacherEmail,
+      input.teacherEmail,
+    ],
+  });
+  const durableTranscript = await input.transaction.execute({
+    sql: `SELECT st.id
+    FROM submission_transcripts st
+    JOIN ai_grading_attempts ag
+      ON ag.submission_id = st.submission_id
+      AND ag.cache_key = st.semantic_key
+    JOIN submissions s ON s.id = st.submission_id
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE ag.id = ?
+      AND LOWER(ag.teacher_email) = LOWER(?)
+      AND LOWER(st.teacher_email) = LOWER(?)
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND TRIM(st.transcript) <> ''
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    LIMIT 1`,
+    args: [
+      input.attemptId,
+      input.teacherEmail,
+      input.teacherEmail,
+      input.teacherEmail,
+    ],
+  });
+  if (!durableTranscript.rows[0]) return false;
   const result = await input.transaction.execute({
     sql: `UPDATE ai_review_allowance_reservations_v1
-    SET status = 'consumed', attempt_id = ?, updated_at = ?, consumed_at = ?,
+    SET status = 'consumed', attempt_id = ?, source_kind = 'grading',
+        updated_at = ?,
+        consumed_at = CASE WHEN status = 'reserved' THEN ? ELSE consumed_at END,
         released_at = NULL
     WHERE id = ?
       AND LOWER(teacher_email) = LOWER(?)
-      AND status = 'reserved'
-      AND allowance_kind = ?
-      AND scope_key = ?
       AND semantic_key = (
         SELECT cache_key FROM ai_grading_attempts
         WHERE id = ?
           AND LOWER(teacher_email) = LOWER(?)
           AND status = 'completed'
           AND delivery_status IN ('pending', 'not_applicable', 'delivered')
-          AND suggested_score IS NOT NULL
+          AND TRIM(transcript) <> ''
           AND TRIM(error_code) = ''
           AND TRIM(cache_key) <> ''
         LIMIT 1
+      )
+      AND (
+        (
+          status = 'reserved'
+          AND allowance_kind = ?
+          AND scope_key = ?
+        )
+        OR (
+          status = 'consumed'
+          AND source_kind = 'transcript'
+          AND EXISTS (
+            SELECT 1
+            FROM submission_transcripts st
+            JOIN submissions s ON s.id = st.submission_id
+            JOIN assignments a ON a.id = s.assignment_id
+            JOIN classes c ON c.id = a.class_id
+            WHERE st.id = ai_review_allowance_reservations_v1.attempt_id
+              AND LOWER(st.teacher_email) = LOWER(?)
+              AND st.semantic_key = ai_review_allowance_reservations_v1.semantic_key
+              AND LOWER(c.owner_email) = LOWER(?)
+              AND s.deleted_at IS NULL
+              AND a.deleted_at IS NULL
+              AND c.deleted_at IS NULL
+          )
+        )
       )`,
     args: [
       input.attemptId,
@@ -5407,9 +5625,11 @@ async function consumeAiReviewReservationInTransaction(input: {
       input.now,
       input.reservationId,
       input.teacherEmail,
+      input.attemptId,
+      input.teacherEmail,
       allowance.allowanceKind,
       allowance.scopeKey,
-      input.attemptId,
+      input.teacherEmail,
       input.teacherEmail,
     ],
   });
@@ -6360,7 +6580,15 @@ export type SubmissionForAiGradeRow = {
 export async function listUngradedSubmissionsForAiGrade(
   assignmentId: string,
   ownerEmail: string
-): Promise<Array<SubmissionForAiGradeRow & { studentName: string }>> {
+): Promise<
+  Array<
+    SubmissionForAiGradeRow & {
+      studentName: string;
+      hasPersistedTranscript: boolean;
+      consumedTranscriptFingerprints: string[];
+    }
+  >
+> {
   const result = await query(
     `SELECT
       s.id as submissionId,
@@ -6374,7 +6602,26 @@ export async function listUngradedSubmissionsForAiGrade(
       a.rubric as rubric,
       a.max_points as maxPoints,
       s.grade as finalGrade,
-      COALESCE(s.feedback, '') as finalFeedback
+      COALESCE(s.feedback, '') as finalFeedback,
+      EXISTS (
+        SELECT 1
+        FROM submission_transcripts st
+        WHERE st.submission_id = s.id
+          AND LOWER(st.teacher_email) = LOWER(?)
+          AND TRIM(st.transcript) <> ''
+      ) as hasPersistedTranscript,
+      COALESCE((
+        SELECT GROUP_CONCAT(DISTINCT st.assignment_fingerprint)
+        FROM submission_transcripts st
+        JOIN ai_review_allowance_reservations_v1 reservation
+          ON LOWER(reservation.teacher_email) = LOWER(st.teacher_email)
+          AND reservation.semantic_key = st.semantic_key
+          AND reservation.status = 'consumed'
+        WHERE st.submission_id = s.id
+          AND LOWER(st.teacher_email) = LOWER(?)
+          AND TRIM(st.transcript) <> ''
+          AND TRIM(st.assignment_fingerprint) <> ''
+      ), '') as consumedTranscriptFingerprints
     FROM submissions s
     JOIN assignments a ON a.id = s.assignment_id
     JOIN classes c ON c.id = a.class_id
@@ -6386,7 +6633,7 @@ export async function listUngradedSubmissionsForAiGrade(
       AND c.deleted_at IS NULL
       AND LOWER(c.owner_email) = LOWER(?)
     ORDER BY s.submitted_at ASC`,
-    [assignmentId, ownerEmail]
+    [ownerEmail, ownerEmail, assignmentId, ownerEmail]
   );
   return result.rows.map((row) => ({
     submissionId: toStringValue(row.submissionId),
@@ -6401,6 +6648,11 @@ export async function listUngradedSubmissionsForAiGrade(
     maxPoints: toNumber(row.maxPoints),
     finalGrade: toNullableNumber(row.finalGrade),
     finalFeedback: toStringValue(row.finalFeedback),
+    hasPersistedTranscript: toNumber(row.hasPersistedTranscript) === 1,
+    consumedTranscriptFingerprints: toStringValue(row.consumedTranscriptFingerprints)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
   }));
 }
 
@@ -6487,6 +6739,7 @@ function rowToAiAttempt(row: Row): AiGradingAttemptRow {
     errorCode: toStringValue(row.errorCode),
     errorMessage: toStringValue(row.errorMessage),
     cacheKey: toStringValue(row.cacheKey),
+    assignmentFingerprint: toStringValue(row.assignmentFingerprint),
     cacheHit: toNumber(row.cacheHit) === 1,
     inputTokens: toNumber(row.inputTokens),
     cachedInputTokens: toNumber(row.cachedInputTokens),
@@ -6537,6 +6790,7 @@ export async function createAiGradingAttempt(input: {
   errorCode?: string;
   errorMessage?: string;
   cacheKey?: string;
+  assignmentFingerprint?: string;
   cacheHit?: boolean;
   inputTokens?: number;
   cachedInputTokens?: number;
@@ -6569,6 +6823,7 @@ export async function createAiGradingAttempt(input: {
     errorCode: input.errorCode ?? "",
     errorMessage: input.errorMessage ?? "",
     cacheKey: input.cacheKey ?? "",
+    assignmentFingerprint: input.assignmentFingerprint?.trim() ?? "",
     cacheHit: input.cacheHit ?? false,
     inputTokens: toNonNegativeInteger(input.inputTokens),
     cachedInputTokens: toNonNegativeInteger(input.cachedInputTokens),
@@ -6599,7 +6854,8 @@ export async function createAiGradingAttempt(input: {
       feedback, strengths, improvements, evidence, confidence, warnings,
       teacher_attention, transcription_provider, grading_provider,
       transcription_model, grading_model, error_code, error_message,
-      cache_key, cache_hit, input_tokens, cached_input_tokens, output_tokens,
+      cache_key, assignment_fingerprint, cache_hit, input_tokens,
+      cached_input_tokens, output_tokens,
       latency_ms, retries, escalated, escalation_reason, estimated_cost_microusd,
       prompt_version, result_source, billing_required, billing_price_book_id,
       billing_stripe_customer_id, billing_stripe_subscription_id,
@@ -6610,7 +6866,7 @@ export async function createAiGradingAttempt(input: {
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?, ?, ?, ?
     )`,
     [
       item.id,
@@ -6638,6 +6894,7 @@ export async function createAiGradingAttempt(input: {
       item.errorCode ?? "",
       item.errorMessage ?? "",
       item.cacheKey,
+      item.assignmentFingerprint,
       item.cacheHit ? 1 : 0,
       item.inputTokens,
       item.cachedInputTokens,
@@ -6722,6 +6979,470 @@ export async function findOwnedSubmissionForAiReview(
   };
 }
 
+const MAX_PERSISTED_TRANSCRIPT_CHARS = 100_000;
+
+function normalizePersistedTranscript(value: string) {
+  const transcript = requireTrimmedValue("transcript", value);
+  if (transcript.length > MAX_PERSISTED_TRANSCRIPT_CHARS) {
+    throw new RangeError("Transcript is too long to persist.");
+  }
+  return transcript;
+}
+
+function rowToSubmissionTranscript(row: Row): SubmissionTranscriptRow {
+  return {
+    id: toStringValue(row.id),
+    submissionId: toStringValue(row.submissionId),
+    teacherEmail: toStringValue(row.teacherEmail),
+    semanticKey: toStringValue(row.semanticKey),
+    assignmentFingerprint: toStringValue(row.assignmentFingerprint),
+    transcriptCacheKey: toStringValue(row.transcriptCacheKey),
+    transcript: toStringValue(row.transcript),
+    detectedLanguage: toStringValue(row.detectedLanguage),
+    transcriptQuality: toStringValue(row.transcriptQuality),
+    durationSeconds: toNumber(row.durationSeconds),
+    transcriptionProvider: toStringValue(row.transcriptionProvider),
+    transcriptionModel: toStringValue(row.transcriptionModel),
+    estimatedCostMicrousd: toNumber(row.estimatedCostMicrousd),
+    latencyMs: toNumber(row.latencyMs),
+    createdAt: toNumber(row.createdAt),
+    updatedAt: toNumber(row.updatedAt),
+  };
+}
+
+const SUBMISSION_TRANSCRIPT_SELECT = `SELECT
+  st.id as id,
+  st.submission_id as submissionId,
+  st.teacher_email as teacherEmail,
+  st.semantic_key as semanticKey,
+  st.assignment_fingerprint as assignmentFingerprint,
+  st.transcript_cache_key as transcriptCacheKey,
+  st.transcript as transcript,
+  st.detected_language as detectedLanguage,
+  st.transcript_quality as transcriptQuality,
+  st.duration_seconds as durationSeconds,
+  st.transcription_provider as transcriptionProvider,
+  st.transcription_model as transcriptionModel,
+  st.estimated_cost_microusd as estimatedCostMicrousd,
+  st.latency_ms as latencyMs,
+  st.created_at as createdAt,
+  st.updated_at as updatedAt
+FROM submission_transcripts st
+JOIN submissions s ON s.id = st.submission_id
+JOIN assignments a ON a.id = s.assignment_id
+JOIN classes c ON c.id = a.class_id`;
+
+export async function findSubmissionTranscriptForOwner(
+  submissionId: string,
+  ownerEmail: string,
+): Promise<SubmissionTranscriptRow | null> {
+  const result = await query(
+    `${SUBMISSION_TRANSCRIPT_SELECT}
+    WHERE st.submission_id = ?
+      AND LOWER(st.teacher_email) = LOWER(?)
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    ORDER BY st.updated_at DESC, st.created_at DESC, st.id DESC
+    LIMIT 1`,
+    [submissionId, ownerEmail, ownerEmail],
+  );
+  return result.rows[0] ? rowToSubmissionTranscript(result.rows[0]) : null;
+}
+
+export async function findSubmissionTranscriptByIdForOwner(
+  transcriptId: string,
+  ownerEmail: string,
+): Promise<SubmissionTranscriptRow | null> {
+  const result = await query(
+    `${SUBMISSION_TRANSCRIPT_SELECT}
+    WHERE st.id = ?
+      AND LOWER(st.teacher_email) = LOWER(?)
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    LIMIT 1`,
+    [transcriptId, ownerEmail, ownerEmail],
+  );
+  return result.rows[0] ? rowToSubmissionTranscript(result.rows[0]) : null;
+}
+
+export async function findSubmissionTranscriptForOwnerBySemanticKey(
+  submissionId: string,
+  semanticKey: string,
+  ownerEmail: string,
+): Promise<SubmissionTranscriptRow | null> {
+  const result = await query(
+    `${SUBMISSION_TRANSCRIPT_SELECT}
+    WHERE st.submission_id = ?
+      AND st.semantic_key = ?
+      AND LOWER(st.teacher_email) = LOWER(?)
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    LIMIT 1`,
+    [submissionId, semanticKey, ownerEmail, ownerEmail],
+  );
+  return result.rows[0] ? rowToSubmissionTranscript(result.rows[0]) : null;
+}
+
+type PersistedTranscriptInput = {
+  submissionId: string;
+  teacherEmail: string;
+  semanticKey: string;
+  assignmentFingerprint: string;
+  transcriptCacheKey?: string;
+  transcript: string;
+  detectedLanguage: string;
+  transcriptQuality: string;
+  durationSeconds: number;
+  transcriptionProvider: string;
+  transcriptionModel: string;
+  estimatedCostMicrousd?: number;
+  latencyMs?: number;
+};
+
+function assignmentFingerprintFromAttemptDeliveryRow(row: Row) {
+  return processedAssignmentFingerprint(
+    legacyAssignmentToGradingAssignment({
+      submissionId: toStringValue(row.submissionId),
+      assignmentId: toStringValue(row.assignmentId),
+      assignmentTitle: toStringValue(row.assignmentTitle),
+      audioBlobUrl: "",
+      description: toStringValue(row.assignmentDescription),
+      instructions: toStringValue(row.assignmentInstructions),
+      targetLanguage: toStringValue(row.assignmentTargetLanguage) || "Spanish",
+      rubric: parseJsonValue<Rubric>(row.assignmentRubric),
+      maxPoints: toNumber(row.assignmentMaxPoints),
+      finalGrade: null,
+      finalFeedback: "",
+    }),
+  );
+}
+
+async function upsertSubmissionTranscriptInTransaction(input: {
+  transaction: Transaction;
+  transcriptId: string;
+  now: number;
+  value: PersistedTranscriptInput;
+}) {
+  const value = input.value;
+  const result = await input.transaction.execute({
+    sql: `INSERT INTO submission_transcripts (
+      id, submission_id, teacher_email, semantic_key, assignment_fingerprint,
+      transcript_cache_key,
+      transcript, detected_language, transcript_quality, duration_seconds,
+      transcription_provider, transcription_model, estimated_cost_microusd,
+      latency_ms, created_at, updated_at
+    )
+    SELECT ?, s.id, LOWER(c.owner_email), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    FROM submissions s
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE s.id = ?
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    ON CONFLICT(submission_id, semantic_key) DO UPDATE SET
+      id = submission_transcripts.id`,
+    args: [
+      input.transcriptId,
+      value.semanticKey,
+      requireTrimmedValue("assignmentFingerprint", value.assignmentFingerprint),
+      value.transcriptCacheKey ?? "",
+      normalizePersistedTranscript(value.transcript),
+      value.detectedLanguage.trim(),
+      value.transcriptQuality.trim(),
+      toNonNegativeInteger(value.durationSeconds),
+      requireTrimmedValue("transcriptionProvider", value.transcriptionProvider),
+      requireTrimmedValue("transcriptionModel", value.transcriptionModel),
+      toNonNegativeInteger(value.estimatedCostMicrousd),
+      toNonNegativeInteger(value.latencyMs),
+      input.now,
+      input.now,
+      value.submissionId,
+      normalizeBillingTeacherEmail(value.teacherEmail),
+    ],
+  });
+  return toNumber(result.rowsAffected) === 1;
+}
+
+/**
+ * Makes a standalone transcript visible and consumes its single 30/300 unit in
+ * one transaction. Provider work may happen before this call, but a failed
+ * allowance transition never leaves a readable transcript row behind.
+ */
+export async function finalizeSubmissionTranscriptDelivery(input: {
+  reservationId: string;
+  value: PersistedTranscriptInput;
+  now?: number;
+}): Promise<SubmissionTranscriptRow | null> {
+  const reservationId = requireTrimmedValue("reservationId", input.reservationId);
+  const teacherEmail = normalizeBillingTeacherEmail(input.value.teacherEmail);
+  const semanticKey = requireTrimmedValue("semanticKey", input.value.semanticKey);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  const readyStripeScope = await getReadyStripeSubscriptionScope();
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  try {
+    const existing = await transaction.execute({
+      sql: `SELECT id FROM submission_transcripts
+      WHERE submission_id = ?
+        AND LOWER(teacher_email) = LOWER(?)
+        AND semantic_key = ?
+      LIMIT 1`,
+      args: [input.value.submissionId, teacherEmail, semanticKey],
+    });
+    const transcriptId = toStringValue(existing.rows[0]?.id).trim() || makeId("tr");
+    const saved = await upsertSubmissionTranscriptInTransaction({
+      transaction,
+      transcriptId,
+      now,
+      value: { ...input.value, teacherEmail, semanticKey },
+    });
+    if (!saved) {
+      await transaction.rollback();
+      return null;
+    }
+    const allowance = await resolveAiReviewAllowanceInTransaction({
+      transaction,
+      teacherEmail,
+      readyStripeScope,
+      now,
+    });
+    if (!allowance.allowanceKind) {
+      await transaction.rollback();
+      return null;
+    }
+    const consumed = await transaction.execute({
+      sql: `UPDATE ai_review_allowance_reservations_v1
+      SET status = 'consumed', attempt_id = ?, source_kind = 'transcript',
+          updated_at = ?, consumed_at = ?, released_at = NULL
+      WHERE id = ?
+        AND LOWER(teacher_email) = LOWER(?)
+        AND semantic_key = ?
+        AND status = 'reserved'
+        AND allowance_kind = ?
+        AND scope_key = ?`,
+      args: [
+        transcriptId,
+        now,
+        now,
+        reservationId,
+        teacherEmail,
+        semanticKey,
+        allowance.allowanceKind,
+        allowance.scopeKey,
+      ],
+    });
+    if (toNumber(consumed.rowsAffected) !== 1) {
+      await transaction.rollback();
+      return null;
+    }
+    await transaction.commit();
+    return await findSubmissionTranscriptByIdForOwner(transcriptId, teacherEmail);
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+/** Persists a transcript for an explicitly unmetered deployment path. */
+export async function saveUnmeteredSubmissionTranscript(input: {
+  value: PersistedTranscriptInput;
+  now?: number;
+}): Promise<SubmissionTranscriptRow | null> {
+  const teacherEmail = normalizeBillingTeacherEmail(input.value.teacherEmail);
+  const semanticKey = requireTrimmedValue("semanticKey", input.value.semanticKey);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  try {
+    const existing = await transaction.execute({
+      sql: `SELECT id FROM submission_transcripts
+      WHERE submission_id = ?
+        AND LOWER(teacher_email) = LOWER(?)
+        AND semantic_key = ?
+      LIMIT 1`,
+      args: [input.value.submissionId, teacherEmail, semanticKey],
+    });
+    const transcriptId = toStringValue(existing.rows[0]?.id).trim() || makeId("tr");
+    const saved = await upsertSubmissionTranscriptInTransaction({
+      transaction,
+      transcriptId,
+      now,
+      value: { ...input.value, teacherEmail, semanticKey },
+    });
+    if (!saved) {
+      await transaction.rollback();
+      return null;
+    }
+    await transaction.commit();
+    return await findSubmissionTranscriptByIdForOwner(transcriptId, teacherEmail);
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+/** Copies a transcript from an exact consumed result without using another unit. */
+export async function copyConsumedReviewTranscriptToSubmission(input: {
+  reservationId: string;
+  sourceResultId: string;
+  sourceKind: AiReviewSourceKind;
+  submissionId: string;
+  teacherEmail: string;
+  semanticKey: string;
+  assignmentFingerprint: string;
+  now?: number;
+}): Promise<SubmissionTranscriptRow | null> {
+  const reservationId = requireTrimmedValue("reservationId", input.reservationId);
+  const sourceResultId = requireTrimmedValue("sourceResultId", input.sourceResultId);
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const semanticKey = requireTrimmedValue("semanticKey", input.semanticKey);
+  const assignmentFingerprint = requireTrimmedValue(
+    "assignmentFingerprint",
+    input.assignmentFingerprint,
+  );
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  try {
+    const reservation = await transaction.execute({
+      sql: `SELECT source_kind as sourceKind, attempt_id as sourceResultId
+      FROM ai_review_allowance_reservations_v1
+      WHERE id = ?
+        AND LOWER(teacher_email) = LOWER(?)
+        AND semantic_key = ?
+        AND status = 'consumed'
+      LIMIT 1`,
+      args: [reservationId, teacherEmail, semanticKey],
+    });
+    const reservedSource = reservation.rows[0];
+    const storedKind: AiReviewSourceKind =
+      toStringValue(reservedSource?.sourceKind) === "transcript" ? "transcript" : "grading";
+    if (
+      !reservedSource ||
+      storedKind !== input.sourceKind ||
+      toStringValue(reservedSource.sourceResultId) !== sourceResultId
+    ) {
+      await transaction.rollback();
+      return null;
+    }
+
+    const source = input.sourceKind === "transcript"
+      ? await transaction.execute({
+          sql: `SELECT
+            st.assignment_fingerprint as assignmentFingerprint,
+            st.transcript_cache_key as transcriptCacheKey,
+            st.transcript as transcript,
+            st.detected_language as detectedLanguage,
+            st.transcript_quality as transcriptQuality,
+            st.duration_seconds as durationSeconds,
+            st.transcription_provider as transcriptionProvider,
+            st.transcription_model as transcriptionModel,
+            st.estimated_cost_microusd as estimatedCostMicrousd,
+            st.latency_ms as latencyMs
+          FROM submission_transcripts st
+          JOIN submissions s ON s.id = st.submission_id
+          JOIN assignments a ON a.id = s.assignment_id
+          JOIN classes c ON c.id = a.class_id
+          WHERE st.id = ?
+            AND LOWER(st.teacher_email) = LOWER(?)
+            AND st.semantic_key = ?
+            AND LOWER(c.owner_email) = LOWER(?)
+            AND s.deleted_at IS NULL
+            AND a.deleted_at IS NULL
+            AND c.deleted_at IS NULL
+          LIMIT 1`,
+          args: [sourceResultId, teacherEmail, semanticKey, teacherEmail],
+        })
+      : await transaction.execute({
+          sql: `SELECT
+            ag.assignment_fingerprint as assignmentFingerprint,
+            '' as transcriptCacheKey,
+            ag.transcript as transcript,
+            ag.detected_language as detectedLanguage,
+            ag.transcript_quality as transcriptQuality,
+            ag.duration_seconds as durationSeconds,
+            ag.transcription_provider as transcriptionProvider,
+            ag.transcription_model as transcriptionModel,
+            ag.estimated_cost_microusd as estimatedCostMicrousd,
+            ag.latency_ms as latencyMs
+          FROM ai_grading_attempts ag
+          JOIN submissions s ON s.id = ag.submission_id
+          JOIN assignments a ON a.id = s.assignment_id
+          JOIN classes c ON c.id = a.class_id
+          WHERE ag.id = ?
+            AND LOWER(ag.teacher_email) = LOWER(?)
+            AND ag.cache_key = ?
+            AND ag.status = 'completed'
+            AND ag.delivery_status IN ('delivered', 'not_applicable')
+            AND TRIM(ag.transcript) <> ''
+            AND LOWER(c.owner_email) = LOWER(?)
+            AND s.deleted_at IS NULL
+            AND a.deleted_at IS NULL
+            AND c.deleted_at IS NULL
+          LIMIT 1`,
+          args: [sourceResultId, teacherEmail, semanticKey, teacherEmail],
+        });
+    const sourceRow = source.rows[0];
+    if (!sourceRow) {
+      await transaction.rollback();
+      return null;
+    }
+    const existing = await transaction.execute({
+      sql: `SELECT id FROM submission_transcripts
+      WHERE submission_id = ?
+        AND LOWER(teacher_email) = LOWER(?)
+        AND semantic_key = ?
+      LIMIT 1`,
+      args: [input.submissionId, teacherEmail, semanticKey],
+    });
+    const transcriptId = toStringValue(existing.rows[0]?.id).trim() || makeId("tr");
+    const saved = await upsertSubmissionTranscriptInTransaction({
+      transaction,
+      transcriptId,
+      now,
+      value: {
+        submissionId: input.submissionId,
+        teacherEmail,
+        semanticKey,
+        assignmentFingerprint:
+          toStringValue(sourceRow.assignmentFingerprint).trim() || assignmentFingerprint,
+        transcriptCacheKey: toStringValue(sourceRow.transcriptCacheKey),
+        transcript: toStringValue(sourceRow.transcript),
+        detectedLanguage: toStringValue(sourceRow.detectedLanguage),
+        transcriptQuality: toStringValue(sourceRow.transcriptQuality),
+        durationSeconds: toNumber(sourceRow.durationSeconds),
+        transcriptionProvider: toStringValue(sourceRow.transcriptionProvider),
+        transcriptionModel: toStringValue(sourceRow.transcriptionModel),
+        estimatedCostMicrousd: toNumber(sourceRow.estimatedCostMicrousd),
+        latencyMs: toNumber(sourceRow.latencyMs),
+      },
+    });
+    if (!saved) {
+      await transaction.rollback();
+      return null;
+    }
+    await transaction.commit();
+    return await findSubmissionTranscriptByIdForOwner(transcriptId, teacherEmail);
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
 export async function markAiGradingAttemptNotApplicable(input: {
   attemptId: string;
   ownerEmail: string;
@@ -6736,6 +7457,43 @@ export async function markAiGradingAttemptNotApplicable(input: {
   await ensureInitialized();
   const transaction = await db.transaction("write");
   try {
+    const attemptResult = await transaction.execute({
+      sql: `SELECT
+        ag.submission_id as submissionId,
+        ag.assignment_fingerprint as assignmentFingerprint,
+        a.id as assignmentId,
+        a.title as assignmentTitle,
+        COALESCE(a.description, '') as assignmentDescription,
+        a.instructions as assignmentInstructions,
+        COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as assignmentTargetLanguage,
+        COALESCE(a.max_points, 100) as assignmentMaxPoints,
+        a.rubric as assignmentRubric
+      FROM ai_grading_attempts ag
+      JOIN submissions s ON s.id = ag.submission_id
+      JOIN assignments a ON a.id = s.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      WHERE ag.id = ?
+        AND LOWER(ag.teacher_email) = LOWER(?)
+        AND ag.status = 'completed'
+        AND ag.delivery_status = 'pending'
+        AND ag.billing_required = 0
+        AND s.deleted_at IS NULL
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND LOWER(c.owner_email) = LOWER(?)
+      LIMIT 1`,
+      args: [attemptId, ownerEmail, ownerEmail],
+    });
+    const attempt = attemptResult.rows[0];
+    if (
+      !attempt ||
+      !toStringValue(attempt.assignmentFingerprint).trim() ||
+      toStringValue(attempt.assignmentFingerprint).trim() !==
+        assignmentFingerprintFromAttemptDeliveryRow(attempt)
+    ) {
+      await transaction.rollback();
+      return false;
+    }
     const result = await transaction.execute({
       sql: `UPDATE ai_grading_attempts
       SET delivery_status = 'not_applicable'
@@ -7362,6 +8120,7 @@ export async function listAiGradingAttemptsForSubmission(
       ag.error_code as errorCode,
       ag.error_message as errorMessage,
       ag.cache_key as cacheKey,
+      ag.assignment_fingerprint as assignmentFingerprint,
       ag.cache_hit as cacheHit,
       ag.input_tokens as inputTokens,
       ag.cached_input_tokens as cachedInputTokens,
@@ -7412,26 +8171,75 @@ export async function getReusableAiReviewAttempt(input: {
   const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
   const semanticKey = requireTrimmedValue("semanticKey", input.semanticKey);
   const source = await query(
-    `SELECT submission_id as submissionId
-    FROM ai_grading_attempts
-    WHERE id = ?
-      AND LOWER(teacher_email) = LOWER(?)
-      AND cache_key = ?
-      AND status = 'completed'
-      AND delivery_status IN ('delivered', 'not_applicable')
-      AND suggested_score IS NOT NULL
-      AND TRIM(error_code) = ''
+    `SELECT
+      ag.id as id,
+      ag.submission_id as submissionId,
+      ag.teacher_email as teacherEmail,
+      ag.status as status,
+      ag.delivery_status as deliveryStatus,
+      ag.transcript as transcript,
+      ag.detected_language as detectedLanguage,
+      ag.transcript_quality as transcriptQuality,
+      ag.duration_seconds as durationSeconds,
+      ag.suggested_score as suggestedScore,
+      ag.rubric_scores as rubricScores,
+      ag.feedback as feedback,
+      ag.strengths as strengths,
+      ag.improvements as improvements,
+      ag.evidence as evidence,
+      ag.confidence as confidence,
+      ag.warnings as warnings,
+      ag.teacher_attention as teacherAttention,
+      ag.transcription_provider as transcriptionProvider,
+      ag.grading_provider as gradingProvider,
+      ag.transcription_model as transcriptionModel,
+      ag.grading_model as gradingModel,
+      ag.error_code as errorCode,
+      ag.error_message as errorMessage,
+      ag.cache_key as cacheKey,
+      ag.assignment_fingerprint as assignmentFingerprint,
+      ag.cache_hit as cacheHit,
+      ag.input_tokens as inputTokens,
+      ag.cached_input_tokens as cachedInputTokens,
+      ag.output_tokens as outputTokens,
+      ag.latency_ms as latencyMs,
+      ag.retries as retries,
+      ag.escalated as escalated,
+      ag.escalation_reason as escalationReason,
+      ag.estimated_cost_microusd as estimatedCostMicrousd,
+      ag.prompt_version as promptVersion,
+      ag.result_source as resultSource,
+      ag.billing_required as billingRequired,
+      ag.billing_price_book_id as billingPriceBookId,
+      ag.billing_stripe_customer_id as billingStripeCustomerId,
+      ag.billing_stripe_subscription_id as billingStripeSubscriptionId,
+      ag.billing_catalog_fingerprint as billingCatalogFingerprint,
+      ag.billing_contract_id as billingContractId,
+      ag.billing_livemode as billingLivemode,
+      ag.billing_qualifying_class_high_water as billingQualifyingClassHighWater,
+      ag.billing_free_credit_applied as billingFreeCreditApplied,
+      ag.billable_output_tokens as billableOutputTokens,
+      ag.created_at as createdAt,
+      ag.completed_at as completedAt
+    FROM ai_grading_attempts ag
+    JOIN submissions s ON s.id = ag.submission_id
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE ag.id = ?
+      AND LOWER(ag.teacher_email) = LOWER(?)
+      AND ag.cache_key = ?
+      AND ag.status = 'completed'
+      AND ag.delivery_status IN ('delivered', 'not_applicable')
+      AND TRIM(ag.transcript) <> ''
+      AND TRIM(ag.error_code) = ''
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
     LIMIT 1`,
-    [attemptId, teacherEmail, semanticKey],
+    [attemptId, teacherEmail, semanticKey, teacherEmail],
   );
-  const submissionId = toStringValue(source.rows[0]?.submissionId).trim();
-  if (!submissionId) return null;
-  const attempts = await listAiGradingAttemptsForSubmission(
-    submissionId,
-    teacherEmail,
-    20,
-  );
-  return attempts.find((attempt) => attempt.id === attemptId) ?? null;
+  return source.rows[0] ? rowToAiAttempt(source.rows[0]) : null;
 }
 
 function rowToGradingResultCache(row: Row): GradingResultCacheRow {
@@ -8104,7 +8912,7 @@ export async function listStudentAssignmentSummaries(
        AND a.deleted_at IS NULL
        AND c.deleted_at IS NULL
        AND LOWER(c.owner_email) = LOWER(?)
-     ORDER BY a.created_at ASC`,
+     ORDER BY s.submitted_at IS NULL, s.submitted_at DESC, a.created_at DESC`,
     [studentEmail, classId, ownerEmail]
   );
   return result.rows.map((row) => ({
@@ -8113,6 +8921,9 @@ export async function listStudentAssignmentSummaries(
     maxPoints: toNumber(row.maxPoints),
     createdAt: toNumber(row.createdAt),
     submissionId: row.submissionId ? toStringValue(row.submissionId) : null,
+    audioData: row.submissionId
+      ? toProtectedAudioPath(toStringValue(row.submissionId))
+      : null,
     submittedAt: row.submittedAt ? toNumber(row.submittedAt) : null,
     grade: toNullableNumber(row.grade),
     feedback: toStringValue(row.feedback),

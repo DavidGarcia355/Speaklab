@@ -140,17 +140,17 @@ const FAQ_SECTIONS = [
       {
         question: "Is TryHabla free?",
         answer:
-          "Yes. Free includes classes, rosters, speaking assignments, student recordings, teacher grading, feedback, CSV export, and a lifetime allowance of 30 successful AI reviews per teacher account. After those 30 reviews, the non-AI classroom remains available at no charge.",
+          "Yes. Free includes classes, rosters, speaking assignments, student recordings, teacher grading, feedback, CSV export, and a lifetime allowance of 30 AI-assisted recordings per teacher account. After those 30 recordings, the non-AI classroom remains available at no charge.",
       },
       {
         question: "How does optional AI pricing work?",
         answer:
-          "Teacher is $20 per month and includes 300 successful AI reviews in each Stripe billing period. Recordings can be up to five minutes. Failures, unable-to-grade results, and exact retries do not use another review. Unused reviews do not roll over, and there are no automatic overages; reaching the limit pauses AI while recording and manual grading remain available.",
+          "Teacher is $20 per month and includes 300 AI-assisted recordings in each Stripe billing period. One unit delivers a transcript, and optional grading for that same recording and assignment is included. Recordings can be up to five minutes. Provider failures, empty or unusable transcripts, and exact retries do not use another unit. Unused units do not roll over, and there are no automatic overages; reaching the limit pauses AI while recording, playback, downloads, and manual grading remain available.",
       },
       {
         question: "Does AI save the grade automatically?",
         answer:
-          "When a teacher has AI reviews available, a successful run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, TryHabla saves no score.",
+          "A teacher can generate, copy, or download a transcript without requesting an AI grade. If the teacher chooses grading, a successful run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, TryHabla saves no score.",
       },
       {
         question: "What does the current workflow include?",

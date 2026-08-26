@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
   blobDel: vi.fn(),
   requireTeacherEmail: vi.fn(),
   requireAuthenticatedEmail: vi.fn(),
+  requireSchoolStudentEmail: vi.fn(),
   findSubmissionAccessById: vi.fn(),
+  findStudentSubmissionAudioAccessById: vi.fn(),
   findAssignmentById: vi.fn(),
   isStudentOnRoster: vi.fn(),
 }));
@@ -43,10 +45,12 @@ afterAll(() => {
 vi.mock("@/lib/authz", () => ({
   requireTeacherEmail: mocks.requireTeacherEmail,
   requireAuthenticatedEmail: mocks.requireAuthenticatedEmail,
+  requireSchoolStudentEmail: mocks.requireSchoolStudentEmail,
 }));
 
 vi.mock("@/lib/db", () => ({
   findSubmissionAccessById: mocks.findSubmissionAccessById,
+  findStudentSubmissionAudioAccessById: mocks.findStudentSubmissionAudioAccessById,
   findAssignmentById: mocks.findAssignmentById,
   isStudentOnRoster: mocks.isStudentOnRoster,
 }));
@@ -422,6 +426,76 @@ describe("audio playback authorization and legacy handling", () => {
 
     expect(response.status).toBe(410);
     expect(data.error).toContain("migration");
+    expect(mocks.blobGet).not.toHaveBeenCalled();
+  });
+});
+
+describe("student oral-portfolio audio authorization", () => {
+  beforeEach(() => {
+    mocks.blobGet.mockReset();
+    mocks.requireSchoolStudentEmail.mockReset();
+    mocks.findStudentSubmissionAudioAccessById.mockReset();
+    mocks.requireSchoolStudentEmail.mockResolvedValue("student@example.com");
+    process.env.AUDIO_BLOB_STORE_ID = "store_audio_test";
+    process.env.VERCEL = "1";
+  });
+
+  async function callStudentAudioRoute(submissionId = "sub_1") {
+    const { GET } = await import("@/app/api/student/submissions/[submissionId]/audio/route");
+    return GET(new Request(`http://localhost/api/student/submissions/${submissionId}/audio`), {
+      params: Promise.resolve({ submissionId }),
+    });
+  }
+
+  it("streams a student's own active private recording", async () => {
+    mocks.findStudentSubmissionAudioAccessById.mockResolvedValue({
+      id: "sub_1",
+      studentEmail: "student@example.com",
+      audioBlobUrl: "submissions/asg/sub.webm",
+    });
+    mocks.blobGet.mockResolvedValue({
+      statusCode: 200,
+      stream: new Response("audio").body,
+      blob: { contentType: "audio/webm" },
+    });
+
+    const response = await callStudentAudioRoute();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(mocks.findStudentSubmissionAudioAccessById).toHaveBeenCalledWith(
+      "sub_1",
+      "student@example.com"
+    );
+  });
+
+  it("does not reveal another student's recording when an ID is guessed", async () => {
+    mocks.requireSchoolStudentEmail.mockResolvedValue("other-student@example.com");
+    mocks.findStudentSubmissionAudioAccessById.mockResolvedValue(null);
+
+    const response = await callStudentAudioRoute("sub_someone_else");
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(404);
+    expect(body.error).toBe("Audio not found.");
+    expect(mocks.findStudentSubmissionAudioAccessById).toHaveBeenCalledWith(
+      "sub_someone_else",
+      "other-student@example.com"
+    );
+    expect(mocks.blobGet).not.toHaveBeenCalled();
+  });
+
+  it("denies unauthenticated playback before looking up a submission", async () => {
+    const { HttpError } = await import("@/lib/http");
+    mocks.requireSchoolStudentEmail.mockRejectedValue(
+      new HttpError(401, "You'll need to sign in first.")
+    );
+
+    const response = await callStudentAudioRoute();
+
+    expect(response.status).toBe(401);
+    expect(mocks.findStudentSubmissionAudioAccessById).not.toHaveBeenCalled();
     expect(mocks.blobGet).not.toHaveBeenCalled();
   });
 });

@@ -172,6 +172,9 @@ export async function POST(
         "saved_review_unavailable",
         "submission_already_graded",
         "provider_budget_exhausted",
+        "usage_limit_reached",
+        "provider_rate_limit",
+        "provider_spend_limit",
       ].includes(outcome.code);
       const attempts = resultWasWithheld || failedBeforeAttempt
         ? []
@@ -188,6 +191,10 @@ export async function POST(
               : outcome.code === "ai_review_limit_reached"
                 ? 429
                 : outcome.code === "provider_budget_exhausted"
+                  ? 429
+                : outcome.code === "usage_limit_reached" ||
+                    outcome.code === "provider_rate_limit" ||
+                    outcome.code === "provider_spend_limit"
                   ? 429
                 : outcome.code === "billing_sync_required" ||
                     outcome.code === "ai_review_in_progress" ||

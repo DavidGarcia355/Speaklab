@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { processedAssignmentFingerprint } from "@/lib/ai/recording-identity";
+import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapter";
 
 const localDbPath = path.join(os.tmpdir(), "speaklab-grading-persistence-test.db");
 
@@ -35,7 +37,7 @@ async function createFixture(db: DbModule, label: string) {
     studentEmail: `${label}-student@example.com`,
     audioBlobUrl: `submissions/${label}/answer.webm`,
   });
-  return { teacherEmail, submission };
+  return { assignment, teacherEmail, submission };
 }
 
 describe("grading persistence", () => {
@@ -81,7 +83,7 @@ describe("grading persistence", () => {
   });
 
   it("persists extended attempt metadata without weakening owner-scoped reads", async () => {
-    const { teacherEmail, submission } = await createFixture(db, "attempt-owner");
+    const { assignment, teacherEmail, submission } = await createFixture(db, "attempt-owner");
     const attempt = await db.createAiGradingAttempt({
       submissionId: submission.id,
       teacherEmail,
@@ -104,6 +106,21 @@ describe("grading persistence", () => {
       transcriptionModel: "mock-transcriber-v1",
       gradingModel: "mock-grader-v1",
       cacheKey: "attempt-cache-key",
+      assignmentFingerprint: processedAssignmentFingerprint(
+        legacyAssignmentToGradingAssignment({
+          submissionId: submission.id,
+          assignmentId: assignment.id,
+          assignmentTitle: assignment.title,
+          audioBlobUrl: submission.audioBlobUrl,
+          description: assignment.description,
+          instructions: assignment.instructions,
+          targetLanguage: assignment.targetLanguage,
+          rubric: assignment.rubric,
+          maxPoints: assignment.maxPoints,
+          finalGrade: null,
+          finalFeedback: "",
+        }),
+      ),
       cacheHit: true,
       inputTokens: 100,
       cachedInputTokens: 40,

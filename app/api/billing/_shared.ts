@@ -70,7 +70,10 @@ export function requireStripeWebhookConfigForApi(): StripeWebhookConfig {
 export function getAiCheckoutAvailability(teacherEmail?: string) {
   const config = getAiConfig();
   if (!config.enabled) {
-    return { available: false as const, reason: "AI grading is not enabled for this deployment." };
+    return {
+      available: false as const,
+      reason: "AI transcription and grading are not enabled for this deployment.",
+    };
   }
   if (config.accessMode !== "paid") {
     return {

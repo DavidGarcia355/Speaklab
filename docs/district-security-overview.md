@@ -4,7 +4,7 @@ This overview is for preliminary school technology review. It reflects source-co
 
 ## Product Purpose
 
-Habla helps language teachers create speaking assignments, collect student audio recordings, review submissions, enter grades/feedback, manage rosters, and export CSV gradebooks.
+TryHabla helps language teachers create speaking assignments, collect student audio recordings, review submissions, enter grades/feedback, manage rosters, and export CSV gradebooks.
 
 ## Users And Roles
 
@@ -14,7 +14,7 @@ Habla helps language teachers create speaking assignments, collect student audio
 
 ## Authentication
 
-Habla uses NextAuth with Google OAuth in the base setup. Microsoft/Azure AD OAuth is optional when configured. Teacher routes require a `teacher` role. Production teacher self-registration is closed unless `ALLOW_TEACHER_SELF_REGISTRATION=true`, the user is already a teacher, or the email is in `TEACHER_ALLOWLIST`.
+TryHabla uses NextAuth with Google OAuth in the base setup. Microsoft/Azure AD OAuth is optional when configured. Teacher routes require a `teacher` role. Production teacher self-registration is closed unless `ALLOW_TEACHER_SELF_REGISTRATION=true`, the user is already a teacher, or the email is in `TEACHER_ALLOWLIST`.
 
 ## Data Collected
 
@@ -22,7 +22,7 @@ See `docs/data-inventory.md`. Main categories include teacher/student emails, st
 
 ## Student Audio Handling
 
-Student audio uploads use Vercel Blob with `access: "private"`. The app no longer falls back to public Blob storage. Teacher playback goes through `/api/submissions/[submissionId]/audio`, which checks teacher role and class ownership before streaming audio. Existing public Blob URLs are blocked and require migration before playback.
+Student audio uploads use Vercel Blob with `access: "private"`. The app no longer falls back to public Blob storage. Teacher playback goes through `/api/submissions/[submissionId]/audio`, which checks teacher role and class ownership. Student portfolio playback uses `/api/student/submissions/[submissionId]/audio`, which checks that the signed-in student owns the active submission. Existing public Blob URLs are blocked and require migration before playback.
 
 ## Authorization Controls
 
@@ -34,11 +34,11 @@ Classes, assignments, and submissions use soft delete first. Cleanup cron hard-d
 
 ## Storage And Subprocessors
 
-Database: Turso/libSQL. Hosting: Vercel. File storage: Vercel Blob. Rate limiting: Upstash Redis. Optional email/webhooks: Resend and Discord. Auth: Google OAuth and optional Microsoft OAuth. Experimental AI providers are OpenAI and Ollama/external model host, but AI grading is disabled by default.
+Database: Turso/libSQL. Hosting: Vercel. File storage: Vercel Blob. Rate limiting: Upstash Redis. Optional email/webhooks: Resend and Discord. Auth: Google OAuth and optional Microsoft OAuth. Configured AI providers can process teacher-requested transcription and optional grading when the AI gate is enabled.
 
 ## Experimental Features
 
-AI grading is experimental and disabled unless `AI_GRADING_ENABLED=true`. When disabled, the UI is hidden and the API returns unavailable before fetching audio or calling providers.
+AI transcription and grading are disabled unless `AI_GRADING_ENABLED=true`. When disabled, the UI is hidden and both APIs return unavailable before fetching audio or calling providers. When enabled, a teacher may generate a durable transcript without requesting a grade; grading the same recording and assignment later reuses that transcript and allowance unit.
 
 ## District Configuration Options
 

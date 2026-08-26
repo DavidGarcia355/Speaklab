@@ -17,15 +17,17 @@ same object so entitlement, quota, UI, and Stripe cannot silently use different 
 | Recurrence | Monthly, interval count 1 |
 | Usage type | `licensed` |
 | Checkout quantity | 1 |
-| Included allowance | 300 successful AI reviews per Stripe billing period |
-| Recording limit | Up to 5 minutes per review |
-| At the limit | Pause AI only; core recording and manual grading remain available |
+| Included allowance | 300 AI-assisted recordings per Stripe billing period |
+| Allowance unit | One successfully delivered transcript; optional grading for that same recording and assignment is included |
+| Recording limit | Up to 5 minutes per AI-assisted recording |
+| At the limit | Pause AI only; core recording, playback, downloads, and manual grading remain available |
 | Overage and rollover | None |
 
-The Free plan's 30 lifetime reviews are app-side. Free has no Stripe Product, Price, subscription,
-or meter. Failed, unable-to-grade, and exact duplicate results consume no review. The application
-must reserve allowance atomically before provider work and finalize it only for a successful
-delivered result.
+The Free plan's 30 lifetime AI-assisted recordings are app-side. Free has no Stripe Product, Price,
+subscription, or meter. Provider failures, empty or unusable transcripts, and exact duplicates
+consume no unit. A successfully delivered transcript consumes one unit; optional grading for that
+same recording and assignment consumes no additional unit. The application must reserve allowance
+atomically before provider work and finalize it only when a transcript is durably delivered.
 
 There are no Stripe Billing Meters, meter events, usage records, per-grade invoice items, or audio
 line items in v3. Provider cost telemetry may remain internal, but it is not customer billing.

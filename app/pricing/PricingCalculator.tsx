@@ -34,7 +34,7 @@ const CONTROLS: readonly PricingControl[] = [
   {
     key: "classCount",
     label: "Classes",
-    hint: "How many classes will use AI reviews?",
+    hint: "How many classes will use AI transcription or grading?",
     min: 1,
     max: 12,
     step: 1,
@@ -51,8 +51,8 @@ const CONTROLS: readonly PricingControl[] = [
   },
   {
     key: "aiAssignmentsPerClass",
-    label: "AI-reviewed assignments",
-    hint: "How many assignments will each class submit in one Stripe billing period?",
+    label: "AI-assisted assignments",
+    hint: "How many assignments will each class transcribe or grade with AI in one Stripe billing period?",
     min: 1,
     max: 12,
     step: 1,
@@ -70,7 +70,7 @@ function planRecommendation(projectedReviews: number) {
   if (projectedReviews <= FREE_LIFETIME_REVIEWS) {
     return {
       name: "Free",
-      detail: "Your lifetime 30-review allowance covers this example.",
+      detail: "Your lifetime 30-recording allowance covers this example.",
     };
   }
 
@@ -113,10 +113,11 @@ export default function PricingCalculator() {
       <div className="pricing-calculator-controls">
         <div className="pricing-calculator-intro">
           <p className="pill pill-subtle">Build your estimate</p>
-          <h3>Match AI reviews to your classroom</h3>
+          <h3>Match AI-assisted recordings to your classroom</h3>
           <p>
-            Each student submission that receives a successful AI result uses one review. Adjust
-            the controls to model one Stripe billing period.
+            Each student recording with a successfully delivered transcript uses one unit. Optional
+            grading for that same submission is included. Adjust the controls to model one Stripe
+            billing period.
           </p>
         </div>
 
@@ -168,14 +169,14 @@ export default function PricingCalculator() {
             <dd>{number.format(estimate.classAssignmentRuns)}</dd>
           </div>
           <div>
-            <dt>Successful AI reviews needed</dt>
+            <dt>AI-assisted recordings needed</dt>
             <dd>{number.format(estimate.projectedReviews)}</dd>
           </div>
           <div>
             <dt>
               {estimate.teacherReviewsAbove > 0
                 ? "Above Teacher allowance"
-                : "Teacher reviews remaining"}
+                : "Teacher units remaining"}
             </dt>
             <dd>
               {number.format(
@@ -190,11 +191,11 @@ export default function PricingCalculator() {
         <div className="pricing-receipt" aria-label="TryHabla plan allowances">
           <div>
             <span>Free</span>
-            <span>30 lifetime reviews</span>
+            <span>30 lifetime recordings</span>
           </div>
           <div>
             <span>Teacher</span>
-            <span>300 reviews / $20 month</span>
+            <span>300 recordings / $20 month</span>
           </div>
           <div>
             <span>TryHabla for Schools</span>
@@ -202,17 +203,18 @@ export default function PricingCalculator() {
           </div>
           <div className="pricing-receipt-total">
             <span>Your estimate</span>
-            <span>{number.format(estimate.projectedReviews)} reviews</span>
+            <span>{number.format(estimate.projectedReviews)} recordings</span>
           </div>
         </div>
 
         <p className="pricing-estimate-note">
-          Need more AI reviews? Explore TryHabla for Schools.
+          Need more AI-assisted recordings? Explore TryHabla for Schools.
         </p>
         <p className="pricing-estimate-fineprint">
           This estimate assumes one submission from every student for each selected assignment.
-          Failures, unable-to-grade results, and exact retries do not use another review. Unused
-          Teacher reviews do not roll over, and there are no automatic overages.
+          Provider failures, empty or unusable transcripts, and exact retries do not use another
+          unit. Optional grading after transcription uses no additional unit. Unused Teacher units
+          do not roll over, and there are no automatic overages.
         </p>
       </aside>
     </div>
