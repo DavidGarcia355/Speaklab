@@ -14,6 +14,7 @@ async function readFeatures() {
   return (await response.json()) as {
     aiGradingEnabled: boolean;
     aiBulkGradingEnabled: boolean;
+    googleDriveExport: { enabled: boolean; clientId: string };
   };
 }
 
@@ -90,5 +91,27 @@ describe("AI feature readiness", () => {
     vi.stubEnv("ALLOW_TEACHER_SELF_REGISTRATION", "true");
 
     await expect(readFeatures()).resolves.toMatchObject({ aiGradingEnabled: false });
+  });
+
+  it("hides Google Drive unless both its explicit flag and OAuth client are ready", async () => {
+    vi.stubEnv("GOOGLE_DRIVE_EXPORT_ENABLED", "false");
+    vi.stubEnv("AUTH_GOOGLE_ID", "public-client-id.apps.googleusercontent.com");
+    await expect(readFeatures()).resolves.toMatchObject({
+      googleDriveExport: { enabled: false, clientId: "" },
+    });
+
+    vi.stubEnv("GOOGLE_DRIVE_EXPORT_ENABLED", "true");
+    vi.stubEnv("AUTH_GOOGLE_ID", "");
+    await expect(readFeatures()).resolves.toMatchObject({
+      googleDriveExport: { enabled: false, clientId: "" },
+    });
+
+    vi.stubEnv("AUTH_GOOGLE_ID", "public-client-id.apps.googleusercontent.com");
+    await expect(readFeatures()).resolves.toMatchObject({
+      googleDriveExport: {
+        enabled: true,
+        clientId: "public-client-id.apps.googleusercontent.com",
+      },
+    });
   });
 });

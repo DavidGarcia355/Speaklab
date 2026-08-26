@@ -1,4 +1,5 @@
 import AudioPlayer from "@/app/components/AudioPlayer";
+import GoogleDriveExportButton from "@/app/components/GoogleDriveExportButton";
 import { buildSubmissionDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 
 export type StudentOralPortfolioItem = {
@@ -67,6 +68,12 @@ export default function StudentOralPortfolio({
                 src={item.audioData}
                 variant="compact"
                 downloadFilename={downloadFilename}
+              />
+              <GoogleDriveExportButton
+                submissionId={item.submissionId}
+                studentName={studentName}
+                filenameBase={downloadFilename}
+                includeTranscript={false}
               />
               <div className="meta">
                 Score: {item.grade !== null ? `${item.grade} / ${item.maxPoints}` : "Not graded"}

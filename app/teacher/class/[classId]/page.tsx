@@ -14,6 +14,7 @@ import {
   bulkAiConfirmationTitle,
 } from "@/app/components/bulk-ai-grading-presentation";
 import ConfirmModal from "@/app/components/ConfirmModal";
+import GoogleDriveExportButton from "@/app/components/GoogleDriveExportButton";
 import PageTitle from "@/app/components/PageTitle";
 import RubricBuilder, { type RubricCriterionDraft } from "@/app/components/RubricBuilder";
 import SubmissionTranscript from "@/app/components/SubmissionTranscript";
@@ -1643,9 +1644,16 @@ export default function ClassDetailPage() {
                             variant="compact"
                             downloadFilename={downloadFilenameBase}
                           />
+                          <GoogleDriveExportButton
+                            submissionId={submission.id}
+                            studentName={submission.studentName}
+                            filenameBase={downloadFilenameBase}
+                            includeTranscript={false}
+                          />
                           {aiGradingEnabled ? (
                             <SubmissionTranscript
                               submissionId={submission.id}
+                              studentName={submission.studentName}
                               downloadFilenameBase={downloadFilenameBase}
                             />
                           ) : null}

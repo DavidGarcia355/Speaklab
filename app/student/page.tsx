@@ -9,6 +9,7 @@ import BrandBar from "@/app/components/BrandBar";
 import ConfirmModal from "@/app/components/ConfirmModal";
 import SignInLink from "@/app/components/SignInLink";
 import PageTitle from "@/app/components/PageTitle";
+import { buildSubmissionDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 import {
   studentGradeProvenance,
   type StudentGradeSource,
@@ -362,7 +363,16 @@ export default function StudentDashboardPage() {
                           </div>
                           <div className="student-sub-details">
                             <p className="label">Recording</p>
-                            <AudioPlayer src={sub.audioData} variant="compact" />
+                            <AudioPlayer
+                              src={sub.audioData}
+                              variant="compact"
+                              downloadFilename={buildSubmissionDownloadFilenameBase({
+                                studentName: sub.studentName,
+                                assignmentTitle: sub.assignmentTitle,
+                                submittedAt: sub.submittedAt,
+                                submissionId: sub.id,
+                              })}
+                            />
                           </div>
                           {sub.feedback ? (
                             <div className="student-sub-feedback">

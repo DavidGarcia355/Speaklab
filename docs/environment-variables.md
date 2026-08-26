@@ -21,6 +21,12 @@ This inventory reflects repository behavior. It does not verify production Verce
 | `AUTH_MICROSOFT_SECRET` | Microsoft OAuth secret. Must be paired with `AUTH_MICROSOFT_ID`. | Optional | Server | A partial pair is rejected and Microsoft remains disabled. |
 | `AUTH_MICROSOFT_TENANT_ID` | Microsoft tenant. Use `organizations` for work/school accounts, `common` for work/school plus personal accounts, or a specific school tenant ID. | Optional | Server | Uses `common`. |
 
+## Google Drive Export
+
+| Name | Purpose | Required | Scope | Absent behavior |
+| --- | --- | --- | --- | --- |
+| `GOOGLE_DRIVE_EXPORT_ENABLED` | Enables teacher-initiated export of a selected transcript or original recording through Google's limited `drive.file` permission. The implementation keeps the short-lived access token in browser memory only and stores no Google Drive refresh token. | Optional; set to exact `true` only after the Google OAuth client and Drive API are configured and reviewed | Server/build configuration | Defaults disabled. Drive export controls are not shown and the rest of TryHabla continues normally. |
+
 ## Database
 
 | Name | Purpose | Required | Scope | Absent behavior |

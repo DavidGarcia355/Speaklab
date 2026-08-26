@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Clipboard, Download, FileText, RefreshCw } from "lucide-react";
+import GoogleDriveExportButton from "@/app/components/GoogleDriveExportButton";
 import { sanitizeDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 import { parseTranscriptResponse } from "@/app/components/submission-transcript-response";
 
 type SubmissionTranscriptProps = {
   submissionId: string;
+  studentName: string;
   downloadFilenameBase: string;
 };
 
@@ -70,6 +72,7 @@ function downloadPlainText(text: string, filenameBase: string) {
 
 export default function SubmissionTranscript({
   submissionId,
+  studentName,
   downloadFilenameBase,
 }: SubmissionTranscriptProps) {
   const [phase, setPhase] = useState<TranscriptPhase>("loading");
@@ -227,6 +230,11 @@ export default function SubmissionTranscript({
             <button type="button" className="btn btn-ghost btn-sm" onClick={downloadTranscript}>
               <Download size={14} aria-hidden="true" /> Download transcript
             </button>
+            <GoogleDriveExportButton
+              submissionId={submissionId}
+              studentName={studentName}
+              filenameBase={downloadFilenameBase}
+            />
           </div>
         </>
       ) : null}

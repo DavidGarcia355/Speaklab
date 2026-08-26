@@ -114,6 +114,24 @@ export default function PrivacyPage() {
           </ul>
         </section>
 
+        <section className="legal-section" aria-labelledby="privacy-drive">
+          <h2 id="privacy-drive">Optional Google Drive export</h2>
+          <p>
+            When this feature is enabled, a teacher can choose to export a transcript or original
+            recording to a clearly named TryHabla folder in the teacher&apos;s or school&apos;s Google
+            Drive. The export is user-directed and uses Google&apos;s limited <code>drive.file</code>
+            permission, which lets TryHabla create and work with files created through this feature;
+            it does not give TryHabla permission to read the user&apos;s entire Drive.
+          </p>
+          <p>
+            The short-lived Google access token is held only in browser memory for the export.
+            TryHabla does not store a Google Drive refresh token. Exported copies are controlled by
+            the teacher or school through its own Google Drive account and policies. They remain
+            there independently until an authorized Google Drive user deletes them. Deleting the
+            related content from TryHabla does not delete a previously exported Drive copy.
+          </p>
+        </section>
+
         <section className="legal-section" aria-labelledby="privacy-sharing">
           <h2 id="privacy-sharing">Who information may be shared with</h2>
           <p>
@@ -153,6 +171,11 @@ export default function PrivacyPage() {
             until an administrator deletes them. Account records and basic activity events do not
             yet have an automatic deletion schedule. Service-provider logs and backups may follow
             separate schedules that are still being verified for district use.
+          </p>
+          <p>
+            TryHabla does not promise permanent storage. A user-directed Google Drive export is a
+            separate copy governed by the teacher&apos;s or school&apos;s Google account, not an extension
+            of TryHabla&apos;s retention or deletion process.
           </p>
         </section>
 

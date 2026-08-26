@@ -5,6 +5,7 @@ import {
   assertGradingProviderConfiguration,
   getGradingConfig,
 } from "@/lib/grading/config";
+import { getGoogleDrivePublicConfig } from "@/lib/google-drive/config";
 
 export const runtime = "nodejs";
 
@@ -21,12 +22,17 @@ export async function GET(request: Request) {
       }
     }
 
+    const driveConfig = getGoogleDrivePublicConfig();
+
     return NextResponse.json({
       aiGradingEnabled: aiReady,
       aiBulkGradingEnabled: aiReady && config.bulkEnabled,
       localAiTestMode: isLocalMockAi(config),
       localAuthBypassEnabled:
         process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true",
+      googleDriveExport: driveConfig.enabled
+        ? driveConfig
+        : { enabled: false, clientId: "" },
     });
   });
 }

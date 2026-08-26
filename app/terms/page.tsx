@@ -150,6 +150,24 @@ export default function TermsPage() {
           </p>
         </section>
 
+        <section className="legal-section" aria-labelledby="terms-drive">
+          <h2 id="terms-drive">Optional Google Drive export</h2>
+          <p>
+            When enabled, a teacher can direct TryHabla to export a selected transcript or original
+            recording to a TryHabla folder in the teacher&apos;s or school&apos;s Google Drive. This feature
+            uses the limited <code>drive.file</code> permission and does not authorize TryHabla to
+            read the user&apos;s entire Drive. A short-lived access token is held only in browser memory;
+            TryHabla does not store a Google Drive refresh token.
+          </p>
+          <p>
+            The teacher or school controls exported copies under its Google account and policies.
+            Those copies remain independently in Google Drive until an authorized user deletes them,
+            and deleting content from TryHabla does not remove a previously exported copy. TryHabla
+            does not promise permanent storage, so teachers and schools remain responsible for any
+            records their own policies require.
+          </p>
+        </section>
+
         <section className="legal-section" aria-labelledby="terms-conduct">
           <h2 id="terms-conduct">Acceptable use</h2>
           <p>You may not:</p>

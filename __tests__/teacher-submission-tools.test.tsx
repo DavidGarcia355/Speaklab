@@ -86,7 +86,11 @@ describe("teacher transcript UI contract", () => {
 
   it("makes the separation from optional grading explicit while loading persisted text", () => {
     const markup = renderToStaticMarkup(
-      <SubmissionTranscript submissionId="sub_123" downloadFilenameBase="TryHabla - Student - Task" />,
+      <SubmissionTranscript
+        submissionId="sub_123"
+        studentName="Student"
+        downloadFilenameBase="TryHabla - Student - Task"
+      />,
     );
 
     expect(markup).toContain("Transcript");
