@@ -759,7 +759,6 @@ describe("billing Checkout and Portal routes", () => {
       client_reference_id: "teacher@example.com",
       success_url: "https://tryhabla.com/billing?checkout=returned",
       cancel_url: "https://tryhabla.com/billing?checkout=cancelled",
-      consent_collection: { terms_of_service: "required" },
       payment_method_types: ["card"],
       metadata: {
         habla_app: "tryhabla",
@@ -786,6 +785,7 @@ describe("billing Checkout and Portal routes", () => {
       ],
     });
     expect(params.line_items).toHaveLength(1);
+    expect(params.consent_collection).toBeUndefined();
     expect(requestOptions.idempotencyKey).not.toContain("teacher@example.com");
   });
 

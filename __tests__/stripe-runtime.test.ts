@@ -237,7 +237,7 @@ describe("Stripe fixed-subscription runtime", () => {
     ]);
     expect(params.customer_email).toBe("teacher@example.com");
     expect(params.payment_method_types).toEqual(["card"]);
-    expect(params.consent_collection).toEqual({ terms_of_service: "required" });
+    expect(params.consent_collection).toBeUndefined();
     expect(params.metadata).toEqual({
       habla_app: "tryhabla",
       catalog_fingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
