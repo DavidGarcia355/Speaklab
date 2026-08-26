@@ -3380,7 +3380,7 @@ html.dark .feedback-area {
   }
 }
 
-/* Habla visual system refresh */
+/* TryHabla visual system refresh */
 body {
   background-color: var(--background);
   background-image:
@@ -5212,7 +5212,7 @@ html.dark .student-reward-strip span {
   }
 }
 
-/* HablaMan student game layer */
+/* TryHabla student game layer */
 .student-game-wrap {
   width: min(1220px, calc(100% - 2.2rem));
 }

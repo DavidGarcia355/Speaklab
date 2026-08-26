@@ -114,12 +114,12 @@ export default async function StudentDashboardPage() {
             <Link className="student-text-link" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
           </div>
         </div>
-        <div className="student-hablaman-card" aria-label="HablaMan mascot status">
+        <div className="student-hablaman-card" aria-label="TryHabla mascot status">
           <span className="student-hablaman-burst">H</span>
           <Image
             className="student-hablaman"
             src="/mascot/habla-man.webp"
-            alt="HablaMan, Habla's superhero mascot"
+            alt="TryHabla superhero mascot"
             width={330}
             height={328}
             priority
@@ -166,7 +166,7 @@ export default async function StudentDashboardPage() {
         <section className="student-empty-quest section-gap">
           <Image
             src="/mascot/habla-man.webp"
-            alt="HablaMan waiting for your first class"
+            alt="TryHabla mascot waiting for your first class"
             width={190}
             height={188}
           />

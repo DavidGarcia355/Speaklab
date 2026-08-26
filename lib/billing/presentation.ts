@@ -61,7 +61,6 @@ export type BillingPresentation = {
   showCheckout: boolean;
   showPortal: boolean;
   portalIsPrimary: boolean;
-  showPayPal: boolean;
   showSupport: boolean;
   showRefresh: boolean;
 };
@@ -86,13 +85,13 @@ function checkoutNotice(
   if (returnState === "returned") {
     return {
       tone: "neutral",
-      text: "You returned from Stripe. Habla is waiting for signed confirmation before activating AI. Do not start another checkout yet.",
+      text: "You returned from Stripe. TryHabla is waiting for signed confirmation before activating AI. Do not start another checkout yet.",
     };
   }
   if (returnState === "timed_out") {
     return {
       tone: "warning",
-      text: "Stripe confirmation has not reached Habla yet. Refresh your status or contact billing support before starting another checkout.",
+      text: "Stripe confirmation has not reached TryHabla yet. Refresh your status or contact billing support before starting another checkout.",
     };
   }
   if (returnState === "cancelled" && !subscribed) {
@@ -113,7 +112,7 @@ function issueAvailabilityNote(status: BillingStatus) {
     return "This subscription does not match this deployment's verified Stripe billing scope. AI access and new Checkout stay paused until billing support reconciles it.";
   }
   if (status.accountIssue === "price_book_mismatch") {
-    return "This Stripe subscription does not match Habla's current published AI price book. Manage the existing plan or contact billing support; do not start another checkout.";
+    return "This Stripe subscription does not match TryHabla's current published AI price book. Manage the existing plan or contact billing support; do not start another checkout.";
   }
   if (status.accountIssue === "catalog_unverified") {
     return "TryHabla is verifying the Stripe catalog against the published Teacher plan. Checkout stays unavailable until that verification passes.";
@@ -144,14 +143,14 @@ function stateCopy(status: BillingStatus) {
     return {
       heading: "This Stripe account needs review",
       description:
-        "AI billing access is paused because this subscription is outside Habla's verified billing environment or contract.",
+        "AI billing access is paused because this subscription is outside TryHabla's verified billing environment or contract.",
     };
   }
   if (status.accountIssue === "price_book_mismatch") {
     return {
       heading: "This Stripe plan needs review",
       description:
-        "AI billing access is paused because this subscription is not on Habla's current published price book.",
+        "AI billing access is paused because this subscription is not on TryHabla's current published price book.",
     };
   }
   if (subscriptionStatus === "past_due") {
@@ -214,7 +213,7 @@ function stateCopy(status: BillingStatus) {
     return {
       heading: "Stripe pricing is being verified",
       description:
-        "Habla will not offer Checkout until its Stripe catalog matches the published AI rates.",
+        "TryHabla will not offer Checkout until its Stripe catalog matches the published AI rates.",
     };
   }
   if (status.accountIssue === "billing_paused") {
@@ -228,13 +227,13 @@ function stateCopy(status: BillingStatus) {
     return {
       heading: "Billing needs review",
       description:
-        "Stripe reported a subscription state that Habla cannot activate automatically. Manage billing or contact support before using paid AI.",
+        "Stripe reported a subscription state that TryHabla cannot activate automatically. Manage billing or contact support before using paid AI.",
     };
   }
   return {
     heading: "Start with 30 free AI reviews",
     description:
-      "Your one-time Free allowance works without a card. Choose Teacher for 300 reviews in each Stripe billing period; PayPal support never purchases AI access.",
+      "Your one-time Free allowance works without a card. Choose Teacher for 300 reviews in each Stripe billing period. Stripe is the only product-payment method.",
   };
 }
 
@@ -256,12 +255,6 @@ export function deriveBillingPresentation(
     (!hasSubscriptionRecord || terminal) &&
     !awaitingConfirmation;
   const showPortal = status.portalAvailable;
-  const showPayPal =
-    !subscribed &&
-    !paymentAttention &&
-    !hasSubscriptionRecord &&
-    !canStartCheckout &&
-    !awaitingConfirmation;
   const copy = stateCopy(status);
 
   return {
@@ -278,7 +271,6 @@ export function deriveBillingPresentation(
         paymentAttention ||
         Boolean(status.accountIssue) ||
         (hasSubscriptionRecord && !terminal)),
-    showPayPal,
     showSupport:
       Boolean(status.accountIssue) ||
       paymentAttention ||

@@ -29,8 +29,8 @@ export const metadata: Metadata = {
   description: SITE_DESCRIPTION,
   applicationName: APP_NAME,
   category: "education",
-  creator: "Habla",
-  publisher: "Habla",
+  creator: "TryHabla",
+  publisher: "TryHabla",
   keywords: [
     "language teaching",
     "speaking assignments",

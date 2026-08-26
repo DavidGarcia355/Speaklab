@@ -21,6 +21,7 @@ import BrandBar from "@/app/components/BrandBar";
 import ConfirmModal from "@/app/components/ConfirmModal";
 import PageTitle from "@/app/components/PageTitle";
 import UndoToast from "@/app/components/UndoToast";
+import { PAYPAL_DONATION_DISCLOSURE, PAYPAL_DONATION_URL } from "@/app/constants";
 
 type ClassSummary = {
   id: string;
@@ -564,7 +565,7 @@ export default function TeacherPage() {
           />
           <p>
             <strong>Help my mom&apos;s fight against endometrial cancer.</strong>
-            <span> Thank you for supporting my family.</span>
+            <span> {PAYPAL_DONATION_DISCLOSURE}</span>
           </p>
         </div>
         <div className="actions">
@@ -573,11 +574,11 @@ export default function TeacherPage() {
           </Link>
           <a
             className="btn btn-primary btn-sm"
-            href="https://paypal.me/DavidGarcia355"
+            href={PAYPAL_DONATION_URL}
             target="_blank"
             rel="noreferrer"
           >
-            Help my mom&apos;s fight against endometrial cancer
+            Donate to support my mom via PayPal
           </a>
         </div>
       </section>

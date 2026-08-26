@@ -14,7 +14,7 @@ import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
   title: "For Students",
-  description: "A clear speaking-practice workspace for Habla students.",
+  description: "A clear speaking-practice workspace for TryHabla students.",
   path: "/students",
 });
 
@@ -56,7 +56,7 @@ export default function StudentsPage() {
           <h1>Your speaking work, all in one place.</h1>
           <p>
             Open the assignment your teacher shared, record directly in your browser, and come back
-            for grades and feedback. Habla keeps the steps clear so you can focus on speaking.
+            for grades and feedback. TryHabla keeps the steps clear so you can focus on speaking.
           </p>
           <div className="student-primary-action">
             <GoogleSignInLink className="btn btn-primary" callbackUrl="/student">
@@ -68,14 +68,14 @@ export default function StudentsPage() {
             </Link>
           </div>
         </div>
-        <div className="student-public-mascot" aria-label="Habla Man mascot preview">
+        <div className="student-public-mascot" aria-label="TryHabla mascot preview">
           <span className="student-public-pop student-public-pop-top">
             <Mic2 size={14} aria-hidden="true" />
             record here
           </span>
           <Image
             src="/mascot/habla-man.webp"
-            alt="Habla Man, Habla's superhero mascot"
+            alt="TryHabla superhero mascot"
             width={420}
             height={417}
             priority

@@ -21,7 +21,7 @@ export function createPublicMetadata({
     url: new URL("/opengraph-image", SITE_URL),
     width: 1200,
     height: 630,
-    alt: "Habla speaking practice for language classrooms",
+    alt: "TryHabla speaking practice for language classrooms",
   };
 
   return {

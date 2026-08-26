@@ -18,7 +18,7 @@ describe("student-visible AI grade provenance", () => {
 
   it("discloses provider processing, stored AI output, and teacher editability", () => {
     expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("recorded answer");
-    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("configured for this Habla deployment");
+    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("configured for this TryHabla deployment");
     expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("may store the transcript");
     expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("may be visible before your teacher reviews");
     expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("AI-generated results are labeled");

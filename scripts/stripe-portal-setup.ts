@@ -246,7 +246,7 @@ export class StripeSdkPortalSetupClient implements StripePortalSetupClient {
 function printHelp() {
   console.log(`Usage: npx tsx scripts/stripe-portal-setup.ts [--apply]
 
-Finds or provisions Habla's exact Customer Portal configuration in Stripe test/sandbox mode.
+Finds or provisions TryHabla's exact Customer Portal configuration in Stripe test/sandbox mode.
 The command is a read-only plan unless --apply is present. Live keys are always rejected.
 
 Environment:
@@ -285,7 +285,7 @@ async function main() {
   const stripe = new Stripe(secretKey, {
     apiVersion: STRIPE_API_VERSION,
     typescript: true,
-    appInfo: { name: "Habla Portal Setup", version: "1" },
+    appInfo: { name: "TryHabla Portal Setup", version: "1" },
     maxNetworkRetries: 2,
     telemetry: false,
     timeout: 30_000,

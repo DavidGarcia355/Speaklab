@@ -155,7 +155,7 @@ describe("launch hardening helpers", () => {
 
     expect(mockSend).toHaveBeenCalledWith(
       expect.objectContaining({
-        from: "Habla <onboarding@resend.dev>",
+        from: "TryHabla <onboarding@resend.dev>",
         to: "teacher@example.com",
         subject: teacherUpgradeEmailCopy.subject,
         text: teacherUpgradeEmailCopy.text,

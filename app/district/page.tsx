@@ -5,7 +5,7 @@ import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
   title: "District Review",
-  description: "District review and demo information for Habla.",
+  description: "District review and demo information for TryHabla.",
   path: "/district",
 });
 
@@ -39,9 +39,9 @@ export default function DistrictPage() {
 
       <section className="audience-hero audience-hero-district">
         <p className="pill">District pathway</p>
-        <h1>Evaluate Habla before it reaches every classroom.</h1>
+        <h1>Evaluate TryHabla before it reaches every classroom.</h1>
         <p>
-          Habla gives language programs one place for speaking assignments, audio submissions, grading,
+          TryHabla gives language programs one place for speaking assignments, audio submissions, grading,
           feedback, and CSV exports. District teams can begin with a controlled teacher pilot while
           privacy, storage, network, and vendor requirements are reviewed.
         </p>

@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
 import PricingCalculator from "@/app/pricing/PricingCalculator";
-import StripeSupportButton from "@/app/pricing/StripeSupportButton";
+import PayPalDonationButton from "@/app/pricing/PayPalDonationButton";
+import { PAYPAL_DONATION_DISCLOSURE } from "@/app/constants";
 import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
@@ -84,7 +85,7 @@ export default function PricingPage() {
           <p className="pill pill-subtle">A price with a purpose</p>
           <h2 id="pricing-cause-heading">Built for teachers. Built for my mom.</h2>
           <p>
-            I build and maintain Habla myself. Revenue from Teacher helps me operate the service,
+            I build and maintain TryHabla myself. Revenue from Teacher helps me operate the service,
             keep the core classroom free, and support my family while my mom fights endometrial
             cancer.
           </p>
@@ -97,20 +98,16 @@ export default function PricingPage() {
 
       <section
         className="pricing-calculator-section section-gap"
-        aria-labelledby="support-habla-heading"
+        aria-labelledby="paypal-donation-heading"
       >
         <div className="pricing-section-heading">
           <div>
-            <p className="pill pill-subtle">PayPal available now</p>
-            <h2 id="support-habla-heading">Support Habla now</h2>
+            <p className="pill pill-subtle">Optional donations</p>
+            <h2 id="paypal-donation-heading">Donate to support my family</h2>
           </div>
-          <p>
-            PayPal is a voluntary way to support TryHabla and my family. It does not purchase or
-            activate AI access, does not auto-renew, and is not tax-deductible. Teacher billing is
-            handled separately through Stripe when it is offered on the signed-in billing page.
-          </p>
+          <p>{PAYPAL_DONATION_DISCLOSURE}</p>
         </div>
-        <StripeSupportButton />
+        <PayPalDonationButton />
       </section>
 
       <section className="pricing-value-grid section-gap" aria-labelledby="pricing-model-heading">
@@ -245,8 +242,8 @@ export default function PricingPage() {
         Prices are in USD. Free includes a lifetime allowance of 30 successful AI reviews per
         teacher account. Teacher includes 300 reviews per Stripe billing period for $20 per month;
         unused reviews do not roll over, and there are no automatic overages. Stripe shows the final
-        amount before payment. PayPal support does not buy AI access. School Pilot terms are scoped
-        manually.
+        amount before payment. PayPal donations are separate from TryHabla product billing and do
+        not buy access or AI reviews. School Pilot terms are scoped manually.
       </p>
     </main>
   );

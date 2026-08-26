@@ -14,6 +14,7 @@ import {
 
 export const STRIPE_PORTAL_CONFIGURATION_MANIFEST = Object.freeze({
   schemaVersion: 3 as const,
+  // Legacy exact live Stripe contract. Rename only with a replacement bpc_ ID cutover.
   name: "Habla teacher billing portal v3",
   defaultReturnUrl: "https://tryhabla.com/billing",
   businessProfile: Object.freeze({

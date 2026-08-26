@@ -406,7 +406,7 @@ export async function POST(request: Request) {
     if (exactCustomers.length > 1) {
       throw new HttpError(
         409,
-        "Multiple Habla Stripe Customers require billing support before Checkout can continue.",
+        "Multiple TryHabla Stripe Customers require billing support before Checkout can continue.",
       );
     }
 
@@ -483,7 +483,7 @@ export async function POST(request: Request) {
       if ((unsafeNonterminal || unsafeCheckoutSession) && !isCurrentRecoveryCustomer) {
         throw new HttpError(
           409,
-          "An older Habla Stripe Customer still has an open billing lifecycle. Contact billing support.",
+          "An older TryHabla Stripe Customer still has an open billing lifecycle. Contact billing support.",
         );
       }
     }
@@ -601,7 +601,7 @@ export async function POST(request: Request) {
     if (nonterminalHablaSubscriptions.length > 1) {
       throw new HttpError(
         409,
-        "Multiple Habla subscriptions require billing support before Checkout can continue.",
+        "Multiple TryHabla subscriptions require billing support before Checkout can continue.",
       );
     }
     if (nonterminalHablaSubscriptions.length === 1) {

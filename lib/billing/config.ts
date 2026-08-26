@@ -425,7 +425,7 @@ export function parseStripeCatalogConfig(env: StripeBillingEnv): StripeCatalogCo
   if (automaticTax.issue) issues.push(automaticTax.issue);
   if (automaticTax.value) {
     issues.push(
-      "STRIPE_AUTOMATIC_TAX_ENABLED must remain false until Habla pins and reviews explicit Stripe product tax codes and Price tax behavior.",
+      "STRIPE_AUTOMATIC_TAX_ENABLED must remain false until TryHabla pins and reviews explicit Stripe product tax codes and Price tax behavior.",
     );
   }
   for (const [name, value] of Object.entries(priceIds)) {

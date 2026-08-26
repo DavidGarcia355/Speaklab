@@ -41,7 +41,7 @@ const audienceCards = [
     icon: GraduationCap,
     label: "Teacher",
     title: "Assign, listen, grade, and move on",
-    description: "See how Habla helps teachers run speaking assignments without juggling tools.",
+    description: "See how TryHabla helps teachers run speaking assignments without juggling tools.",
     action: "See teacher benefits",
     className: "home-audience-teacher",
   },
@@ -98,7 +98,7 @@ export default function Home() {
 
       <DismissibleCauseBand />
 
-      <section className="home-audience-grid" aria-label="Choose your Habla role">
+      <section className="home-audience-grid" aria-label="Choose your TryHabla role">
         {audienceCards.map((card) => {
           const Icon = card.icon;
           return (
@@ -150,10 +150,10 @@ export default function Home() {
           <UsersRound size={20} aria-hidden="true" />
           <h2>Already learning from real classroom pilots</h2>
           <p className="meta">
-            Habla is being shaped by actual speaking assignments while wider school and district
+            TryHabla is being shaped by actual speaking assignments while wider school and district
             review remains intentionally separate.
           </p>
-          <div className="home-proof-grid" aria-label="Habla pilot activity">
+          <div className="home-proof-grid" aria-label="TryHabla pilot activity">
             <span className="home-proof-stat"><strong>Real</strong><span>teacher pilots</span></span>
             <span className="home-proof-stat"><strong>Live</strong><span>classroom workflows</span></span>
             <span className="home-proof-stat"><strong>Careful</strong><span>review before scale</span></span>
@@ -163,7 +163,7 @@ export default function Home() {
           <BrainCircuit size={20} aria-hidden="true" />
           <h2>AI grades. Teachers stay in control.</h2>
           <p className="meta">
-            When enabled, Habla saves a whole-point score, rubric breakdown, and feedback after a
+            When enabled, TryHabla saves a whole-point score, rubric breakdown, and feedback after a
             successful AI review. Teachers can inspect the evidence and edit the grade anytime.
           </p>
           <Link className="student-text-link" href="/teachers">

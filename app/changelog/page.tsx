@@ -4,7 +4,7 @@ import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
   title: "What's New",
-  description: "Recent updates, bug fixes, and improvements to Habla.",
+  description: "Recent updates, bug fixes, and improvements to TryHabla.",
   path: "/changelog",
 });
 
@@ -130,12 +130,12 @@ export default function ChangelogPage() {
 
       <section className="hero">
         <p className="pill">Changelog</p>
-        <h1>What&apos;s new in Habla</h1>
+        <h1>What&apos;s new in TryHabla</h1>
         <p>Updates ship regularly. New features and bug fixes are listed here as they land.</p>
         <div className="actions hero-actions">
           <a
             className="btn btn-primary"
-            href="mailto:davidsgarcia325@gmail.com?subject=Habla%20bug%20report&body=Hi%20David%2C%0A%0AHere%27s%20a%20bug%20I%20ran%20into%3A%0A%0A"
+            href="mailto:davidsgarcia325@gmail.com?subject=TryHabla%20bug%20report&body=Hi%20David%2C%0A%0AHere%27s%20a%20bug%20I%20ran%20into%3A%0A%0A"
           >
             Report a bug
           </a>
@@ -169,7 +169,7 @@ export default function ChangelogPage() {
       <div className="actions section-gap" style={{ justifyContent: "center" }}>
         <a
           className="btn btn-ghost"
-          href="mailto:davidsgarcia325@gmail.com?subject=Habla%20bug%20report&body=Hi%20David%2C%0A%0AHere%27s%20a%20bug%20I%20ran%20into%3A%0A%0A"
+          href="mailto:davidsgarcia325@gmail.com?subject=TryHabla%20bug%20report&body=Hi%20David%2C%0A%0AHere%27s%20a%20bug%20I%20ran%20into%3A%0A%0A"
         >
           Report a bug
         </a>

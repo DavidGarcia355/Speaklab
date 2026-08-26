@@ -75,7 +75,7 @@ export function buildCheckoutSessionParams(
   const email = teacherEmail(input.teacherEmail);
   const priceBookId = requiredText(input.priceBookId, "priceBookId");
   if (priceBookId !== STRIPE_CATALOG_MANIFEST.priceBookId) {
-    throw new TypeError("priceBookId must match Habla's active Stripe catalog.");
+    throw new TypeError("priceBookId must match TryHabla's active Stripe catalog.");
   }
   const metadata = {
     habla_app: "tryhabla",

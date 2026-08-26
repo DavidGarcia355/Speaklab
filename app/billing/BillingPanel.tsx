@@ -14,9 +14,8 @@ import {
 type ActionResponse = { url?: string; error?: string };
 type StatusResponse = BillingStatus & { error?: string };
 
-const PAYPAL_URL = "https://paypal.me/DavidGarcia355";
 const BILLING_SUPPORT_URL =
-  "mailto:davidsgarcia325@gmail.com?subject=Habla%20billing%20support";
+  "mailto:davidsgarcia325@gmail.com?subject=TryHabla%20billing%20support";
 const CONFIRMATION_POLL_INTERVAL_MS = 1_500;
 const MAX_CONFIRMATION_POLLS = 10;
 
@@ -33,7 +32,7 @@ function billingBadge(status: BillingStatus) {
   if (status.mode === "test") return "Stripe test mode";
   if (status.runtimeAvailable) return "TryHabla Teacher billing";
   if (status.clientConfigured) return "Stripe controls limited";
-  return "Habla AI access";
+  return "TryHabla AI access";
 }
 
 async function responseBody<T extends { error?: string }>(response: Response) {
@@ -297,17 +296,6 @@ export default function BillingPanel() {
               {action === "refresh" ? "Refreshing…" : "Refresh billing status"}
             </button>
           ) : null}
-          {presentation.showPayPal ? (
-            <a
-              className="btn btn-ghost"
-              href={PAYPAL_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Support Habla on PayPal
-              <ArrowRight size={17} aria-hidden="true" />
-            </a>
-          ) : null}
           {presentation.showSupport ? (
             <a className="btn btn-ghost" href={BILLING_SUPPORT_URL}>
               Contact billing support
@@ -318,10 +306,7 @@ export default function BillingPanel() {
         {presentation.showCheckout ? <CheckoutAgreementNotice /> : null}
 
         {presentation.availabilityNote ? (
-          <p className="billing-availability-note">
-            {presentation.availabilityNote} PayPal is voluntary support only and never purchases or
-            activates AI access.
-          </p>
+          <p className="billing-availability-note">{presentation.availabilityNote}</p>
         ) : null}
       </div>
 

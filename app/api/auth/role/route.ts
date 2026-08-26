@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
     const currentRole = await getUserRoleByEmail(email);
     if (currentRole !== "teacher" && !canSelfRegisterTeacher(email)) {
-      throw new HttpError(403, "Teacher account setup is currently limited. Contact Habla to request access.");
+      throw new HttpError(403, "Teacher account setup is currently limited. Contact TryHabla to request access.");
     }
 
     await setUserRoleTeacher(email);

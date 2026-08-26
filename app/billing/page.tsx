@@ -36,12 +36,13 @@ export default function BillingPage() {
       <section className="billing-trust-row" aria-label="Billing safeguards">
         <ShieldCheck size={21} aria-hidden="true" />
         <p>
-          Voluntary PayPal support is completed on PayPal and does not activate AI. If this page
-          explicitly offers Teacher through Stripe, Stripe handles checkout and card details. Habla
-          stores only the identifiers and review counts needed to provide the selected option, never
-          full card details. Existing Stripe customers can use Manage billing for invoices, payment
-          methods, and cancellation, or email{" "}
-          <a href="mailto:davidsgarcia325@gmail.com?subject=Habla%20billing%20support">
+          Stripe is TryHabla&apos;s only product-payment method. Separate PayPal links on TryHabla
+          are for voluntary, non-tax-deductible donations only; they never purchase access, start or
+          extend a subscription, or add AI reviews. Stripe handles checkout and card details.
+          TryHabla stores only the identifiers and review counts needed to provide the selected
+          option, never full card details. Existing Stripe customers can use Manage billing for
+          invoices, payment methods, and cancellation, or email{" "}
+          <a href="mailto:davidsgarcia325@gmail.com?subject=TryHabla%20billing%20support">
             davidsgarcia325@gmail.com
           </a>{" "}
           for billing support.

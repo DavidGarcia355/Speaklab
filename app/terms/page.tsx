@@ -5,7 +5,7 @@ import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
   title: "Pilot Terms of Use",
-  description: "Interim terms for teachers, students, and schools using the Habla teacher pilot.",
+  description: "Interim terms for teachers, students, and schools using the TryHabla teacher pilot.",
   path: "/terms",
 });
 
@@ -16,10 +16,10 @@ export default function TermsPage() {
 
       <header className="hero legal-hero">
         <p className="pill">Pilot terms</p>
-        <h1>Terms for using Habla</h1>
+        <h1>Terms for using TryHabla</h1>
         <p>
           These interim terms cover the current teacher pilot. They are not a statement that any
-          school or district has approved Habla. A signed agreement with a school or district will
+          school or district has approved TryHabla. A signed agreement with a school or district will
           control if it conflicts with these terms.
         </p>
         <p className="meta">Last updated: August 26, 2026</p>
@@ -29,31 +29,31 @@ export default function TermsPage() {
         <section className="legal-section" aria-labelledby="terms-acceptance">
           <h2 id="terms-acceptance">Using the pilot</h2>
           <p>
-            Adult users accept these terms by creating an account or using Habla. Students use
-            Habla at the direction of a teacher or school. If you act for a school, you confirm that
-            you have authority to use the pilot for that school and to give the instructions you
-            provide to Habla.
+            Adult users accept these terms by creating an account or using TryHabla. Students use
+            TryHabla at the direction of a teacher or school. If you act for a school, you confirm
+            that you have authority to use the pilot for that school and to give the instructions
+            you provide to TryHabla.
           </p>
-          <p>Habla is operated by {OPERATOR_NAME}.</p>
+          <p>TryHabla is operated by {OPERATOR_NAME}.</p>
           <p>
-            Do not use Habla with student information unless the responsible teacher or school has
+            Do not use TryHabla with student information unless the responsible teacher or school has
             decided the use is appropriate and obtained any authorization or consent required by
-            its policies and applicable law. Habla is not offered to children for independent
-            personal use. School authorization does not waive Habla&apos;s responsibilities for its
+            its policies and applicable law. TryHabla is not offered to children for independent
+            personal use. School authorization does not waive TryHabla&apos;s responsibilities for its
             own processing, notices, or required responses to verified data requests.
           </p>
         </section>
 
         <section className="legal-section" aria-labelledby="terms-service">
-          <h2 id="terms-service">What Habla provides</h2>
+          <h2 id="terms-service">What TryHabla provides</h2>
           <p>
-            Habla provides a browser-based workflow for speaking assignments, recordings, rosters,
+            TryHabla provides a browser-based workflow for speaking assignments, recordings, rosters,
             teacher review, grading, feedback, and exports. Some deployments may also offer optional
             AI grading and billing. Pilot features can change, be limited, or be temporarily
             unavailable while the service is tested and improved.
           </p>
           <p>
-            Habla is not an emergency service, an official student information system, or a
+            TryHabla is not an emergency service, an official student information system, or a
             substitute for a school&apos;s required records. Teachers and schools should keep any
             records their own policies require.
           </p>
@@ -69,7 +69,7 @@ export default function TermsPage() {
               teacher directs them to use.
             </li>
             <li>
-              Tell Habla promptly through the <Link href="/feedback">contact form</Link> if you
+              Tell TryHabla promptly through the <Link href="/feedback">contact form</Link> if you
               believe an account or class has been accessed without permission.
             </li>
           </ul>
@@ -79,14 +79,14 @@ export default function TermsPage() {
           <h2 id="terms-content">Your content</h2>
           <p>
             Teachers, students, and schools keep their rights in the content they submit. They give
-            Habla permission to host, copy, transmit, process, display, and delete that content only
+            TryHabla permission to host, copy, transmit, process, display, and delete that content only
             as needed to provide, secure, support, and maintain the service, follow their authorized
             instructions, and meet valid legal requirements.
           </p>
           <p>
             Only upload recordings, attachments, instructions, and other content you are authorized
             to use. Do not place payment credentials, medical details, government identifiers, or
-            other information unrelated to the speaking assignment in Habla.
+            other information unrelated to the speaking assignment in TryHabla.
           </p>
         </section>
 
@@ -110,16 +110,16 @@ export default function TermsPage() {
           <h2 id="terms-payments">Optional paid features</h2>
           <p>
             Paid functionality is available only when it is enabled and presented to the account.
-            The applicable price and usage basis are shown in Habla before payment. A configured
-            payment provider handles the payment flow under its own terms and privacy notice; Habla
-            does not ask users to put card or bank details in the contact form. Contact Habla about
-            a billing error before making another payment.
+            The applicable price and usage basis are shown in TryHabla before payment. Stripe is the
+            only product-payment method and handles product checkout under its own terms and privacy
+            notice; TryHabla does not ask users to put card or bank details in the contact form.
+            Contact TryHabla about a billing error before making another payment.
           </p>
           <p>
             Free includes one lifetime allowance of 30 successful AI reviews per teacher account.
             Teacher costs $20 per month and includes 300 successful AI reviews in each Stripe billing
             period. Each distinct recording submitted for review is a separate result. A review is
-            used only when Habla successfully delivers a usable AI result; failures,
+            used only when TryHabla successfully delivers a usable AI result; failures,
             unable-to-grade results, and exact retries of the same recording for the same assignment
             do not use another review. Recordings submitted for AI review can be up to five minutes.
             Unused reviews do not roll over, and neither option has automatic overages. Reaching an
@@ -131,7 +131,7 @@ export default function TermsPage() {
             Manage billing. Canceling Teacher stops the next renewal, and access continues through
             the end of the already-paid Stripe billing period. Stripe shows the effective
             cancellation date before confirmation. If Stripe confirmation or access appears
-            delayed, contact Habla before starting another checkout.
+            delayed, contact TryHabla before starting another checkout.
           </p>
           <p>
             School Pilot is a founder-managed, manually provisioned cohort with scope, review volume,
@@ -140,8 +140,10 @@ export default function TermsPage() {
             district approval.
           </p>
           <p>
-            A separate PayPal support link may be available. That link is voluntary support for
-            Habla and does not purchase AI access, create a prepaid balance, or start a subscription.
+            A separate PayPal link may be available for voluntary, non-tax-deductible donations
+            only. A PayPal donation does not purchase TryHabla, activate AI access, start or extend
+            a subscription, add AI reviews, or provide any other product or service. TryHabla product
+            billing is handled only through Stripe.
           </p>
         </section>
 
@@ -149,7 +151,7 @@ export default function TermsPage() {
           <h2 id="terms-conduct">Acceptable use</h2>
           <p>You may not:</p>
           <ul>
-            <li>Use Habla unlawfully or to harass, exploit, or harm another person.</li>
+            <li>Use TryHabla unlawfully or to harass, exploit, or harm another person.</li>
             <li>Upload content or personal information you are not authorized to provide.</li>
             <li>Try to access another user&apos;s account, class, submission, or private file.</li>
             <li>Probe, bypass, or interfere with security, rate limits, or service availability.</li>
@@ -160,7 +162,7 @@ export default function TermsPage() {
         <section className="legal-section" aria-labelledby="terms-privacy">
           <h2 id="terms-privacy">Privacy and deletion</h2>
           <p>
-            The <Link href="/privacy">Pilot Privacy Notice</Link> explains the information Habla
+            The <Link href="/privacy">Pilot Privacy Notice</Link> explains the information TryHabla
             handles, optional AI processing, current retention behavior, and how to make a request.
             Deleting classroom content begins the current recovery-and-cleanup process described in
             that notice; deleting an account is not yet a self-service feature.
@@ -170,10 +172,10 @@ export default function TermsPage() {
         <section className="legal-section" aria-labelledby="terms-suspension">
           <h2 id="terms-suspension">Suspension and ending use</h2>
           <p>
-            Habla may limit or suspend access when reasonably needed to protect users, investigate
+            TryHabla may limit or suspend access when reasonably needed to protect users, investigate
             misuse, comply with legal requirements, or keep the pilot operating. A teacher can stop
             using the service and delete classroom content available through the product. For
-            account or school-level closure, contact Habla before the pilot ends so data handling
+            account or school-level closure, contact TryHabla before the pilot ends so data handling
             instructions can be confirmed.
           </p>
         </section>
@@ -181,7 +183,7 @@ export default function TermsPage() {
         <section className="legal-section" aria-labelledby="terms-reliability">
           <h2 id="terms-reliability">Pilot reliability</h2>
           <p>
-            Habla is an early-stage pilot and may contain errors or experience interruptions. No
+            TryHabla is an early-stage pilot and may contain errors or experience interruptions. No
             online service or AI output is guaranteed to be secure, uninterrupted, or error-free.
             Report problems promptly and keep an independent copy of any school record that must be
             preserved.
@@ -194,7 +196,7 @@ export default function TermsPage() {
             These terms may be updated as the pilot changes. The latest version and update date will
             remain on this page. Questions, billing concerns, or notices can be sent to{" "}
             <a href={CONTACT_LINKS.email}>davidsgarcia325@gmail.com</a> or through the{" "}
-            <Link href="/feedback">Habla contact form</Link>.
+            <Link href="/feedback">TryHabla contact form</Link>.
           </p>
         </section>
       </article>

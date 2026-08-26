@@ -4,7 +4,7 @@ import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
   title: "FAQ",
-  description: "Common questions about Habla, classroom workflows, access, and privacy review.",
+  description: "Common questions about TryHabla, classroom workflows, access, and privacy review.",
   path: "/faq",
 });
 
@@ -13,14 +13,14 @@ const FAQ_SECTIONS = [
     heading: "Getting started",
     items: [
       {
-        question: "What is Habla?",
+        question: "What is TryHabla?",
         answer:
-          "Habla is a simple tool that lets language teachers assign, collect, and grade student speaking recordings from one link during a normal class period.",
+          "TryHabla is a simple tool that lets language teachers assign, collect, and grade student speaking recordings from one link during a normal class period.",
       },
       {
         question: "How do I create my first assignment?",
         answer:
-          "Sign in, go to your teacher dashboard, and create a class. Inside the class, click \"New assignment,\" write your prompt, set the point value, and save. Habla generates a student link instantly. Copy it and share it however you share links with your class: Google Classroom, email, your LMS, or projected on the board.",
+          "Sign in, go to your teacher dashboard, and create a class. Inside the class, click \"New assignment,\" write your prompt, set the point value, and save. TryHabla generates a student link instantly. Copy it and share it however you share links with your class: Google Classroom, email, your LMS, or projected on the board.",
       },
       {
         question: "How do I share the assignment link with students?",
@@ -30,7 +30,7 @@ const FAQ_SECTIONS = [
       {
         question: "Do I need to install anything?",
         answer:
-          "No. Habla runs entirely in the browser. Teachers and students do not install anything.",
+          "No. TryHabla runs entirely in the browser. Teachers and students do not install anything.",
       },
     ],
   },
@@ -40,7 +40,7 @@ const FAQ_SECTIONS = [
       {
         question: "Do students need an account?",
         answer:
-          "Yes. Students sign in before submitting so Habla can attach the recording to the account email. Google sign-in is required in the base setup, and Microsoft sign-in is available only when the deployment is configured for it.",
+          "Yes. Students sign in before submitting so TryHabla can attach the recording to the account email. Google sign-in is required in the base setup, and Microsoft sign-in is available only when the deployment is configured for it.",
       },
       {
         question: "How do students submit a recording?",
@@ -58,9 +58,9 @@ const FAQ_SECTIONS = [
           "First, make sure the student opened the link in Chrome or Safari, not inside another app. Second, the browser will ask for microphone permission and the student must allow it. Third, if permission was previously blocked, they need to reset it in browser site settings. On a Chromebook, check that the school has not blocked microphone access in device settings.",
       },
       {
-        question: "What information does Habla store about students?",
+        question: "What information does TryHabla store about students?",
         answer:
-          "Habla stores the student's name as entered, account email address, audio recording, submission timestamps, and any grade or feedback added by the teacher. Only the assigning teacher can access submissions through the app.",
+          "TryHabla stores the student's name as entered, account email address, audio recording, submission timestamps, and any grade or feedback added by the teacher. Only the assigning teacher can access submissions through the app.",
       },
     ],
   },
@@ -75,7 +75,7 @@ const FAQ_SECTIONS = [
       {
         question: "How does CSV roster import work?",
         answer:
-          "In your class, scroll to the Roster section and click \"Upload CSV.\" Your file should have a name column and an email column, either as \"name, email\" or \"first name, last name, email\" with a header row. Habla will tell you how many students were added and how many were already on the roster.",
+          "In your class, scroll to the Roster section and click \"Upload CSV.\" Your file should have a name column and an email column, either as \"name, email\" or \"first name, last name, email\" with a header row. TryHabla will tell you how many students were added and how many were already on the roster.",
       },
     ],
   },
@@ -85,7 +85,7 @@ const FAQ_SECTIONS = [
       {
         question: "How do I grade recordings?",
         answer:
-          "Open a class, then open an assignment. You will see submissions in one panel. Play the audio, enter a score, add optional written feedback, and save. If you set up a rubric, you grade each criterion separately and Habla totals the score.",
+          "Open a class, then open an assignment. You will see submissions in one panel. Play the audio, enter a score, add optional written feedback, and save. If you set up a rubric, you grade each criterion separately and TryHabla totals the score.",
       },
       {
         question: "Can I export grades?",
@@ -125,7 +125,7 @@ const FAQ_SECTIONS = [
       {
         question: "Is student data protected?",
         answer:
-          "Habla uses sign-in, teacher role checks, and class ownership checks to limit access. Student recordings should be stored in private or access-controlled storage; production storage settings must be verified before district rollout.",
+          "TryHabla uses sign-in, teacher role checks, and class ownership checks to limit access. Student recordings should be stored in private or access-controlled storage; production storage settings must be verified before district rollout.",
       },
       {
         question: "Can other students hear each other's recordings?",
@@ -138,7 +138,7 @@ const FAQ_SECTIONS = [
     heading: "Access and district review",
     items: [
       {
-        question: "Is Habla free?",
+        question: "Is TryHabla free?",
         answer:
           "Yes. Free includes classes, rosters, speaking assignments, student recordings, teacher grading, feedback, CSV export, and a lifetime allowance of 30 successful AI reviews per teacher account. After those 30 reviews, the non-AI classroom remains available at no charge.",
       },
@@ -150,7 +150,7 @@ const FAQ_SECTIONS = [
       {
         question: "Does AI save the grade automatically?",
         answer:
-          "When AI is enabled for an approved account, a successful run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, Habla saves no score.",
+          "When AI is enabled for an approved account, a successful run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, TryHabla saves no score.",
       },
       {
         question: "What does the current workflow include?",
@@ -172,7 +172,7 @@ export default function FaqPage() {
       <BrandBar label="FAQ" />
       <section className="hero">
         <p className="pill">FAQ</p>
-        <h1>Questions about Habla</h1>
+        <h1>Questions about TryHabla</h1>
         <p>
           Setup, student submissions, microphone troubleshooting, roster management, grading, export,
           and district review - answered for teachers.
