@@ -2,7 +2,17 @@ import { NextResponse } from "next/server";
 import { buildTeacherEventMetadata, trackActivity } from "@/lib/activity";
 import { requireTeacherEmail } from "@/lib/authz";
 import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
-import { createAssignment, findClassById, setUserDefaultLanguage } from "@/lib/db";
+import {
+  isAssignmentAttachmentType,
+  isReusableAssignmentAttachmentReference,
+} from "@/lib/attachment-policy";
+import { deleteBlobObjects } from "@/lib/blob-deletion";
+import {
+  createAssignment,
+  findAssignmentById,
+  findClassById,
+  setUserDefaultLanguage,
+} from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 import {
   assignmentCreateSchema,
@@ -35,6 +45,7 @@ export async function POST(
     let attachmentName = "";
     let attachmentUrl = "";
     let attachmentContentType = "";
+    let newlyUploadedAttachment = "";
 
     if (body.attachment) {
       const parsedAttachment = parseAttachmentDataUrl(body.attachment.dataUrl);
@@ -46,10 +57,22 @@ export async function POST(
         mimeType: parsedAttachment.mimeType,
         buffer: parsedAttachment.buffer,
       });
-    } else if (body.existingAttachment) {
-      attachmentName = body.existingAttachment.fileName ?? "";
-      attachmentUrl = body.existingAttachment.url ?? "";
-      attachmentContentType = body.existingAttachment.contentType ?? "";
+      newlyUploadedAttachment = attachmentUrl;
+    } else if (body.sourceAssignmentId) {
+      const sourceAssignment = await findAssignmentById(body.sourceAssignmentId, teacherEmail);
+      if (!sourceAssignment) {
+        throw new HttpError(404, "Source assignment not found.");
+      }
+      if (
+        !sourceAssignment.attachmentName ||
+        !isReusableAssignmentAttachmentReference(sourceAssignment.attachmentUrl) ||
+        !isAssignmentAttachmentType(sourceAssignment.attachmentContentType)
+      ) {
+        throw new HttpError(400, "Source assignment does not have a reusable worksheet.");
+      }
+      attachmentName = sourceAssignment.attachmentName;
+      attachmentUrl = sourceAssignment.attachmentUrl;
+      attachmentContentType = sourceAssignment.attachmentContentType;
     }
 
     let created;
@@ -71,6 +94,9 @@ export async function POST(
         attachmentContentType,
       });
     } catch (error) {
+      if (newlyUploadedAttachment) {
+        await deleteBlobObjects([newlyUploadedAttachment], { objectClass: "attachment" });
+      }
       if (error instanceof Error && error.message.toLowerCase().includes("already exists")) {
         throw new HttpError(409, error.message);
       }

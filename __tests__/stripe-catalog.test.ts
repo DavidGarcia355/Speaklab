@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   StripeCatalogDriftError,
+  assertStripeCatalogAccountId,
   assertTestStripeKey,
   createStripeCatalogManifest,
   reconcileStripeCatalog,
-  type CatalogMeterRecord,
   type CatalogPriceRecord,
   type CatalogProductRecord,
   type StripeCatalogClient,
@@ -12,51 +12,30 @@ import {
 } from "@/scripts/stripe-setup";
 
 class FakeStripeCatalogClient implements StripeCatalogClient {
-  readonly meters: CatalogMeterRecord[] = [];
+  accountId = "acct_habla_test";
   readonly products = new Map<string, CatalogProductRecord>();
   readonly prices: CatalogPriceRecord[] = [];
+  readonly idempotencyKeys: string[] = [];
   writes = 0;
 
-  async listMeters() {
-    return this.meters;
-  }
+  constructor(private readonly resourceLivemode = false) {}
 
-  async createMeter(dimension: StripeCatalogDimension) {
-    this.writes += 1;
-    const meter: CatalogMeterRecord = {
-      id: `mtr_test_${dimension.key}`,
-      livemode: false,
-      status: "active",
-      displayName: dimension.meterDisplayName,
-      eventName: dimension.meterEventName,
-      aggregationFormula: "sum",
-      customerMappingType: "by_id",
-      customerPayloadKey: "stripe_customer_id",
-      valuePayloadKey: "value",
-      eventTimeWindow: null,
-    };
-    this.meters.push(meter);
-    return meter;
-  }
-
-  async updateMeter(meterId: string, dimension: StripeCatalogDimension) {
-    this.writes += 1;
-    const meter = this.meters.find((item) => item.id === meterId);
-    if (!meter) throw new Error(`Unknown fake meter ${meterId}.`);
-    meter.displayName = dimension.meterDisplayName;
-    return meter;
+  async retrieveAccountId() {
+    return this.accountId;
   }
 
   async getProduct(productId: string) {
     return this.products.get(productId) ?? null;
   }
 
-  async createProduct(dimension: StripeCatalogDimension) {
+  async createProduct(dimension: StripeCatalogDimension, idempotencyKey: string) {
     this.writes += 1;
+    this.idempotencyKeys.push(idempotencyKey);
     const product: CatalogProductRecord = {
       id: dimension.productId,
-      livemode: false,
+      livemode: this.resourceLivemode,
       active: true,
+      type: "service",
       name: dimension.productName,
       description: dimension.productDescription,
       unitLabel: dimension.productUnitLabel,
@@ -84,28 +63,32 @@ class FakeStripeCatalogClient implements StripeCatalogClient {
     return this.prices.filter((price) => price.lookupKey === lookupKey);
   }
 
-  async createPrice(
-    dimension: StripeCatalogDimension,
-    meterId: string,
-  ) {
+  async createPrice(dimension: StripeCatalogDimension, idempotencyKey: string) {
     this.writes += 1;
+    this.idempotencyKeys.push(idempotencyKey);
     const price: CatalogPriceRecord = {
       id: `price_test_${dimension.key}`,
-      livemode: false,
+      livemode: this.resourceLivemode,
       active: true,
       lookupKey: dimension.priceLookupKey,
+      nickname: dimension.priceNickname,
       currency: "usd",
       billingScheme: "per_unit",
       type: "recurring",
       productId: dimension.productId,
-      unitAmountDecimalCents: dimension.unitAmountDecimalCents,
+      unitAmountCents: dimension.unitAmountCents,
+      unitAmountDecimalCents: String(dimension.unitAmountCents),
+      currencyOptions: {},
       recurring: {
         interval: "month",
         intervalCount: 1,
-        usageType: "metered",
-        meterId,
+        usageType: "licensed",
+        meterId: null,
+        trialPeriodDays: null,
       },
       taxBehavior: "unspecified",
+      customUnitAmount: null,
+      tiersMode: null,
       transformQuantity: null,
       metadata: { ...dimension.metadata },
     };
@@ -114,121 +97,261 @@ class FakeStripeCatalogClient implements StripeCatalogClient {
   }
 }
 
-describe("Stripe teacher AI catalog", () => {
-  it("derives both customer-facing Stripe prices from the canonical launch price book", () => {
+describe("Stripe Teacher catalog", () => {
+  it("pins one $20 licensed Teacher Price under customer-facing Product TryHabla", () => {
     const manifest = createStripeCatalogManifest();
-    const dimensions = Object.fromEntries(manifest.dimensions.map((item) => [item.key, item]));
 
     expect(manifest).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       apiVersion: "2026-07-29.dahlia",
-      priceBookId: "habla-teacher-ai-usd-v2",
+      priceBookId: "tryhabla-teacher-usd-v3",
       priceBookStatus: "active",
       currency: "usd",
-      publishedAt: "2026-08-21",
-      effectiveAt: "2026-08-21",
+      publishedAt: "2026-08-26",
+      effectiveAt: "2026-08-26",
     });
     expect(manifest.fingerprint).toMatch(/^[a-f0-9]{64}$/);
-    expect(dimensions.successful_grade).toMatchObject({
-      meterEventName: "habla_ai_successful_grade",
-      unitAmountDecimalCents: "5",
-      priceEnvironmentVariable: "STRIPE_AI_GRADE_PRICE_ID",
+    expect(manifest.dimensions).toHaveLength(1);
+    expect(manifest.dimensions[0]).toMatchObject({
+      key: "teacher",
+      productId: "tryhabla_teacher_usd_v3",
+      productName: "TryHabla",
+      productUnitLabel: "subscription",
+      priceLookupKey: "tryhabla_teacher_usd_v3_monthly",
+      priceEnvironmentVariable: "STRIPE_TRYHABLA_TEACHER_PRICE_ID",
+      unitAmountCents: 2_000,
+      metadata: {
+        price_book_id: "tryhabla-teacher-usd-v3",
+        plan: "teacher",
+        billing_model: "licensed",
+        billing_interval: "month",
+        checkout_quantity: "1",
+        included_ai_reviews: "300",
+        overage_policy: "pause_ai",
+      },
     });
-    expect(dimensions.audio_second).toMatchObject({
-      meterEventName: "habla_ai_audio_seconds",
-      unitAmountDecimalCents: "0.016666666667",
-      priceEnvironmentVariable: "STRIPE_AI_AUDIO_SECONDS_PRICE_ID",
-    });
-    expect(manifest.dimensions).toHaveLength(2);
-    expect(
-      manifest.dimensions.every(
-        (dimension) =>
-          dimension.metadata.price_book_id === manifest.priceBookId &&
-          dimension.metadata.catalog_fingerprint === manifest.fingerprint,
-      ),
-    ).toBe(true);
+    expect(Object.isFrozen(manifest)).toBe(true);
+    expect(Object.isFrozen(manifest.dimensions)).toBe(true);
+    expect(Object.isFrozen(manifest.dimensions[0].metadata)).toBe(true);
   });
 
-  it("accepts only Stripe test or sandbox secret keys", () => {
+  it("accepts only Stripe test or sandbox secret keys and exact account IDs", () => {
     expect(assertTestStripeKey(" sk_test_example ")).toBe("sk_test_example");
     expect(assertTestStripeKey("rk_test_example")).toBe("rk_test_example");
+    expect(assertTestStripeKey("rkcs_test_example")).toBe("rkcs_test_example");
     expect(() => assertTestStripeKey(undefined)).toThrow(/STRIPE_TEST_SECRET_KEY/);
     expect(() => assertTestStripeKey("sk_live_example")).toThrow(/live Stripe key/);
     expect(() => assertTestStripeKey("rk_live_example")).toThrow(/live Stripe key/);
     expect(() => assertTestStripeKey("not-a-stripe-key")).toThrow(/test or sandbox key/);
+    expect(assertStripeCatalogAccountId(" acct_habla_test ")).toBe("acct_habla_test");
+    expect(() => assertStripeCatalogAccountId(undefined)).toThrow(/STRIPE_ACCOUNT_ID/);
   });
 
-  it("plans all missing resources without writing by default", async () => {
+  it("verifies the exact Stripe account before any catalog read or write", async () => {
     const client = new FakeStripeCatalogClient();
-    const result = await reconcileStripeCatalog(client, { apply: false });
+    client.accountId = "acct_wrong_sandbox";
+    const getProduct = vi.spyOn(client, "getProduct");
+
+    await expect(
+      reconcileStripeCatalog(client, {
+        apply: true,
+        accountId: "acct_habla_test",
+        keyMode: "test",
+      }),
+    ).rejects.toThrow(/account mismatch/);
+    expect(getProduct).not.toHaveBeenCalled();
+    expect(client.writes).toBe(0);
+
+    const liveClient = new FakeStripeCatalogClient(true);
+    const retrieveAccountId = vi.spyOn(liveClient, "retrieveAccountId");
+    await expect(
+      reconcileStripeCatalog(liveClient, {
+        apply: true,
+        accountId: "acct_habla_test",
+        keyMode: "live",
+      }),
+    ).rejects.toThrow(/live Stripe catalog/);
+    expect(retrieveAccountId).not.toHaveBeenCalled();
+    expect(liveClient.writes).toBe(0);
+  });
+
+  it("allows live resources only through the explicitly authorized path", async () => {
+    const client = new FakeStripeCatalogClient(true);
+    const result = await reconcileStripeCatalog(client, {
+      apply: true,
+      accountId: "acct_habla_test",
+      keyMode: "live",
+      allowLiveProvisioning: true,
+    });
+
+    expect(result.applied).toBe(true);
+    expect(client.writes).toBe(2);
+    expect([...client.products.values()].every((resource) => resource.livemode)).toBe(true);
+    expect(client.prices.every((resource) => resource.livemode)).toBe(true);
+    expect(client.idempotencyKeys).toHaveLength(2);
+    expect(
+      client.idempotencyKeys.every((key) =>
+        key.startsWith("tryhabla:live:tryhabla-teacher-usd-v3:"),
+      ),
+    ).toBe(true);
+  });
+
+  it("plans one Product and one Price without writing by default", async () => {
+    const client = new FakeStripeCatalogClient();
+    const result = await reconcileStripeCatalog(client, {
+      apply: false,
+      accountId: "acct_habla_test",
+      keyMode: "test",
+    });
 
     expect(client.writes).toBe(0);
     expect(result.applied).toBe(false);
-    expect(result.actions).toHaveLength(6);
-    expect(result.actions.every((action) => action.action === "create")).toBe(true);
+    expect(result.actions).toEqual([
+      expect.objectContaining({ dimension: "teacher", resource: "product", action: "create" }),
+      expect.objectContaining({ dimension: "teacher", resource: "price", action: "create" }),
+    ]);
     expect(result.priceEnvironment).toEqual({
-      STRIPE_AI_GRADE_PRICE_ID:
-        "<created by --apply for habla_teacher_ai_usd_v2_successful_grade_monthly>",
-      STRIPE_AI_AUDIO_SECONDS_PRICE_ID:
-        "<created by --apply for habla_teacher_ai_usd_v2_audio_second_monthly>",
+      STRIPE_TRYHABLA_TEACHER_PRICE_ID:
+        "<created by --apply for tryhabla_teacher_usd_v3_monthly>",
     });
   });
 
-  it("creates the test catalog once and makes later applies no-ops", async () => {
+  it("creates the catalog once and makes later applies no-ops", async () => {
     const client = new FakeStripeCatalogClient();
-    const created = await reconcileStripeCatalog(client, { apply: true });
+    const created = await reconcileStripeCatalog(client, {
+      apply: true,
+      accountId: "acct_habla_test",
+      keyMode: "test",
+    });
 
     expect(created.actions.every((action) => action.action === "create")).toBe(true);
-    expect(client.writes).toBe(6);
+    expect(client.writes).toBe(2);
+    expect(client.idempotencyKeys).toHaveLength(2);
+    expect(
+      client.idempotencyKeys.every((key) =>
+        key.startsWith("tryhabla:tryhabla-teacher-usd-v3:"),
+      ),
+    ).toBe(true);
     expect(created.priceEnvironment).toEqual({
-      STRIPE_AI_GRADE_PRICE_ID: "price_test_successful_grade",
-      STRIPE_AI_AUDIO_SECONDS_PRICE_ID: "price_test_audio_second",
+      STRIPE_TRYHABLA_TEACHER_PRICE_ID: "price_test_teacher",
     });
 
-    const rerun = await reconcileStripeCatalog(client, { apply: true });
+    const rerun = await reconcileStripeCatalog(client, {
+      apply: true,
+      accountId: "acct_habla_test",
+      keyMode: "test",
+    });
     expect(rerun.actions.every((action) => action.action === "unchanged")).toBe(true);
-    expect(client.writes).toBe(6);
+    expect(client.writes).toBe(2);
   });
 
-  it("reconciles mutable meter and Product presentation fields", async () => {
+  it("repairs mutable Product presentation but rejects identity drift", async () => {
     const client = new FakeStripeCatalogClient();
-    await reconcileStripeCatalog(client, { apply: true });
-    client.meters[0].displayName = "Old display name";
+    await reconcileStripeCatalog(client, {
+      apply: true,
+      accountId: "acct_habla_test",
+      keyMode: "test",
+    });
     const product = client.products.values().next().value as CatalogProductRecord;
-    product.name = "Old Product name";
+    product.name = "Old product name";
     delete product.metadata.catalog_fingerprint;
+    product.metadata.unexpected = "remove-me";
 
-    const result = await reconcileStripeCatalog(client, { apply: true });
-
-    expect(result.actions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ resource: "meter", action: "update" }),
-        expect.objectContaining({ resource: "product", action: "update" }),
-      ]),
+    const repaired = await reconcileStripeCatalog(client, {
+      apply: true,
+      accountId: "acct_habla_test",
+      keyMode: "test",
+    });
+    expect(repaired.actions).toContainEqual(
+      expect.objectContaining({ resource: "product", action: "update" }),
     );
-    expect(client.meters[0].displayName).toBe("Habla successful AI grades");
-    expect(product.name).toBe("Habla AI successful grades");
-    expect(client.writes).toBe(8);
+    expect(product.name).toBe("TryHabla");
+    expect(product.metadata).toEqual(createStripeCatalogManifest().dimensions[0].metadata);
+    expect(client.writes).toBe(3);
+
+    product.metadata.price_book_id = "different-book";
+    await expect(
+      reconcileStripeCatalog(client, {
+        apply: false,
+        accountId: "acct_habla_test",
+        keyMode: "test",
+      }),
+    ).rejects.toBeInstanceOf(StripeCatalogDriftError);
   });
 
-  it("fails closed on live resources, immutable drift, or identity metadata drift", async () => {
-    const liveClient = new FakeStripeCatalogClient();
-    await reconcileStripeCatalog(liveClient, { apply: true });
-    liveClient.meters[0].livemode = true;
-    await expect(reconcileStripeCatalog(liveClient, { apply: false })).rejects.toThrow(/live-mode/);
+  it("rejects immutable fixed-Price drift", async () => {
+    const mutations: Array<(price: CatalogPriceRecord) => void> = [
+      (price) => {
+        price.unitAmountCents = 4_900;
+      },
+      (price) => {
+        price.unitAmountDecimalCents = "4900";
+      },
+      (price) => {
+        if (!price.recurring) throw new Error("missing fake recurring data");
+        price.recurring.usageType = "metered";
+        price.recurring.meterId = "mtr_obsolete";
+      },
+      (price) => {
+        price.nickname = "wrong";
+      },
+      (price) => {
+        price.currencyOptions = {
+          eur: { unitAmountCents: 2_000, unitAmountDecimalCents: "2000" },
+        };
+      },
+      (price) => {
+        price.metadata.unexpected = "drift";
+      },
+    ];
 
-    const amountClient = new FakeStripeCatalogClient();
-    await reconcileStripeCatalog(amountClient, { apply: true });
-    amountClient.prices[0].unitAmountDecimalCents = "2";
-    await expect(reconcileStripeCatalog(amountClient, { apply: false })).rejects.toBeInstanceOf(
-      StripeCatalogDriftError,
-    );
+    for (const mutate of mutations) {
+      const client = new FakeStripeCatalogClient();
+      await reconcileStripeCatalog(client, {
+        apply: true,
+        accountId: "acct_habla_test",
+        keyMode: "test",
+      });
+      mutate(client.prices[0]);
+      await expect(
+        reconcileStripeCatalog(client, {
+          apply: false,
+          accountId: "acct_habla_test",
+          keyMode: "test",
+        }),
+      ).rejects.toBeInstanceOf(StripeCatalogDriftError);
+    }
+  });
 
-    const metadataClient = new FakeStripeCatalogClient();
-    await reconcileStripeCatalog(metadataClient, { apply: true });
-    metadataClient.prices[0].metadata.price_book_id = "different-book";
-    await expect(reconcileStripeCatalog(metadataClient, { apply: false })).rejects.toThrow(
-      /metadata/,
-    );
+  it("rejects wrong-mode resources and duplicate lookup-key Prices", async () => {
+    const modeClient = new FakeStripeCatalogClient();
+    await reconcileStripeCatalog(modeClient, {
+      apply: true,
+      accountId: "acct_habla_test",
+      keyMode: "test",
+    });
+    modeClient.prices[0].livemode = true;
+    await expect(
+      reconcileStripeCatalog(modeClient, {
+        apply: false,
+        accountId: "acct_habla_test",
+        keyMode: "test",
+      }),
+    ).rejects.toThrow(/live-mode/);
+
+    const duplicateClient = new FakeStripeCatalogClient();
+    await reconcileStripeCatalog(duplicateClient, {
+      apply: true,
+      accountId: "acct_habla_test",
+      keyMode: "test",
+    });
+    duplicateClient.prices.push({ ...duplicateClient.prices[0], id: "price_duplicate" });
+    await expect(
+      reconcileStripeCatalog(duplicateClient, {
+        apply: false,
+        accountId: "acct_habla_test",
+        keyMode: "test",
+      }),
+    ).rejects.toThrow(/Multiple Stripe prices/);
   });
 });

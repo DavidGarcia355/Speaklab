@@ -7,7 +7,7 @@ export default function StripeSupportButton() {
         target="_blank"
         rel="noopener noreferrer"
       >
-        Pay with PayPal
+        Support with PayPal
       </a>
     </div>
   );

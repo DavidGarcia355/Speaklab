@@ -9,8 +9,8 @@
   --muted: #58677a;
   --line: #cddfe8;
   --line-strong: #a9cedc;
-  --primary: #258bc6;
-  --primary-strong: #1374ad;
+  --primary: #1374ad;
+  --primary-strong: #0b5f91;
   --primary-soft: #d9f2ff;
   --primary-soft-border: #92d2ec;
   --coral: #f26c5e;
@@ -1257,7 +1257,7 @@ h3 {
 
 .btn-danger {
   color: #fff;
-  background: linear-gradient(180deg, #ef4444 0%, var(--danger) 100%);
+  background: linear-gradient(180deg, #b4232c 0%, #991b1b 100%);
   border-color: rgba(15, 23, 42, 0.08);
 }
 
@@ -6082,7 +6082,7 @@ html.dark .student-empty-quest {
   }
 }
 
-/* Pricing: free audio core with a usage-based AI configurator */
+/* Pricing: free audio core with fixed AI review allowances */
 .pricing-page {
   width: min(1180px, calc(100% - 2.2rem));
 }
@@ -6995,6 +6995,26 @@ html.dark .pricing-estimate-head {
   margin-top: 1.6rem;
 }
 
+.billing-plan-terms {
+  margin-top: 1.35rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.billing-plan-terms strong {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.billing-plan-terms p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
 .billing-action-error {
   margin: 1rem 0 0;
 }
@@ -7012,6 +7032,12 @@ html.dark .pricing-estimate-head {
   color: var(--success);
   border-color: color-mix(in srgb, var(--success) 35%, var(--line));
   background: color-mix(in srgb, var(--success) 8%, var(--surface));
+}
+
+.billing-checkout-note.is-warning {
+  color: var(--status-warning-text);
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
 }
 
 .billing-availability-note {
@@ -7063,6 +7089,15 @@ html.dark .pricing-estimate-head {
 .billing-usage-card dd {
   margin: 0;
   font-weight: 800;
+}
+
+.billing-usage-caveat {
+  margin: 1rem 0 0;
+  padding-top: 0.85rem;
+  color: #b7c7d9;
+  border-top: 1px solid rgb(255 255 255 / 13%);
+  font-size: 0.82rem;
+  line-height: 1.55;
 }
 
 .billing-panel-loading,
@@ -7132,5 +7167,134 @@ html.dark .pricing-estimate-head {
 @media (prefers-reduced-motion: reduce) {
   .billing-spinner {
     animation: none;
+  }
+}
+
+.site-shell {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-footer {
+  margin-top: auto;
+  padding: 1rem max(1.1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom))
+    max(1.1rem, env(safe-area-inset-left));
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.site-footer-inner {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem 1.5rem;
+}
+
+.site-footer p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.site-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem 1rem;
+}
+
+.site-footer-links a,
+.legal-document a {
+  color: var(--primary-strong);
+  font-weight: 700;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.site-footer-links a:focus-visible,
+.legal-document a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.legal-page {
+  width: min(920px, calc(100% - 2.2rem));
+}
+
+.legal-hero {
+  max-width: none;
+}
+
+.legal-hero > p:not(.pill) {
+  max-width: 76ch;
+}
+
+.legal-hero .meta {
+  margin-top: 0.8rem;
+  font-size: 0.88rem;
+}
+
+.legal-document {
+  margin-top: 1rem;
+  padding: clamp(1.2rem, 4vw, 2.2rem);
+}
+
+.legal-section + .legal-section {
+  margin-top: 1.75rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.legal-section h2 {
+  font-size: clamp(1.15rem, 2vw, 1.4rem);
+}
+
+.legal-section p,
+.legal-section li {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.legal-section p {
+  margin: 0.7rem 0 0;
+}
+
+.legal-section ul {
+  margin: 0.7rem 0 0;
+  padding-left: 1.35rem;
+}
+
+.legal-section li + li {
+  margin-top: 0.5rem;
+}
+
+.legal-section strong {
+  color: var(--text);
+}
+
+.legal-contact {
+  padding: 1rem;
+  border: 1px solid var(--primary-soft-border);
+  border-radius: var(--radius-md);
+  background: var(--primary-soft);
+}
+
+.legal-section + .legal-contact {
+  border-top-color: var(--primary-soft-border);
+}
+
+@media (max-width: 640px) {
+  .site-footer-inner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .site-footer-links {
+    justify-content: flex-start;
   }
 }

@@ -9,6 +9,21 @@ import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import { STUDENT_AI_GRADING_DISCLOSURE } from "@/lib/ai/student-provenance";
 import PageTitle from "@/app/components/PageTitle";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
+import {
+  cleanupFailedMediaRecorderStart,
+  describeMicrophoneAccessFailure,
+  RECORDER_RUNTIME_FAILURE_MESSAGE,
+  RECORDER_START_FAILURE_MESSAGE,
+  stopMediaStreamTracks,
+} from "@/lib/media-recorder-safety";
+import {
+  AUDIO_RECORDING_AUTO_STOP_MESSAGE,
+  AUDIO_RECORDING_TIMESLICE_MS,
+  AUDIO_UPLOAD_TOO_LARGE_MESSAGE,
+  isAudioUploadSizeAllowed,
+  shouldAutoStopAudioRecording,
+  TARGET_AUDIO_BITS_PER_SECOND,
+} from "@/lib/upload-limits";
 
 type AssignmentDetail = {
   id: string;
@@ -34,7 +49,14 @@ type SessionResponse = {
   };
 };
 
-type RecorderState = "idle" | "requesting-permission" | "recording" | "ready" | "submitting";
+type RecorderState =
+  | "idle"
+  | "requesting-permission"
+  | "recording"
+  | "finalizing"
+  | "ready"
+  | "submitting";
+type RecordingStopReason = "manual" | "duration" | "size";
 const DEFAULT_MAX_RECORDING_SECONDS = 180;
 
 type BannerTone =
@@ -98,6 +120,14 @@ function getRecorderBanner(options: {
       tone: "state-recording",
       icon: <CircleDot size={16} aria-hidden="true" />,
       text: `Recording in progress (${seconds}s of ${maxSeconds}s).`,
+    };
+  }
+
+  if (state === "finalizing") {
+    return {
+      tone: "state-requesting-permission",
+      icon: <LoaderCircle size={16} className="is-spinning" aria-hidden="true" />,
+      text: "Finalizing recording...",
     };
   }
 
@@ -171,6 +201,7 @@ export default function StudentAssignmentClient({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
+  const stopReasonRef = useRef<RecordingStopReason>("manual");
 
   useEffect(() => {
     setCallbackUrl(window.location.href);
@@ -287,40 +318,132 @@ export default function StudentAssignmentClient({
   useEffect(() => {
     return () => {
       if (recordingUrl) URL.revokeObjectURL(recordingUrl);
-      if (timerRef.current) window.clearInterval(timerRef.current);
-      streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, [recordingUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      stopMediaStreamTracks(streamRef.current);
+      streamRef.current = null;
+      recorderRef.current = null;
+    };
+  }, []);
 
   async function startRecording() {
     setStatusMsg("");
     setErrorMsg("");
     if (!micSupported) return;
     setRecorderState("requesting-permission");
+
+    let stream: MediaStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      const failure = describeMicrophoneAccessFailure(error);
+      setRecorderState("idle");
+      setPermissionState(failure.permissionDenied ? "denied" : "unknown");
+      setErrorMsg(failure.message);
+      return;
+    }
+
+    streamRef.current = stream;
+    setPermissionState("granted");
+
+    try {
       const mimeType = getSupportedAudioMimeType();
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      streamRef.current = stream;
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, {
+          ...(mimeType ? { mimeType } : {}),
+          audioBitsPerSecond: TARGET_AUDIO_BITS_PER_SECOND,
+        });
+      } catch {
+        recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      }
+      recorderRef.current = recorder;
+      stopReasonRef.current = "manual";
       const chunks: Blob[] = [];
+      let recordedBytes = 0;
+      let sizeStopRequested = false;
 
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
+        if (event.data.size <= 0) return;
+        chunks.push(event.data);
+        recordedBytes += event.data.size;
+
+        if (
+          !sizeStopRequested &&
+          recorder.state === "recording" &&
+          shouldAutoStopAudioRecording(recordedBytes)
+        ) {
+          sizeStopRequested = true;
+          stopRecording("size");
+        }
       };
 
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "audio/webm" });
+        const stopReason = stopReasonRef.current;
+        stopReasonRef.current = "manual";
+        if (recorderRef.current === recorder) recorderRef.current = null;
         if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+        if (!isAudioUploadSizeAllowed(blob.size)) {
+          setRecordingBlob(null);
+          setRecordingUrl("");
+          setSubmittedCurrentRecording(false);
+          setErrorMsg(AUDIO_UPLOAD_TOO_LARGE_MESSAGE);
+          setStatusMsg("");
+          stopMediaStreamTracks(stream);
+          if (streamRef.current === stream) streamRef.current = null;
+          setRecorderState("idle");
+          return;
+        }
         setRecordingBlob(blob);
         setRecordingUrl(URL.createObjectURL(blob));
         setSubmittedCurrentRecording(false);
-        stream.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
+        setErrorMsg("");
+        if (stopReason === "size") {
+          setStatusMsg(AUDIO_RECORDING_AUTO_STOP_MESSAGE);
+        } else if (stopReason === "duration") {
+          const maxSec = assignment?.maxRecordingSeconds || DEFAULT_MAX_RECORDING_SECONDS;
+          setStatusMsg(`Recording stopped automatically at ${maxSec} seconds.`);
+        } else {
+          setStatusMsg("");
+        }
+        stopMediaStreamTracks(stream);
+        if (streamRef.current === stream) streamRef.current = null;
         setRecorderState("ready");
       };
 
-      recorder.start();
-      recorderRef.current = recorder;
+      recorder.onerror = () => {
+        if (recorderRef.current !== recorder) return;
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        recorder.onerror = null;
+        cleanupFailedMediaRecorderStart({
+          acquiredStream: stream,
+          streamRef,
+          recorderRef,
+          timerRef,
+          clearTimer: (timerId) => window.clearInterval(timerId),
+        });
+        setRecordingBlob(null);
+        setRecordingUrl("");
+        setSubmittedCurrentRecording(false);
+        setStatusMsg("");
+        setErrorMsg(RECORDER_RUNTIME_FAILURE_MESSAGE);
+        setRecorderState("idle");
+      };
+
+      recorder.start(AUDIO_RECORDING_TIMESLICE_MS);
+      if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+      setRecordingUrl("");
+      setRecordingBlob(null);
+      setSubmittedCurrentRecording(false);
       setRecordingSeconds(0);
       setRecorderState("recording");
       timerRef.current = window.setInterval(() => {
@@ -328,28 +451,50 @@ export default function StudentAssignmentClient({
           const next = prev + 1;
           const maxSec = assignment?.maxRecordingSeconds || DEFAULT_MAX_RECORDING_SECONDS;
           if (next >= maxSec) {
-            stopRecording();
-            setStatusMsg(`Recording stopped automatically at ${maxSec} seconds.`);
+            stopRecording("duration");
           }
           return next;
         });
       }, 1000);
-      setPermissionState("granted");
     } catch {
+      cleanupFailedMediaRecorderStart({
+        acquiredStream: stream,
+        streamRef,
+        recorderRef,
+        timerRef,
+        clearTimer: (timerId) => window.clearInterval(timerId),
+      });
       setRecorderState("idle");
-      setPermissionState("denied");
-      setErrorMsg(
-        "Microphone access was blocked. Allow microphone permission in your browser settings, then try again."
-      );
+      setPermissionState("granted");
+      setErrorMsg(RECORDER_START_FAILURE_MESSAGE);
     }
   }
 
-  function stopRecording() {
-    if (!recorderRef.current) return;
-    recorderRef.current.stop();
-    recorderRef.current = null;
-    if (timerRef.current) window.clearInterval(timerRef.current);
-    setRecorderState("ready");
+  function stopRecording(reason: RecordingStopReason = "manual") {
+    const recorder = recorderRef.current;
+    if (!recorder) return;
+    stopReasonRef.current = reason;
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    try {
+      if (recorder.state !== "inactive") recorder.stop();
+      setRecorderState("finalizing");
+    } catch {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      recorder.onerror = null;
+      if (recorderRef.current === recorder) recorderRef.current = null;
+      stopMediaStreamTracks(streamRef.current);
+      streamRef.current = null;
+      setRecordingBlob(null);
+      setRecordingUrl("");
+      setStatusMsg("");
+      setErrorMsg(RECORDER_RUNTIME_FAILURE_MESSAGE);
+      setRecorderState("idle");
+    }
   }
 
   function clearRecording() {
@@ -382,6 +527,11 @@ export default function StudentAssignmentClient({
     }
     if (!recordingBlob) {
       setErrorMsg("Record your response first.");
+      return;
+    }
+    if (!isAudioUploadSizeAllowed(recordingBlob.size)) {
+      setErrorMsg(AUDIO_UPLOAD_TOO_LARGE_MESSAGE);
+      setRecorderState("ready");
       return;
     }
 
@@ -452,6 +602,9 @@ export default function StudentAssignmentClient({
     errorMsg,
     submittedCurrentRecording,
   });
+  const recorderAnnouncement =
+    errorMsg ||
+    (recorderState === "recording" ? "Recording started." : recorderBanner.text);
 
   if (loading) {
     return (
@@ -572,6 +725,9 @@ export default function StudentAssignmentClient({
                 <span className="state-banner-icon">{recorderBanner.icon}</span>
                 <span>{recorderBanner.text}</span>
               </p>
+              <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                {recorderAnnouncement}
+              </p>
               {permissionState === "denied" ? (
                 <p className="notice danger">
                   Microphone is blocked. Open browser site settings and allow microphone access.
@@ -604,6 +760,7 @@ export default function StudentAssignmentClient({
                     (!studentEmail && !localAuthBypassEnabled) ||
                     !micSupported ||
                     recorderState === "requesting-permission" ||
+                    recorderState === "finalizing" ||
                     recorderState === "submitting" ||
                     atSubmissionLimit
                   }
@@ -611,7 +768,7 @@ export default function StudentAssignmentClient({
                   Start recording
                 </button>
               ) : (
-                <button className="btn btn-danger" type="button" onClick={stopRecording}>
+                <button className="btn btn-danger" type="button" onClick={() => stopRecording()}>
                   Stop recording
                 </button>
               )}
@@ -622,6 +779,9 @@ export default function StudentAssignmentClient({
                 onClick={() => void submitResponse()}
                 disabled={
                   (!studentEmail && !localAuthBypassEnabled) ||
+                  recorderState === "requesting-permission" ||
+                  recorderState === "recording" ||
+                  recorderState === "finalizing" ||
                   recorderState === "submitting" ||
                   !recordingBlob ||
                   submittedCurrentRecording ||

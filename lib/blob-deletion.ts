@@ -1,6 +1,6 @@
 import "server-only";
 import { BlobNotFoundError, del } from "@vercel/blob";
-import { getAudioBlobCommandOptions } from "@/lib/audio-blob";
+import { getPrivateBlobCommandOptions } from "@/lib/audio-blob";
 
 export type BlobObjectClass = "audio" | "attachment";
 
@@ -34,8 +34,9 @@ export async function deleteBlobObjects(
   for (const target of targets) {
     try {
       const commandOptions =
-        options.objectClass === "audio" && !isLegacyPublicBlobUrl(target)
-          ? getAudioBlobCommandOptions()
+        (options.objectClass === "audio" || options.objectClass === "attachment") &&
+        !isLegacyPublicBlobUrl(target)
+          ? getPrivateBlobCommandOptions()
           : undefined;
       await del(target, commandOptions);
       deleted++;

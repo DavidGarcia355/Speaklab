@@ -6,43 +6,53 @@ export type TeacherAiPricingInputs = {
   averageAudioMinutes: number;
 };
 
-export type TeacherAiPriceBook = {
-  readonly id: string;
-  readonly currency: "USD";
-  readonly status: "planned" | "active";
-  readonly publishedAt: string;
-  readonly effectiveAt: string | null;
-  readonly baseSuccessfulGradeUsd: number;
-  readonly audioMinuteUsd: number;
-  readonly feedbackIncluded: true;
-  readonly freeCreditPolicy: {
-    readonly kind: "qualifying_classes_minus_one";
-    readonly qualifyingClass: "rostered_student_and_assignment";
-    readonly period: "utc_month";
-    readonly covers: "entire_ai_result";
-    readonly rollover: false;
-  };
-};
+export type TeacherAiPriceBook = Readonly<{
+  id: "tryhabla-teacher-usd-v3";
+  currency: "USD";
+  status: "active";
+  publishedAt: string;
+  effectiveAt: string;
+  plan: "teacher";
+  billingModel: "licensed_allowance";
+  monthlyPriceUsd: 20;
+  billingCadence: "month";
+  includedAiReviews: 300;
+  maxAudioMinutesPerReview: 5;
+  overagePolicy: "pause_ai";
+  rollover: false;
+  successfulReviewIdentity: "teacher_assignment_recording";
+  feedbackIncluded: true;
+  freeAllowance: Readonly<{
+    reviews: 30;
+    period: "account_lifetime";
+    rollover: false;
+  }>;
+}>;
 
+/** Canonical commercial contract shared by Stripe, entitlement, quota, and UI code. */
 export const TEACHER_AI_PRICE_BOOK: TeacherAiPriceBook = Object.freeze({
-  id: "habla-teacher-ai-usd-v2",
+  id: "tryhabla-teacher-usd-v3",
   currency: "USD",
   status: "active",
-  publishedAt: "2026-08-21",
-  effectiveAt: "2026-08-21",
-  baseSuccessfulGradeUsd: 0.05,
-  audioMinuteUsd: 0.01,
+  publishedAt: "2026-08-26",
+  effectiveAt: "2026-08-26",
+  plan: "teacher",
+  billingModel: "licensed_allowance",
+  monthlyPriceUsd: 20,
+  billingCadence: "month",
+  includedAiReviews: 300,
+  maxAudioMinutesPerReview: 5,
+  overagePolicy: "pause_ai",
+  rollover: false,
+  successfulReviewIdentity: "teacher_assignment_recording",
   feedbackIncluded: true,
-  freeCreditPolicy: Object.freeze({
-    kind: "qualifying_classes_minus_one",
-    qualifyingClass: "rostered_student_and_assignment",
-    period: "utc_month",
-    covers: "entire_ai_result",
+  freeAllowance: Object.freeze({
+    reviews: 30,
+    period: "account_lifetime",
     rollover: false,
   }),
 });
 
-/** @deprecated Read metadata from TEACHER_AI_PRICE_BOOK so rates and policy stay versioned together. */
 export const TEACHER_AI_PRICE_BOOK_META = Object.freeze({
   id: TEACHER_AI_PRICE_BOOK.id,
   currency: TEACHER_AI_PRICE_BOOK.currency,
@@ -52,14 +62,15 @@ export const TEACHER_AI_PRICE_BOOK_META = Object.freeze({
 });
 
 export const TEACHER_AI_PRICING_LIMITS = Object.freeze({
-  classCount: { min: 0, max: 30 },
+  classCount: { min: 0, max: 50 },
   studentsPerClass: { min: 0, max: 100 },
   aiAssignmentsPerClass: { min: 0, max: 30 },
   submissionsPerStudent: { min: 0, max: 3 },
-  averageAudioMinutes: { min: 0, max: 10 },
+  averageAudioMinutes: {
+    min: 0,
+    max: TEACHER_AI_PRICE_BOOK.maxAudioMinutesPerReview,
+  },
 });
-
-const MICRO_USD_PER_USD = 1_000_000;
 
 function assertInRange(
   name: keyof TeacherAiPricingInputs,
@@ -69,7 +80,6 @@ function assertInRange(
   if (!Number.isFinite(value) || value < options.min || value > options.max) {
     throw new RangeError(`${name} must be between ${options.min} and ${options.max}.`);
   }
-
   if (options.integer && !Number.isInteger(value)) {
     throw new RangeError(`${name} must be a whole number.`);
   }
@@ -97,64 +107,40 @@ function validateInputs(input: TeacherAiPricingInputs) {
   });
 }
 
-function validatePriceBook(priceBook: TeacherAiPriceBook) {
-  for (const [name, value] of Object.entries({
-    baseSuccessfulGradeUsd: priceBook.baseSuccessfulGradeUsd,
-    audioMinuteUsd: priceBook.audioMinuteUsd,
-  })) {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new RangeError(`${name} must be a non-negative number.`);
-    }
-  }
-}
-
-function dollarsToMicros(amount: number) {
-  return Math.round(amount * MICRO_USD_PER_USD);
-}
-
-function microsToDollars(amount: number) {
-  return amount / MICRO_USD_PER_USD;
-}
-
+/** Estimates review volume and plan fit; it never estimates provider cost or overages. */
 export function estimateTeacherAiPricing(
   input: TeacherAiPricingInputs,
   priceBook: TeacherAiPriceBook = TEACHER_AI_PRICE_BOOK,
 ) {
   validateInputs(input);
-  validatePriceBook(priceBook);
+  if (priceBook.id !== TEACHER_AI_PRICE_BOOK.id) {
+    throw new Error("Only the active TryHabla Teacher price book can be estimated.");
+  }
 
   const totalStudents = input.classCount * input.studentsPerClass;
-  const projectedAiGrades =
+  const projectedAiReviews =
     totalStudents * input.aiAssignmentsPerClass * input.submissionsPerStudent;
-  const monthlyFreeAiGrades = Math.max(0, input.classCount - 1);
-  const appliedFreeAiGrades = Math.min(projectedAiGrades, monthlyFreeAiGrades);
-  const billableAiGrades = Math.max(0, projectedAiGrades - appliedFreeAiGrades);
-  const billableAudioMinutes = billableAiGrades * input.averageAudioMinutes;
+  const teacherPeriodsNeeded =
+    projectedAiReviews === 0
+      ? 0
+      : Math.ceil(projectedAiReviews / priceBook.includedAiReviews);
+  const reviewsPerClassAssignment = input.studentsPerClass * input.submissionsPerStudent;
+  const includedClassAssignmentSets =
+    reviewsPerClassAssignment === 0
+      ? 0
+      : Math.floor(priceBook.includedAiReviews / reviewsPerClassAssignment);
 
-  const baseMicros = dollarsToMicros(
-    billableAiGrades * priceBook.baseSuccessfulGradeUsd,
-  );
-  const audioMicros = dollarsToMicros(billableAudioMinutes * priceBook.audioMinuteUsd);
-  const estimatedMonthlyMicros = baseMicros + audioMicros;
-
-  const perSuccessfulGradeMicros = dollarsToMicros(
-    priceBook.baseSuccessfulGradeUsd +
-      input.averageAudioMinutes * priceBook.audioMinuteUsd,
-  );
-  const freeCreditValueMicros = perSuccessfulGradeMicros * appliedFreeAiGrades;
-
-  return {
+  return Object.freeze({
     priceBookId: priceBook.id,
     totalStudents,
-    projectedAiGrades,
-    monthlyFreeAiGrades,
-    appliedFreeAiGrades,
-    billableAiGrades,
-    billableAudioMinutes,
-    baseChargeUsd: microsToDollars(baseMicros),
-    audioChargeUsd: microsToDollars(audioMicros),
-    estimatedMonthlyUsd: microsToDollars(estimatedMonthlyMicros),
-    estimatedPerSuccessfulGradeUsd: microsToDollars(perSuccessfulGradeMicros),
-    freeCreditValueUsd: microsToDollars(freeCreditValueMicros),
-  };
+    projectedAiReviews,
+    projectedAudioMinutes: projectedAiReviews * input.averageAudioMinutes,
+    freeAllowanceReviews: priceBook.freeAllowance.reviews,
+    fitsFreeLifetime: projectedAiReviews <= priceBook.freeAllowance.reviews,
+    teacherIncludedReviews: priceBook.includedAiReviews,
+    teacherMonthlyPriceUsd: priceBook.monthlyPriceUsd,
+    teacherPeriodsNeeded,
+    fitsOneTeacherPeriod: projectedAiReviews <= priceBook.includedAiReviews,
+    includedClassAssignmentSets,
+  });
 }

@@ -44,6 +44,12 @@ export default function AudioPlayer({
     const onLoaded = () => setDuration(audio.duration || 0);
     const onTime = () => setCurrentTime(audio.currentTime || 0);
     const onEnd = () => setIsPlaying(false);
+    const onLoadStart = () => {
+      setIsPlaying(false);
+      setDuration(0);
+      setCurrentTime(0);
+      setErrorMsg("");
+    };
     const onError = () => {
       const mediaError = audio.error;
       console.error("Audio element failed to load", { src, code: mediaError?.code, message: mediaError?.message });
@@ -51,12 +57,15 @@ export default function AudioPlayer({
       setIsPlaying(false);
     };
 
+    audio.addEventListener("loadstart", onLoadStart);
     audio.addEventListener("loadedmetadata", onLoaded);
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("ended", onEnd);
     audio.addEventListener("error", onError);
+    audio.load();
     return () => {
       audio.pause();
+      audio.removeEventListener("loadstart", onLoadStart);
       audio.removeEventListener("loadedmetadata", onLoaded);
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("ended", onEnd);
@@ -94,20 +103,25 @@ export default function AudioPlayer({
 
   async function handleDownload() {
     if (!downloadFilename || downloading) return;
+    setErrorMsg("");
     setDownloading(true);
     try {
       const res = await fetch(src);
-      if (!res.ok) throw new Error("Download failed.");
+      if (!res.ok) throw new Error(`Download request failed with status ${res.status}.`);
       const blob = await res.blob();
+      if (blob.size === 0) throw new Error("The downloaded recording was empty.");
       const ext = blob.type.split("/")[1]?.split(";")[0] ?? "webm";
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `${downloadFilename}.${ext}`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      // silent fail — download just won't happen
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      console.error("Audio download failed", error);
+      setErrorMsg("Couldn't download this recording. Check your connection and try again.");
     } finally {
       setDownloading(false);
     }
@@ -165,13 +179,14 @@ export default function AudioPlayer({
 
         <div className="audio-meta">
           {showSpeed ? (
-            <div className="audio-speed" aria-label="Playback speed">
+            <div className="audio-speed" role="group" aria-label="Playback speed">
               {SPEED_OPTIONS.map((option) => (
                 <button
                   key={option}
                   type="button"
                   className={`audio-speed-btn ${speed === option ? "active" : ""}`}
                   onClick={() => setSpeed(option)}
+                  aria-pressed={speed === option}
                 >
                   {formatSpeed(option)}
                 </button>
@@ -181,7 +196,7 @@ export default function AudioPlayer({
         </div>
       </div>
 
-      {errorMsg ? <p className="status-danger audio-error">{errorMsg}</p> : null}
+      {errorMsg ? <p className="status-danger audio-error" role="alert">{errorMsg}</p> : null}
     </div>
   );
 }

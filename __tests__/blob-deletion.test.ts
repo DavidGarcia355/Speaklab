@@ -93,4 +93,19 @@ describe("blob deletion", () => {
       expect.objectContaining({ storeId: "store_audio_test" })
     );
   });
+
+  it("routes private worksheet cleanup to the dedicated private store", async () => {
+    const { deleteBlobObjects } = await import("@/lib/blob-deletion");
+    mocks.del.mockResolvedValue(undefined);
+
+    await deleteBlobObjects(
+      ["assignment-attachments/asg_1/worksheet.pdf"],
+      { objectClass: "attachment" }
+    );
+
+    expect(mocks.del).toHaveBeenCalledWith(
+      "assignment-attachments/asg_1/worksheet.pdf",
+      expect.objectContaining({ storeId: "store_audio_test" })
+    );
+  });
 });

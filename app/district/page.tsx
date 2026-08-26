@@ -1,12 +1,13 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, BrainCircuit, ClipboardCheck, FileCheck2, LockKeyhole, School } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
+import { createPublicMetadata } from "@/lib/public-metadata";
 
-export const metadata: Metadata = {
-  title: "Districts - Habla",
+export const metadata = createPublicMetadata({
+  title: "District Review",
   description: "District review and demo information for Habla.",
-};
+  path: "/district",
+});
 
 const reviewItems = [
   {

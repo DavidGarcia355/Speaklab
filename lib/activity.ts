@@ -43,8 +43,9 @@ export function notifyDiscordActivity(
   eventType: ActivityEventType,
   email: string,
 ) {
+  void email;
   if (!DISCORD_NOTIFIED_EVENTS.has(eventType)) return;
-  sendDiscordMessage(`⬆️ Teacher upgraded: ${email}`);
+  sendDiscordMessage("Habla activity: a teacher account was enabled. Review the admin dashboard for details.");
 }
 
 export function notifyDiscordFeedback(input: {
@@ -53,9 +54,8 @@ export function notifyDiscordFeedback(input: {
   school: string;
   role: string;
 }) {
-  const who = input.name ? `${input.name} <${input.email}>` : input.email;
-  const detail = [input.school, input.role].filter(Boolean).join(", ");
-  sendDiscordMessage(`📬 New contact message from ${who}${detail ? ` · ${detail}` : ""}`);
+  void input;
+  sendDiscordMessage("Habla activity: a new contact message arrived. Review it in the admin dashboard.");
 }
 
 export async function trackActivity(

@@ -1,6 +1,15 @@
 import "server-only";
 import { z, ZodError } from "zod";
 import { HttpError } from "@/lib/http";
+import {
+  hasMatchingAttachmentSignature,
+  MAX_ASSIGNMENT_ATTACHMENT_BYTES,
+} from "@/lib/attachment-policy";
+import {
+  AUDIO_UPLOAD_TOO_LARGE_MESSAGE,
+  isAudioUploadSizeAllowed,
+  MAX_AUDIO_UPLOAD_BYTES,
+} from "@/lib/upload-limits";
 
 export const LIMITS = {
   classNameMax: 100,
@@ -14,10 +23,10 @@ export const LIMITS = {
   rubricCriterionNameMax: 60,
   rubricCriterionDescriptionMax: 120,
   attachmentNameMax: 120,
-  maxAttachmentBytes: 10 * 1024 * 1024,
+  maxAttachmentBytes: MAX_ASSIGNMENT_ATTACHMENT_BYTES,
   studentNameMax: 80,
   feedbackMax: 1000,
-  maxAudioBytes: 25 * 1024 * 1024,
+  maxAudioBytes: MAX_AUDIO_UPLOAD_BYTES,
 } as const;
 
 const HTML_PATTERN = /<[^>]*>/i;
@@ -123,14 +132,9 @@ export const assignmentCreateSchema = z.object({
     })
     .nullable()
     .optional(),
-  existingAttachment: z
-    .object({
-      fileName: cleanTextSchema("Attachment file name", 1, LIMITS.attachmentNameMax),
-      url: z.string().trim().url("Attachment URL must be valid."),
-      contentType: z.enum(["application/pdf", "image/png", "image/jpeg"]),
-    })
-    .nullable()
-    .optional(),
+  sourceAssignmentId: cleanTextSchema("Source assignment id", 1, 100, true),
+  // Reject the former client-controlled URL shape instead of silently stripping it.
+  existingAttachment: z.never().optional(),
   maxSubmissions: z
     .number()
     .int("Max submissions must be a whole number.")
@@ -145,10 +149,10 @@ export const assignmentCreateSchema = z.object({
     .default(180),
   rubric: rubricSchema.nullable().optional(),
 }).superRefine((value, context) => {
-  if (value.attachment && value.existingAttachment) {
+  if (value.attachment && value.sourceAssignmentId) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Choose either a new attachment upload or an existing attachment copy.",
+      message: "Choose either a new attachment upload or a source assignment, not both.",
       path: ["attachment"],
     });
   }
@@ -314,9 +318,9 @@ export function parseAudioDataUrl(dataUrl: string): ParsedAudio {
   }
 
   const buffer = parsed.buffer;
-  if (buffer.byteLength > LIMITS.maxAudioBytes) {
+  if (!isAudioUploadSizeAllowed(buffer.byteLength)) {
     throw new HttpError(400, "Validation failed.", {
-      audioData: ["Audio file is too large. Maximum size is 25MB."],
+      audioData: [AUDIO_UPLOAD_TOO_LARGE_MESSAGE],
     });
   }
 
@@ -341,7 +345,12 @@ export function parseAttachmentDataUrl(dataUrl: string): ParsedAttachment {
   const buffer = parsed.buffer;
   if (buffer.byteLength > LIMITS.maxAttachmentBytes) {
     throw new HttpError(400, "Validation failed.", {
-      attachment: ["Attachment is too large. Maximum size is 10MB."],
+      attachment: ["Attachment is too large. Maximum size is 3MB."],
+    });
+  }
+  if (!hasMatchingAttachmentSignature(mimeType, buffer)) {
+    throw new HttpError(400, "Validation failed.", {
+      attachment: ["Attachment contents do not match the selected PDF, PNG, or JPG file type."],
     });
   }
 

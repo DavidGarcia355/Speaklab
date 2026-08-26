@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -11,11 +10,13 @@ import {
 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
+import { createPublicMetadata } from "@/lib/public-metadata";
 
-export const metadata: Metadata = {
-  title: "Teachers - Habla",
+export const metadata = createPublicMetadata({
+  title: "For Teachers",
   description: "Teacher benefits and classroom workflow for Habla.",
-};
+  path: "/teachers",
+});
 
 const teacherBenefits = [
   {
@@ -65,7 +66,7 @@ export default function TeachersPage() {
         </p>
         <div className="actions hero-actions">
           <Link className="btn btn-primary" href="/teacher/register">
-            Try it with your class
+            Request pilot access
             <ArrowRight size={17} aria-hidden="true" />
           </Link>
           <GoogleSignInLink className="btn btn-ghost" callbackUrl="/teacher">
@@ -89,7 +90,7 @@ export default function TeachersPage() {
 
       <section className="audience-band section-gap">
         <div>
-          <h2>585 recordings across 141 classes and counting.</h2>
+          <h2>Speaking practice already moving through real classrooms.</h2>
           <p className="meta">
             Habla is already supporting real classroom activity. Start with one class, learn what saves
             time, and expand only when the workflow earns it.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 export type RubricCriterionDraft = {
   id: string;
@@ -60,6 +60,7 @@ export default function RubricBuilder({
   onRemoveCriterion,
   onLoadTemplate,
 }: Props) {
+  const templateSelectId = useId();
   const [templates, setTemplates] = useState<RubricTemplate[]>(() => loadTemplates());
   const [savedFeedback, setSavedFeedback] = useState(false);
 
@@ -127,19 +128,25 @@ export default function RubricBuilder({
           {onLoadTemplate ? (
             <div className="dense-row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
               {templates.length > 0 ? (
-                <select
-                  className="input"
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) handleLoadTemplate(e.target.value);
-                  }}
-                  style={{ flex: 1, minWidth: 0 }}
-                >
-                  <option value="" disabled>Load a saved rubric...</option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
+                <>
+                  <label className="sr-only" htmlFor={templateSelectId}>
+                    Load a saved rubric template
+                  </label>
+                  <select
+                    id={templateSelectId}
+                    className="input"
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) handleLoadTemplate(e.target.value);
+                    }}
+                    style={{ flex: 1, minWidth: 0 }}
+                  >
+                    <option value="" disabled>Load a saved rubric...</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </>
               ) : null}
               <button
                 type="button"

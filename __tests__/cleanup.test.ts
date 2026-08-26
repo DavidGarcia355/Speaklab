@@ -56,7 +56,23 @@ describe("cleanup cron route", () => {
     mocks.hardDeleteSoftDeletedBefore.mockReset();
     mocks.deleteBlobObjects.mockReset();
     mocks.flushPendingAiBillingUsage.mockReset();
-    mocks.flushPendingAiBillingUsage.mockResolvedValue({ attempted: 0, reported: 0, failed: 0 });
+    mocks.flushPendingAiBillingUsage.mockResolvedValue({
+      attempted: 0,
+      queued: 0,
+      reported: 0,
+      failed: 0,
+      pendingUnattempted: 0,
+      expiredPendingUnattempted: 0,
+      invalidPendingUnattempted: 0,
+      attemptedUnreported: 0,
+      recoverableUnqueued: 0,
+      invalidUnqueued: 0,
+      expiredUnqueued: 0,
+      legacyCreditPeriods: 0,
+      legacyUsageRows: 0,
+      needsReconciliation: false,
+      blocksSourceCleanup: false,
+    });
     mocks.getEnv.mockReturnValue({ cronSecret: "cron-secret" });
     mocks.listStorageObjectsForHardDeleteBefore.mockResolvedValue({
       audioBlobUrls: ["submissions/asg/sub.webm"],
@@ -161,6 +177,142 @@ describe("cleanup cron route", () => {
       attachmentObjects: { failed: 0 },
     });
     expect(JSON.stringify(data)).not.toContain("student");
+    expect(mocks.hardDeleteSoftDeletedBefore).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 without deleting storage or records when billing needs reconciliation", async () => {
+    mocks.flushPendingAiBillingUsage.mockResolvedValue({
+      attempted: 1,
+      queued: 0,
+      reported: 0,
+      failed: 1,
+      pendingUnattempted: 3,
+      expiredPendingUnattempted: 0,
+      invalidPendingUnattempted: 0,
+      attemptedUnreported: 2,
+      recoverableUnqueued: 4,
+      invalidUnqueued: 0,
+      expiredUnqueued: 1,
+      legacyCreditPeriods: 0,
+      legacyUsageRows: 0,
+      needsReconciliation: true,
+      blocksSourceCleanup: true,
+    });
+    const { GET } = await import("@/app/api/cron/cleanup/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/cron/cleanup", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+    const data = (await response.json()) as {
+      ok: boolean;
+      error: string;
+      billingUsage: { attemptedUnreported: number; expiredUnqueued: number };
+    };
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("300");
+    expect(data).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("queued or reconciled"),
+      billingUsage: { attemptedUnreported: 2, expiredUnqueued: 1 },
+    });
+    expect(mocks.listStorageObjectsForHardDeleteBefore).not.toHaveBeenCalled();
+    expect(mocks.deleteBlobObjects).not.toHaveBeenCalled();
+    expect(mocks.hardDeleteSoftDeletedBefore).not.toHaveBeenCalled();
+  });
+
+  it("blocks retention deletion when ambiguous legacy billing rows exist", async () => {
+    mocks.flushPendingAiBillingUsage.mockResolvedValue({
+      attempted: 0,
+      queued: 0,
+      reported: 0,
+      failed: 0,
+      pendingUnattempted: 0,
+      expiredPendingUnattempted: 0,
+      invalidPendingUnattempted: 0,
+      attemptedUnreported: 0,
+      recoverableUnqueued: 0,
+      invalidUnqueued: 0,
+      expiredUnqueued: 0,
+      legacyCreditPeriods: 1,
+      legacyUsageRows: 2,
+      needsReconciliation: true,
+      blocksSourceCleanup: true,
+    });
+    const { GET } = await import("@/app/api/cron/cleanup/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/cron/cleanup", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+    const data = (await response.json()) as {
+      ok: boolean;
+      billingUsage: { legacyCreditPeriods: number; legacyUsageRows: number };
+    };
+
+    expect(response.status).toBe(503);
+    expect(data).toMatchObject({
+      ok: false,
+      billingUsage: { legacyCreditPeriods: 1, legacyUsageRows: 2 },
+    });
+    expect(mocks.listStorageObjectsForHardDeleteBefore).not.toHaveBeenCalled();
+    expect(mocks.deleteBlobObjects).not.toHaveBeenCalled();
+    expect(mocks.hardDeleteSoftDeletedBefore).not.toHaveBeenCalled();
+  });
+
+  it("finishes retention cleanup but alerts when only durable ledger delivery needs reconciliation", async () => {
+    mocks.flushPendingAiBillingUsage.mockResolvedValue({
+      attempted: 0,
+      queued: 0,
+      reported: 0,
+      failed: 0,
+      pendingUnattempted: 0,
+      expiredPendingUnattempted: 1,
+      invalidPendingUnattempted: 1,
+      attemptedUnreported: 2,
+      recoverableUnqueued: 0,
+      invalidUnqueued: 0,
+      expiredUnqueued: 0,
+      legacyCreditPeriods: 0,
+      legacyUsageRows: 0,
+      needsReconciliation: true,
+      blocksSourceCleanup: false,
+    });
+    const { GET } = await import("@/app/api/cron/cleanup/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/cron/cleanup", {
+        headers: { authorization: "Bearer cron-secret" },
+      }),
+    );
+    const data = (await response.json()) as { ok: boolean; error: string };
+
+    expect(response.status).toBe(503);
+    expect(data).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("cleanup completed"),
+    });
+    expect(mocks.deleteBlobObjects).toHaveBeenCalledTimes(2);
+    expect(mocks.hardDeleteSoftDeletedBefore).toHaveBeenCalledOnce();
+  });
+
+  it("returns 503 when reconciliation health cannot be verified", async () => {
+    mocks.flushPendingAiBillingUsage.mockRejectedValue(new Error("database unavailable"));
+    const { GET } = await import("@/app/api/cron/cleanup/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/cron/cleanup", {
+        headers: { "x-cron-secret": "cron-secret" },
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("300");
+    expect(mocks.listStorageObjectsForHardDeleteBefore).not.toHaveBeenCalled();
+    expect(mocks.deleteBlobObjects).not.toHaveBeenCalled();
     expect(mocks.hardDeleteSoftDeletedBefore).not.toHaveBeenCalled();
   });
 });

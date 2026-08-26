@@ -14,9 +14,16 @@ export async function GET(
     if (!found) {
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
     }
-    // Strip sensitive fields before returning to unauthenticated students
-    const { ownerEmail, ...safeItem } = found;
+    // Strip sensitive fields and storage references before returning to students.
+    const { ownerEmail, attachmentUrl, ...safeItem } = found;
     void ownerEmail;
-    return NextResponse.json({ item: safeItem });
+    return NextResponse.json({
+      item: {
+        ...safeItem,
+        attachmentUrl: attachmentUrl
+          ? `/api/assignments/${encodeURIComponent(found.id)}/attachment`
+          : "",
+      },
+    });
   });
 }

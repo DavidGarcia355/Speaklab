@@ -1,12 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  estimateTeacherAiPricing,
-  type TeacherAiPricingInputs,
-} from "@/lib/teacher-ai-pricing";
+import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 
-type PricingInputKey = keyof TeacherAiPricingInputs;
+type ClassroomInputs = {
+  classCount: number;
+  studentsPerClass: number;
+  aiAssignmentsPerClass: number;
+};
+
+type PricingInputKey = keyof ClassroomInputs;
 
 type PricingControl = {
   key: PricingInputKey;
@@ -15,79 +18,91 @@ type PricingControl = {
   min: number;
   max: number;
   step: number;
-  suffix?: string;
+  suffix: string;
 };
 
-const DEFAULT_INPUTS: TeacherAiPricingInputs = {
+const FREE_LIFETIME_REVIEWS = TEACHER_AI_PRICE_BOOK.freeAllowance.reviews;
+const TEACHER_PERIOD_REVIEWS = TEACHER_AI_PRICE_BOOK.includedAiReviews;
+
+const DEFAULT_INPUTS: ClassroomInputs = {
   classCount: 5,
-  studentsPerClass: 28,
-  aiAssignmentsPerClass: 4,
-  submissionsPerStudent: 1,
-  averageAudioMinutes: 2,
+  studentsPerClass: 30,
+  aiAssignmentsPerClass: 2,
 };
 
 const CONTROLS: readonly PricingControl[] = [
   {
     key: "classCount",
-    label: "Active classes",
-    hint: "Classes with a roster and at least one real assignment.",
+    label: "Classes",
+    hint: "How many classes will use AI reviews?",
     min: 1,
-    max: 30,
+    max: 12,
     step: 1,
+    suffix: "classes",
   },
   {
     key: "studentsPerClass",
-    label: "Average roster size",
-    hint: "Use the average number of students in each class.",
+    label: "Students per class",
+    hint: "Use the average roster size for these classes.",
     min: 1,
-    max: 100,
+    max: 50,
     step: 1,
     suffix: "students",
   },
   {
     key: "aiAssignmentsPerClass",
-    label: "AI-graded assignments",
-    hint: "How many assignments per class will use AI each month?",
-    min: 0,
-    max: 30,
-    step: 1,
-    suffix: "/ month",
-  },
-  {
-    key: "submissionsPerStudent",
-    label: "Submissions per assignment",
-    hint: "Use more than one only when AI should review resubmissions.",
+    label: "AI-reviewed assignments",
+    hint: "How many assignments will each class submit in one Stripe billing period?",
     min: 1,
-    max: 3,
+    max: 12,
     step: 1,
-  },
-  {
-    key: "averageAudioMinutes",
-    label: "Average recording length",
-    hint: "Audio is metered by duration, never by file size.",
-    min: 0.5,
-    max: 10,
-    step: 0.5,
-    suffix: "minutes",
+    suffix: "per class",
   },
 ] as const;
-
-const usd = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 
 function formatControlValue(control: PricingControl, value: number) {
-  return control.suffix ? `${number.format(value)} ${control.suffix}` : number.format(value);
+  return `${number.format(value)} ${control.suffix}`;
+}
+
+function planRecommendation(projectedReviews: number) {
+  if (projectedReviews <= FREE_LIFETIME_REVIEWS) {
+    return {
+      name: "Free",
+      detail: "Your lifetime 30-review allowance covers this example.",
+    };
+  }
+
+  if (projectedReviews <= TEACHER_PERIOD_REVIEWS) {
+    return {
+      name: "Teacher",
+      detail: "$20 per month covers this example within one Stripe billing period.",
+    };
+  }
+
+  return {
+    name: "School Pilot",
+    detail: "This example exceeds the self-service Teacher allowance.",
+  };
 }
 
 export default function PricingCalculator() {
-  const [inputs, setInputs] = useState<TeacherAiPricingInputs>(DEFAULT_INPUTS);
-  const estimate = useMemo(() => estimateTeacherAiPricing(inputs), [inputs]);
+  const [inputs, setInputs] = useState<ClassroomInputs>(DEFAULT_INPUTS);
+  const estimate = useMemo(() => {
+    const totalStudents = inputs.classCount * inputs.studentsPerClass;
+    const classAssignmentRuns = inputs.classCount * inputs.aiAssignmentsPerClass;
+    const projectedReviews = totalStudents * inputs.aiAssignmentsPerClass;
+
+    return {
+      totalStudents,
+      classAssignmentRuns,
+      projectedReviews,
+      teacherReviewsRemaining: Math.max(0, TEACHER_PERIOD_REVIEWS - projectedReviews),
+      teacherReviewsAbove: Math.max(0, projectedReviews - TEACHER_PERIOD_REVIEWS),
+      recommendation: planRecommendation(projectedReviews),
+    };
+  }, [inputs]);
 
   function updateInput(key: PricingInputKey, value: number) {
     setInputs((current) => ({ ...current, [key]: value }));
@@ -98,10 +113,10 @@ export default function PricingCalculator() {
       <div className="pricing-calculator-controls">
         <div className="pricing-calculator-intro">
           <p className="pill pill-subtle">Build your estimate</p>
-          <h3>Match AI to your classroom</h3>
+          <h3>Match AI reviews to your classroom</h3>
           <p>
-            Core Habla stays free. These controls estimate what you would pay Habla for the optional
-            AI grading you choose to use.
+            Each student submission that receives a successful AI result uses one review. Adjust
+            the controls to model one Stripe billing period.
           </p>
         </div>
 
@@ -134,13 +149,13 @@ export default function PricingCalculator() {
         </div>
       </div>
 
-      <aside className="pricing-estimate-card" aria-label="Estimated monthly Habla price">
+      <aside className="pricing-estimate-card" aria-label="Estimated TryHabla plan fit">
         <div className="pricing-estimate-head">
-          <span>Estimated monthly price</span>
+          <span>Best fit for this example</span>
           <strong aria-live="polite" aria-atomic="true">
-            {usd.format(estimate.estimatedMonthlyUsd)}
+            {estimate.recommendation.name}
           </strong>
-          <small>what you would pay Habla</small>
+          <small>{estimate.recommendation.detail}</small>
         </div>
 
         <dl className="pricing-estimate-stats">
@@ -149,49 +164,55 @@ export default function PricingCalculator() {
             <dd>{number.format(estimate.totalStudents)}</dd>
           </div>
           <div>
-            <dt>AI grades</dt>
-            <dd>{number.format(estimate.projectedAiGrades)}</dd>
+            <dt>Class-assignment runs</dt>
+            <dd>{number.format(estimate.classAssignmentRuns)}</dd>
           </div>
           <div>
-            <dt>Free each month</dt>
-            <dd>{number.format(estimate.appliedFreeAiGrades)}</dd>
+            <dt>Successful AI reviews needed</dt>
+            <dd>{number.format(estimate.projectedReviews)}</dd>
           </div>
           <div>
-            <dt>Billable grades</dt>
-            <dd>{number.format(estimate.billableAiGrades)}</dd>
+            <dt>
+              {estimate.teacherReviewsAbove > 0
+                ? "Above Teacher allowance"
+                : "Teacher reviews remaining"}
+            </dt>
+            <dd>
+              {number.format(
+                estimate.teacherReviewsAbove > 0
+                  ? estimate.teacherReviewsAbove
+                  : estimate.teacherReviewsRemaining,
+              )}
+            </dd>
           </div>
         </dl>
 
-        <div className="pricing-receipt" aria-label="Estimated Habla invoice details">
+        <div className="pricing-receipt" aria-label="TryHabla plan allowances">
           <div>
-            <span>Successful AI grades</span>
-            <span>{usd.format(estimate.baseChargeUsd)}</span>
+            <span>Free</span>
+            <span>30 lifetime reviews</span>
           </div>
           <div>
-            <span>{number.format(estimate.billableAudioMinutes)} audio minutes</span>
-            <span>{usd.format(estimate.audioChargeUsd)}</span>
+            <span>Teacher</span>
+            <span>300 reviews / $20 month</span>
           </div>
           <div>
-            <span>AI feedback</span>
-            <span>Included</span>
+            <span>School Pilot</span>
+            <span>Contact us</span>
           </div>
           <div className="pricing-receipt-total">
-            <span>Estimated monthly price</span>
-            <span>{usd.format(estimate.estimatedMonthlyUsd)}</span>
+            <span>Your estimate</span>
+            <span>{number.format(estimate.projectedReviews)} reviews</span>
           </div>
         </div>
 
         <p className="pricing-estimate-note">
-          {estimate.monthlyFreeAiGrades === 0
-            ? "Your first active class keeps Habla free; add another active class to unlock a monthly AI credit."
-            : `${number.format(estimate.monthlyFreeAiGrades)} monthly AI ${
-                estimate.monthlyFreeAiGrades === 1 ? "credit" : "credits"
-              } included — one fewer than your active class count.`}
+          Need more AI reviews? Ask your school about a TryHabla School Pilot.
         </p>
         <p className="pricing-estimate-fineprint">
-          This estimates what you would pay Habla, not a final invoice. Recording time is measured
-          by whole seconds. Feedback is included. Failed attempts and duplicate results are not
-          charged.
+          This estimate assumes one submission from every student for each selected assignment.
+          Failures, unable-to-grade results, and exact retries do not use another review. Unused
+          Teacher reviews do not roll over, and there are no automatic overages.
         </p>
       </aside>
     </div>

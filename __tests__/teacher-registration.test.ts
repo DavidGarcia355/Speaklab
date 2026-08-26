@@ -81,6 +81,32 @@ describe("teacher registration controls", () => {
     });
   }
 
+  function getRequest() {
+    return new Request("http://localhost/api/auth/role");
+  }
+
+  it("reports invite-only availability to signed-in, non-allowlisted users", async () => {
+    const { GET } = await import("@/app/api/auth/role/route");
+
+    const response = await GET(getRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      email: "new-teacher@example.com",
+      role: "student",
+      teacherRegistrationAvailable: false,
+    });
+  });
+
+  it("reports availability to an allowlisted signed-in user", async () => {
+    process.env.TEACHER_ALLOWLIST = "new-teacher@example.com";
+    const { GET } = await import("@/app/api/auth/role/route");
+
+    const response = await GET(getRequest());
+
+    await expect(response.json()).resolves.toMatchObject({ teacherRegistrationAvailable: true });
+  });
+
   it("blocks production teacher self-upgrade by default", async () => {
     const { POST } = await import("@/app/api/auth/role/route");
 

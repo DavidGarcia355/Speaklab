@@ -36,14 +36,14 @@ describe("tester access provisioning", () => {
     process.env.ADMIN_EMAIL = originalEnv.ADMIN_EMAIL;
   });
 
-  it("grants teacher role and AI grading to an allowlisted email on first sign-in", async () => {
+  it("grants the teacher role without silently granting AI allowance", async () => {
     process.env.TEACHER_ALLOWLIST = "first-timer@example.com";
     const db = await loadDbModule();
 
     const role = await db.upsertGoogleUserAndGetRole("first-timer@example.com");
 
     expect(role).toBe("teacher");
-    expect(await db.getUserIsPaid("first-timer@example.com")).toBe(true);
+    expect(await db.getUserIsPaid("first-timer@example.com")).toBe(false);
   });
 
   // Regression: ON CONFLICT DO NOTHING meant an account that had already signed in
@@ -60,16 +60,30 @@ describe("tester access provisioning", () => {
     const promotedRole = await db.upsertGoogleUserAndGetRole("late-add@example.com");
 
     expect(promotedRole).toBe("teacher");
-    expect(await db.getUserIsPaid("late-add@example.com")).toBe(true);
+    expect(await db.getUserIsPaid("late-add@example.com")).toBe(false);
   });
 
-  it("gives admin emails teacher access without a separate allowlist entry", async () => {
+  it("gives admin emails teacher access without silently granting AI allowance", async () => {
     process.env.ADMIN_EMAILS = "owner@example.com, second-admin@example.com";
     const db = await loadDbModule();
 
     expect(await db.upsertGoogleUserAndGetRole("owner@example.com")).toBe("teacher");
     expect(await db.upsertGoogleUserAndGetRole("second-admin@example.com")).toBe("teacher");
-    expect(await db.getUserIsPaid("second-admin@example.com")).toBe(true);
+    expect(await db.getUserIsPaid("second-admin@example.com")).toBe(false);
+  });
+
+  it("requires an explicit operator grant for manual lifetime AI access", async () => {
+    process.env.TEACHER_ALLOWLIST = "pilot@example.com";
+    const db = await loadDbModule();
+
+    expect(await db.upsertGoogleUserAndGetRole("pilot@example.com")).toBe("teacher");
+    expect(await db.getUserIsPaid("pilot@example.com")).toBe(false);
+
+    expect(await db.setUserPaid("pilot@example.com", true)).toBe(true);
+    expect(await db.getUserIsPaid("pilot@example.com")).toBe(true);
+
+    await db.upsertGoogleUserAndGetRole("pilot@example.com");
+    expect(await db.getUserIsPaid("pilot@example.com")).toBe(true);
   });
 
   it("still honors the deprecated single ADMIN_EMAIL variable", async () => {

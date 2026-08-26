@@ -4,14 +4,14 @@ import {
   countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince,
   countAiAttemptsSince,
+  findOwnedSubmissionForAiReview,
   findSubmissionForAiGrade,
-  getUserHasAiAccess,
+  getAiReviewAllowanceSummary,
   hasAudioTooLongFailure,
   latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
-import { reserveGenerationBudget } from "@/lib/ai/budget";
 import { assertAiProviderConfig, getAiConfig, isAiTeacherDenied, isLocalMockAi } from "@/lib/ai/config";
 import { gradeOneSubmission } from "@/lib/ai/grade-one";
 import { assertGradingProviderConfiguration, getGradingConfig } from "@/lib/grading/config";
@@ -35,22 +35,7 @@ function publicAttempt(attempt: Awaited<ReturnType<typeof listAiGradingAttemptsF
     confidence: attempt.confidence,
     warnings: attempt.warnings,
     teacherAttention: attempt.teacherAttention,
-    transcriptionProvider: attempt.transcriptionProvider,
-    gradingProvider: attempt.gradingProvider,
-    transcriptionModel: attempt.transcriptionModel,
-    gradingModel: attempt.gradingModel,
     errorMessage: attempt.errorMessage,
-    cacheHit: attempt.cacheHit,
-    inputTokens: attempt.inputTokens,
-    cachedInputTokens: attempt.cachedInputTokens,
-    outputTokens: attempt.outputTokens,
-    latencyMs: attempt.latencyMs,
-    retries: attempt.retries,
-    escalated: attempt.escalated,
-    escalationReason: attempt.escalationReason,
-    estimatedCostUsd: attempt.estimatedCostMicrousd / 1_000_000,
-    promptVersion: attempt.promptVersion,
-    resultSource: attempt.resultSource,
     createdAt: attempt.createdAt,
     completedAt: attempt.completedAt,
   };
@@ -95,8 +80,17 @@ export async function GET(
     if (!config.enabled) throw new HttpError(404, "AI grading is not available.");
     const teacherEmail = await requireTeacherEmail();
     const { submissionId } = await context.params;
-    const attempts = await listAiGradingAttemptsForSubmission(submissionId, teacherEmail, 5);
-    return NextResponse.json({ items: attempts.map(publicAttempt), latest: attempts[0] ? publicAttempt(attempts[0]) : null });
+    const [attempts, allowance] = await Promise.all([
+      listAiGradingAttemptsForSubmission(submissionId, teacherEmail, 5),
+      config.accessMode === "paid" && !isLocalMockAi(config)
+        ? getAiReviewAllowanceSummary({ teacherEmail })
+        : Promise.resolve(null),
+    ]);
+    return NextResponse.json({
+      items: attempts.map(publicAttempt),
+      latest: attempts[0] ? publicAttempt(attempts[0]) : null,
+      allowance,
+    });
   });
 }
 
@@ -118,38 +112,42 @@ export async function POST(
     if (isAiTeacherDenied(teacherEmail, config)) {
       throw new HttpError(403, "AI grading is not available for this account.");
     }
-    if (!isLocalMockAi(config) && config.accessMode === "paid") {
-      const hasAiAccess = await getUserHasAiAccess(teacherEmail);
-      if (!hasAiAccess) throw new HttpError(402, "AI grading requires an active AI billing plan.");
-    }
-
     const { submissionId } = await context.params;
     const requestBody = request.headers.get("content-type")?.includes("application/json")
       ? ((await request.json().catch(() => null)) as { enhanced?: unknown } | null)
       : null;
     const enhanced = requestBody?.enhanced === true;
-    const data = await findSubmissionForAiGrade(submissionId, teacherEmail);
+    const gradeCandidate = await findSubmissionForAiGrade(submissionId, teacherEmail);
+    const retryCandidate = gradeCandidate
+      ? null
+      : await findOwnedSubmissionForAiReview(submissionId, teacherEmail);
+    const data =
+      gradeCandidate ??
+      (retryCandidate &&
+      retryCandidate.finalGrade !== null &&
+      retryCandidate.finalGradeSource === "ai"
+        ? retryCandidate
+        : null);
     if (!data) throw new HttpError(403, "You don't have access to this submission.");
     if (!data.audioBlobUrl) throw new HttpError(404, "No audio found for this submission.");
 
-    await assertAttemptLimits({
-      submissionId,
-      teacherEmail,
-      maxGenerationsPerSubmission: config.maxGenerationsPerSubmission,
-      cooldownSeconds: config.cooldownSeconds,
-      dailyTeacherLimit: config.dailyTeacherLimit,
-      dailyGlobalLimit: config.dailyGlobalLimit,
-    });
+    // A graded row is admitted only so gradeOneSubmission can verify an exact,
+    // already-consumed semantic retry. It must never reserve provider budget or
+    // be allowed through the ordinary regeneration path.
+    if (data.finalGrade === null) {
+      await assertAttemptLimits({
+        submissionId,
+        teacherEmail,
+        maxGenerationsPerSubmission: config.maxGenerationsPerSubmission,
+        cooldownSeconds: config.cooldownSeconds,
+        dailyTeacherLimit: config.dailyTeacherLimit,
+        dailyGlobalLimit: config.dailyGlobalLimit,
+      });
 
-    if (await hasAudioTooLongFailure(submissionId)) {
-      throw new HttpError(413, "This recording is longer than the AI grading limit and can't be graded.");
-    }
-
-    if (!isLocalMockAi(config)) {
-      const reserved = await reserveGenerationBudget({ config });
-      if (!reserved) {
-        throw new HttpError(429, "The monthly AI usage limit has been reached. Try again next month.");
+      if (await hasAudioTooLongFailure(submissionId)) {
+        throw new HttpError(413, "This recording is longer than the AI grading limit and can't be graded.");
       }
+
     }
 
     const outcome = await gradeOneSubmission({ config, teacherEmail, data, enhanced });
@@ -162,13 +160,42 @@ export async function POST(
       );
     }
     if (outcome.status === "failed") {
-      const attempts = await listAiGradingAttemptsForSubmission(submissionId, teacherEmail, 1);
+      const resultWasWithheld = outcome.code === "result_not_delivered";
+      const failedBeforeAttempt = [
+        "billing_sync_required",
+        "ai_review_limit_reached",
+        "ai_review_in_progress",
+        "review_identity_unavailable",
+        "saved_review_unavailable",
+        "submission_already_graded",
+        "provider_budget_exhausted",
+      ].includes(outcome.code);
+      const attempts = resultWasWithheld || failedBeforeAttempt
+        ? []
+        : await listAiGradingAttemptsForSubmission(submissionId, teacherEmail, 1);
       return NextResponse.json(
         {
           attempt: attempts[0] ? publicAttempt(attempts[0]) : null,
           error: outcome.message,
         },
-        { status: outcome.code === "no_speech_detected" ? 422 : 502 }
+        {
+          status:
+            outcome.code === "no_speech_detected"
+              ? 422
+              : outcome.code === "ai_review_limit_reached"
+                ? 429
+                : outcome.code === "provider_budget_exhausted"
+                  ? 429
+                : outcome.code === "billing_sync_required" ||
+                    outcome.code === "ai_review_in_progress" ||
+                    outcome.code === "saved_review_unavailable"
+                  ? 409
+                  : outcome.code === "submission_already_graded"
+                    ? 409
+              : resultWasWithheld
+                ? 409
+                : 502,
+        }
       );
     }
     return NextResponse.json({

@@ -3,7 +3,8 @@ import BrandBar from "@/app/components/BrandBar";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 
 export const metadata: Metadata = {
-  title: "Teacher Access Required — Habla",
+  title: "Teacher Access Required",
+  robots: { index: false, follow: false },
 };
 
 export default function UnauthorizedPage() {

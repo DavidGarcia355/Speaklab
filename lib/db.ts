@@ -1,11 +1,37 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { createClient, type Client, type InStatement, type InValue, type Row } from "@libsql/client";
-import { TEACHER_AI_PRICING_LIMITS } from "@/lib/teacher-ai-pricing";
+import {
+  createClient,
+  type Client,
+  type InStatement,
+  type InValue,
+  type Row,
+  type Transaction,
+} from "@libsql/client";
+import { STRIPE_CATALOG_MANIFEST } from "@/lib/billing/catalog-manifest";
+import {
+  isStripeSubscriptionRuntimeReady,
+  isStripeUsageRuntimeReady,
+} from "@/lib/billing/catalog-validation";
+import { getStripeBillingContractId } from "@/lib/billing/contract";
+import {
+  getStripeUsageBillingAvailability,
+  getStripeSubscriptionBillingAvailability,
+  requireStripeSubscriptionBillingConfig,
+  requireStripeUsageBillingConfig,
+  type StripeKeyMode,
+} from "@/lib/billing/config";
+import { getStripeAutomaticUsageRecoverySupportedSince } from "@/lib/billing/recovery-policy";
+import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 import type { Rubric, RubricScore } from "@/lib/validation";
 
 const QUERY_TIMEOUT_MS = 5000;
+
+// Historical metered-ledger reconciliation only. The licensed Teacher plan
+// does not earn class-based credits; keep this frozen so legacy audit reads do
+// not redefine or leak into the v3 allowance contract.
+const LEGACY_METERED_MAX_QUALIFYING_CLASSES = 30;
 
 export type ClassRow = {
   id: string;
@@ -161,12 +187,18 @@ export type StudentAssignmentRow = {
 };
 
 export type AiGradingAttemptStatus = "completed" | "failed";
+export type AiGradingAttemptDeliveryStatus =
+  | "pending"
+  | "delivered"
+  | "withheld"
+  | "not_applicable";
 
 export type AiGradingAttemptRow = {
   id: string;
   submissionId: string;
   teacherEmail: string;
   status: AiGradingAttemptStatus;
+  deliveryStatus: AiGradingAttemptDeliveryStatus;
   transcript: string;
   detectedLanguage: string;
   transcriptQuality: string;
@@ -200,6 +232,13 @@ export type AiGradingAttemptRow = {
   resultSource: string;
   billingRequired: boolean;
   billingPriceBookId: string;
+  billingStripeCustomerId: string;
+  billingStripeSubscriptionId: string;
+  billingCatalogFingerprint: string;
+  billingContractId: string;
+  billingLivemode: boolean;
+  billingQualifyingClassHighWater: number;
+  billingFreeCreditApplied: boolean;
   billableOutputTokens: number;
   createdAt: number;
   completedAt: number | null;
@@ -260,11 +299,51 @@ export type StripeBillingAccountRow = {
   stripeCustomerId: string;
   stripeSubscriptionId: string | null;
   subscriptionStatus: string;
+  subscriptionPeriodStart: number;
+  subscriptionPeriodEnd: number;
   priceBookId: string;
+  catalogFingerprint: string;
+  stripeAccountId: string;
+  billingContractId: string;
+  livemode: boolean;
   stripeEventCreated: number;
+  projectionRevision: number;
   createdAt: number;
   updatedAt: number;
 };
+
+export const AI_REVIEW_FREE_LIFETIME_LIMIT = 30;
+export const AI_REVIEW_MANUAL_LIFETIME_LIMIT = 300;
+export const AI_REVIEW_TEACHER_PERIOD_LIMIT = 300;
+
+export type AiReviewAllowanceKind =
+  | "free_lifetime"
+  | "manual_lifetime"
+  | "teacher_period";
+
+export type AiReviewAllowanceStatus =
+  | AiReviewAllowanceKind
+  | "subscription_unavailable";
+
+export type AiReviewAllowanceSummary = {
+  teacherEmail: string;
+  status: AiReviewAllowanceStatus;
+  limit: number;
+  reserved: number;
+  consumed: number;
+  used: number;
+  remaining: number;
+  stripeSubscriptionId: string | null;
+  periodStart: number | null;
+  periodEnd: number | null;
+};
+
+export type AiReviewReservationResult =
+  | ({ reservationStatus: "reserved"; reservationId: string } & AiReviewAllowanceSummary)
+  | ({ reservationStatus: "duplicate"; sourceAttemptId: string } & AiReviewAllowanceSummary)
+  | ({ reservationStatus: "in_flight" } & AiReviewAllowanceSummary)
+  | ({ reservationStatus: "exhausted" } & AiReviewAllowanceSummary)
+  | ({ reservationStatus: "subscription_unavailable" } & AiReviewAllowanceSummary);
 
 export type StripeWebhookEventRow = {
   eventId: string;
@@ -276,6 +355,9 @@ export type StripeWebhookEventRow = {
 export type AiBillingCreditPeriodRow = {
   teacherEmail: string;
   billingMonth: string;
+  priceBookId: string;
+  catalogFingerprint: string;
+  livemode: boolean;
   qualifyingClassHighWater: number;
   usedCredits: number;
   createdAt: number;
@@ -283,7 +365,7 @@ export type AiBillingCreditPeriodRow = {
 };
 
 export type AiBillingUsageStatus = "pending" | "credited" | "reported" | "failed";
-export type AiBillingUsageDimension = "base" | "audio" | "output";
+export type AiBillingUsageDimension = "base" | "audio";
 
 export type AiBillingUsageRow = {
   id: string;
@@ -293,6 +375,11 @@ export type AiBillingUsageRow = {
   priceBookId: string;
   attemptId: string;
   submissionId: string;
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  catalogFingerprint: string;
+  billingContractId: string;
+  livemode: boolean;
   freeCreditApplied: boolean;
   baseUnits: number;
   durationSeconds: number;
@@ -337,6 +424,26 @@ export type UnqueuedAiBillingAttemptRow = {
   submissionId: string;
   durationSeconds: number;
   outputTokens: number;
+  livemode: boolean;
+  billingContractId: string;
+  occurredAt: number;
+};
+
+export type AiBillingScope = {
+  priceBookId: string;
+  catalogFingerprint: string;
+  billingContractId: string;
+  livemode: boolean;
+};
+
+export type AiBillingReconciliationHealth = {
+  pendingUnattempted: number;
+  expiredPendingUnattempted: number;
+  invalidPendingUnattempted: number;
+  attemptedUnreported: number;
+  recoverableUnqueued: number;
+  invalidUnqueued: number;
+  expiredUnqueued: number;
 };
 
 /**
@@ -421,23 +528,118 @@ async function ensureColumn(
     | "assignments"
     | "submissions"
     | "users"
-    | "ai_grading_attempts"
-    | "ai_billing_usage",
+    | "stripe_billing_accounts"
+    | "ai_grading_attempts",
   columnName: string,
   definition: string
 ) {
   const pragma = await rawExecute(`PRAGMA table_info(${tableName})`);
   const columns = pragma.rows.map((row) => String((row as Row).name));
   if (!columns.includes(columnName)) {
-    await rawExecute(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    try {
+      await rawExecute(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    } catch (error) {
+      // Concurrent serverless cold starts can both observe a missing column.
+      // Treat the losing ALTER as success only after the database confirms
+      // that the column now exists; every other failure remains visible and
+      // initialization is retryable.
+      const afterRace = await rawExecute(`PRAGMA table_info(${tableName})`);
+      const racedColumns = afterRace.rows.map((row) => String((row as Row).name));
+      if (!racedColumns.includes(columnName)) throw error;
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+const AI_ATTEMPT_DELIVERY_STATUS_MIGRATION =
+  "2026-08-25-ai-attempt-delivery-status-v1";
+const AI_ACCESS_GRANT_PROVENANCE_MIGRATION =
+  "2026-08-26-ai-access-grant-provenance-v2";
+const MANUAL_AI_ACCESS_GRANT_SOURCES = ["manual"] as const;
+const MANUAL_AI_ACCESS_GRANT_SQL_LIST = MANUAL_AI_ACCESS_GRANT_SOURCES
+  .map((source) => `'${source}'`)
+  .join(", ");
+
+async function migrateAiAttemptDeliveryStatus() {
+  const transaction = await db.transaction("write");
+  try {
+    const claim = await transaction.execute({
+      sql: `INSERT INTO schema_migrations (name, applied_at)
+        VALUES (?, ?)
+        ON CONFLICT(name) DO NOTHING`,
+      args: [AI_ATTEMPT_DELIVERY_STATUS_MIGRATION, Date.now()],
+    });
+    if (toNumber(claim.rowsAffected) === 1) {
+      await transaction.execute(`UPDATE ai_grading_attempts
+        SET delivery_status = CASE
+          WHEN status = 'failed'
+            OR suggested_score IS NULL
+            OR TRIM(COALESCE(error_code, '')) <> ''
+            THEN 'not_applicable'
+          WHEN EXISTS (
+            SELECT 1
+            FROM submissions s
+            WHERE s.id = ai_grading_attempts.submission_id
+              AND s.deleted_at IS NULL
+              AND s.grade_source = 'ai'
+              AND s.grade = ai_grading_attempts.suggested_score
+          ) THEN 'delivered'
+          ELSE 'withheld'
+        END
+        WHERE delivery_status = 'pending'`);
+    }
+    await transaction.commit();
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+/**
+ * Quarantines every origin-less legacy is_paid bit for operator review. Older
+ * releases wrote is_paid=1 both for explicit grants and for allowlisted sign-in,
+ * so neither the current allowlist nor the bit alone can safely infer origin.
+ */
+async function migrateAiAccessGrantProvenance() {
+  const transaction = await db.transaction("write");
+  try {
+    const claim = await transaction.execute({
+      sql: `INSERT INTO schema_migrations (name, applied_at)
+        VALUES (?, ?)
+        ON CONFLICT(name) DO NOTHING`,
+      args: [AI_ACCESS_GRANT_PROVENANCE_MIGRATION, Date.now()],
+    });
+    if (toNumber(claim.rowsAffected) === 1) {
+      await transaction.execute(`UPDATE users
+        SET ai_access_grant_source = 'legacy_unclassified'
+        WHERE is_paid = 1
+          AND (
+            TRIM(ai_access_grant_source) = ''
+            OR ai_access_grant_source IN ('legacy_manual', 'legacy_allowlist')
+          )`);
+    }
+    await transaction.commit();
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
   }
 }
 
 async function ensureInitialized() {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initialization = (async () => {
       const statements = [
         "PRAGMA foreign_keys = ON",
+        `CREATE TABLE IF NOT EXISTS schema_migrations (
+          name TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        )`,
         `CREATE TABLE IF NOT EXISTS classes (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -504,8 +706,10 @@ async function ensureInitialized() {
         `CREATE TABLE IF NOT EXISTS ai_grading_attempts (
           id TEXT PRIMARY KEY,
           submission_id TEXT NOT NULL,
-          teacher_email TEXT NOT NULL,
-          status TEXT NOT NULL CHECK (status IN ('completed', 'failed')),
+           teacher_email TEXT NOT NULL,
+           status TEXT NOT NULL CHECK (status IN ('completed', 'failed')),
+           delivery_status TEXT NOT NULL DEFAULT 'pending'
+             CHECK (delivery_status IN ('pending', 'delivered', 'withheld', 'not_applicable')),
           transcript TEXT NOT NULL DEFAULT '',
           detected_language TEXT NOT NULL DEFAULT '',
           transcript_quality TEXT NOT NULL DEFAULT '',
@@ -539,6 +743,15 @@ async function ensureInitialized() {
           result_source TEXT NOT NULL DEFAULT 'ai',
           billing_required INTEGER NOT NULL DEFAULT 0 CHECK (billing_required IN (0, 1)),
           billing_price_book_id TEXT NOT NULL DEFAULT '',
+          billing_stripe_customer_id TEXT NOT NULL DEFAULT '',
+          billing_stripe_subscription_id TEXT NOT NULL DEFAULT '',
+          billing_catalog_fingerprint TEXT NOT NULL DEFAULT '',
+          billing_contract_id TEXT NOT NULL DEFAULT '',
+          billing_livemode INTEGER NOT NULL DEFAULT 0 CHECK (billing_livemode IN (0, 1)),
+          billing_qualifying_class_high_water INTEGER NOT NULL DEFAULT 0
+            CHECK (billing_qualifying_class_high_water >= 0),
+          billing_free_credit_applied INTEGER NOT NULL DEFAULT 0
+            CHECK (billing_free_credit_applied IN (0, 1)),
           billable_output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (billable_output_tokens >= 0),
           created_at INTEGER NOT NULL,
           completed_at INTEGER,
@@ -594,8 +807,17 @@ async function ensureInitialized() {
           stripe_customer_id TEXT NOT NULL UNIQUE,
           stripe_subscription_id TEXT UNIQUE,
           subscription_status TEXT NOT NULL DEFAULT '',
+          subscription_period_start INTEGER NOT NULL DEFAULT 0
+            CHECK (subscription_period_start >= 0),
+          subscription_period_end INTEGER NOT NULL DEFAULT 0
+            CHECK (subscription_period_end >= 0),
           price_book_id TEXT NOT NULL DEFAULT '',
+          catalog_fingerprint TEXT NOT NULL DEFAULT '',
+          stripe_account_id TEXT NOT NULL DEFAULT '',
+          billing_contract_id TEXT NOT NULL DEFAULT '',
+          livemode INTEGER NOT NULL DEFAULT 0 CHECK (livemode IN (0, 1)),
           stripe_event_created INTEGER NOT NULL DEFAULT 0 CHECK (stripe_event_created >= 0),
+          projection_revision INTEGER NOT NULL DEFAULT 0 CHECK (projection_revision >= 0),
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL
         )`,
@@ -604,6 +826,24 @@ async function ensureInitialized() {
           event_type TEXT NOT NULL,
           stripe_event_created INTEGER NOT NULL CHECK (stripe_event_created >= 0),
           processed_at INTEGER NOT NULL
+        )`,
+        `CREATE TABLE IF NOT EXISTS ai_review_allowance_reservations_v1 (
+          id TEXT PRIMARY KEY,
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          semantic_key TEXT NOT NULL,
+          allowance_kind TEXT NOT NULL
+            CHECK (allowance_kind IN ('free_lifetime', 'manual_lifetime', 'teacher_period')),
+          scope_key TEXT NOT NULL,
+          stripe_subscription_id TEXT NOT NULL DEFAULT '',
+          period_start INTEGER NOT NULL DEFAULT 0 CHECK (period_start >= 0),
+          period_end INTEGER NOT NULL DEFAULT 0 CHECK (period_end >= 0),
+          status TEXT NOT NULL CHECK (status IN ('reserved', 'consumed', 'released')),
+          attempt_id TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          consumed_at INTEGER,
+          released_at INTEGER,
+          UNIQUE(teacher_email, semantic_key)
         )`,
         `CREATE TABLE IF NOT EXISTS ai_billing_credit_periods (
           teacher_email TEXT NOT NULL COLLATE NOCASE,
@@ -622,6 +862,10 @@ async function ensureInitialized() {
           price_book_id TEXT NOT NULL,
           attempt_id TEXT NOT NULL,
           submission_id TEXT NOT NULL,
+          stripe_customer_id TEXT NOT NULL DEFAULT '',
+          stripe_subscription_id TEXT NOT NULL DEFAULT '',
+          catalog_fingerprint TEXT NOT NULL DEFAULT '',
+          livemode INTEGER NOT NULL DEFAULT 0 CHECK (livemode IN (0, 1)),
           free_credit_applied INTEGER NOT NULL DEFAULT 0 CHECK (free_credit_applied IN (0, 1)),
           base_units INTEGER NOT NULL DEFAULT 1 CHECK (base_units >= 0),
           duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK (duration_seconds >= 0),
@@ -640,6 +884,115 @@ async function ensureInitialized() {
           updated_at INTEGER NOT NULL,
           UNIQUE(teacher_email, cache_key, price_book_id)
         )`,
+        `CREATE TABLE IF NOT EXISTS ai_billing_credit_periods_v2 (
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          billing_month TEXT NOT NULL,
+          price_book_id TEXT NOT NULL,
+          catalog_fingerprint TEXT NOT NULL,
+          livemode INTEGER NOT NULL CHECK (livemode IN (0, 1)),
+          qualifying_class_high_water INTEGER NOT NULL DEFAULT 0 CHECK (qualifying_class_high_water >= 0),
+          used_credits INTEGER NOT NULL DEFAULT 0 CHECK (used_credits >= 0),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(
+            teacher_email,
+            billing_month,
+            price_book_id,
+            catalog_fingerprint,
+            livemode
+          )
+        )`,
+        `CREATE TABLE IF NOT EXISTS ai_billing_usage_v2 (
+          id TEXT PRIMARY KEY,
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          billing_month TEXT NOT NULL,
+          cache_key TEXT NOT NULL,
+          price_book_id TEXT NOT NULL,
+          attempt_id TEXT NOT NULL,
+          submission_id TEXT NOT NULL,
+          stripe_customer_id TEXT NOT NULL,
+          stripe_subscription_id TEXT NOT NULL,
+          catalog_fingerprint TEXT NOT NULL,
+          livemode INTEGER NOT NULL CHECK (livemode IN (0, 1)),
+          free_credit_applied INTEGER NOT NULL DEFAULT 0 CHECK (free_credit_applied IN (0, 1)),
+          base_units INTEGER NOT NULL DEFAULT 1 CHECK (base_units >= 0),
+          duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK (duration_seconds >= 0),
+          output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+          base_attempted_at INTEGER,
+          audio_attempted_at INTEGER,
+          output_attempted_at INTEGER,
+          base_reported_at INTEGER,
+          audio_reported_at INTEGER,
+          output_reported_at INTEGER,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'credited', 'reported', 'failed')),
+          last_error_dimension TEXT CHECK (last_error_dimension IS NULL OR last_error_dimension IN ('base', 'audio')),
+          last_error TEXT NOT NULL DEFAULT '',
+          last_failed_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(
+            teacher_email,
+            cache_key,
+            price_book_id,
+            catalog_fingerprint,
+            livemode
+          )
+        )`,
+        `CREATE TABLE IF NOT EXISTS ai_billing_credit_periods_v3 (
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          billing_month TEXT NOT NULL,
+          price_book_id TEXT NOT NULL,
+          catalog_fingerprint TEXT NOT NULL,
+          livemode INTEGER NOT NULL CHECK (livemode IN (0, 1)),
+          qualifying_class_high_water INTEGER NOT NULL DEFAULT 0 CHECK (qualifying_class_high_water >= 0),
+          used_credits INTEGER NOT NULL DEFAULT 0 CHECK (used_credits >= 0),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(
+            teacher_email,
+            billing_month,
+            price_book_id,
+            catalog_fingerprint,
+            livemode
+          )
+        )`,
+        `CREATE TABLE IF NOT EXISTS ai_billing_usage_v3 (
+          id TEXT PRIMARY KEY,
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          billing_month TEXT NOT NULL,
+          cache_key TEXT NOT NULL,
+          price_book_id TEXT NOT NULL,
+          attempt_id TEXT NOT NULL,
+          submission_id TEXT NOT NULL,
+          stripe_customer_id TEXT NOT NULL,
+          stripe_subscription_id TEXT NOT NULL,
+          catalog_fingerprint TEXT NOT NULL,
+          billing_contract_id TEXT NOT NULL,
+          livemode INTEGER NOT NULL CHECK (livemode IN (0, 1)),
+          free_credit_applied INTEGER NOT NULL DEFAULT 0 CHECK (free_credit_applied IN (0, 1)),
+          base_units INTEGER NOT NULL DEFAULT 1 CHECK (base_units >= 0),
+          duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK (duration_seconds >= 0),
+          output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+          base_attempted_at INTEGER,
+          audio_attempted_at INTEGER,
+          output_attempted_at INTEGER,
+          base_reported_at INTEGER,
+          audio_reported_at INTEGER,
+          output_reported_at INTEGER,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'credited', 'reported', 'failed')),
+          last_error_dimension TEXT CHECK (last_error_dimension IS NULL OR last_error_dimension IN ('base', 'audio')),
+          last_error TEXT NOT NULL DEFAULT '',
+          last_failed_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(
+            teacher_email,
+            cache_key,
+            price_book_id,
+            catalog_fingerprint,
+            livemode
+          )
+        )`,
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_roster_class_student ON roster(class_id, LOWER(student_email))",
         "CREATE INDEX IF NOT EXISTS idx_roster_class_id ON roster(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_submission ON ai_grading_attempts(submission_id, created_at DESC)",
@@ -654,9 +1007,16 @@ async function ensureInitialized() {
         "CREATE INDEX IF NOT EXISTS idx_stripe_billing_accounts_customer ON stripe_billing_accounts(stripe_customer_id)",
         "CREATE INDEX IF NOT EXISTS idx_stripe_billing_accounts_subscription ON stripe_billing_accounts(stripe_subscription_id)",
         "CREATE INDEX IF NOT EXISTS idx_stripe_webhook_events_processed ON stripe_webhook_events(processed_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_review_allowance_scope ON ai_review_allowance_reservations_v1(teacher_email, scope_key, status)",
         "CREATE INDEX IF NOT EXISTS idx_ai_billing_period_teacher_month ON ai_billing_credit_periods(teacher_email, billing_month)",
         "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_pending ON ai_billing_usage(status, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_teacher_month ON ai_billing_usage(teacher_email, billing_month, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_billing_period_v2_scope ON ai_billing_credit_periods_v2(teacher_email, billing_month, price_book_id, catalog_fingerprint, livemode)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_v2_pending ON ai_billing_usage_v2(status, livemode, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_v2_scope ON ai_billing_usage_v2(teacher_email, billing_month, price_book_id, catalog_fingerprint, livemode, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_billing_period_v3_scope ON ai_billing_credit_periods_v3(teacher_email, billing_month, price_book_id, catalog_fingerprint, livemode)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_v3_pending ON ai_billing_usage_v3(status, livemode, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_v3_scope ON ai_billing_usage_v3(teacher_email, billing_month, price_book_id, catalog_fingerprint, billing_contract_id, livemode, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_class_id ON assignments(class_id)",
         "CREATE INDEX IF NOT EXISTS idx_assignments_deleted_at ON assignments(deleted_at)",
         "CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON submissions(assignment_id)",
@@ -700,7 +1060,48 @@ async function ensureInitialized() {
       await ensureColumn("submissions", "grade_source", "TEXT NOT NULL DEFAULT 'teacher'");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
       await ensureColumn("users", "is_paid", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn(
+        "users",
+        "ai_access_grant_source",
+        "TEXT NOT NULL DEFAULT ''",
+      );
+      await migrateAiAccessGrantProvenance();
       await ensureColumn("users", "default_language", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn(
+        "stripe_billing_accounts",
+        "catalog_fingerprint",
+        "TEXT NOT NULL DEFAULT ''"
+      );
+      await ensureColumn(
+        "stripe_billing_accounts",
+        "livemode",
+        "INTEGER NOT NULL DEFAULT 0"
+      );
+      await ensureColumn(
+        "stripe_billing_accounts",
+        "projection_revision",
+        "INTEGER NOT NULL DEFAULT 0"
+      );
+      await ensureColumn(
+        "stripe_billing_accounts",
+        "stripe_account_id",
+        "TEXT NOT NULL DEFAULT ''"
+      );
+      await ensureColumn(
+        "stripe_billing_accounts",
+        "billing_contract_id",
+        "TEXT NOT NULL DEFAULT ''"
+      );
+      await ensureColumn(
+        "stripe_billing_accounts",
+        "subscription_period_start",
+        "INTEGER NOT NULL DEFAULT 0"
+      );
+      await ensureColumn(
+        "stripe_billing_accounts",
+        "subscription_period_end",
+        "INTEGER NOT NULL DEFAULT 0"
+      );
       await ensureColumn("ai_grading_attempts", "cache_key", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("ai_grading_attempts", "cache_hit", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("ai_grading_attempts", "input_tokens", "INTEGER NOT NULL DEFAULT 0");
@@ -713,28 +1114,58 @@ async function ensureInitialized() {
       await ensureColumn("ai_grading_attempts", "estimated_cost_microusd", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("ai_grading_attempts", "prompt_version", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("ai_grading_attempts", "result_source", "TEXT NOT NULL DEFAULT 'ai'");
+      await ensureColumn(
+        "ai_grading_attempts",
+        "delivery_status",
+        "TEXT NOT NULL DEFAULT 'pending' CHECK (delivery_status IN ('pending', 'delivered', 'withheld', 'not_applicable'))",
+      );
+      await migrateAiAttemptDeliveryStatus();
       await ensureColumn("ai_grading_attempts", "billing_required", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("ai_grading_attempts", "billing_price_book_id", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn(
+        "ai_grading_attempts",
+        "billing_stripe_customer_id",
+        "TEXT NOT NULL DEFAULT ''"
+      );
+      await ensureColumn(
+        "ai_grading_attempts",
+        "billing_stripe_subscription_id",
+        "TEXT NOT NULL DEFAULT ''"
+      );
+      await ensureColumn(
+        "ai_grading_attempts",
+        "billing_catalog_fingerprint",
+        "TEXT NOT NULL DEFAULT ''"
+      );
+      await ensureColumn(
+        "ai_grading_attempts",
+        "billing_contract_id",
+        "TEXT NOT NULL DEFAULT ''"
+      );
+      await ensureColumn(
+        "ai_grading_attempts",
+        "billing_livemode",
+        "INTEGER NOT NULL DEFAULT 0"
+      );
+      await ensureColumn(
+        "ai_grading_attempts",
+        "billing_qualifying_class_high_water",
+        "INTEGER NOT NULL DEFAULT 0"
+      );
+      await ensureColumn(
+        "ai_grading_attempts",
+        "billing_free_credit_applied",
+        "INTEGER NOT NULL DEFAULT 0"
+      );
       await ensureColumn("ai_grading_attempts", "billable_output_tokens", "INTEGER NOT NULL DEFAULT 0");
-      await ensureColumn("ai_billing_usage", "base_attempted_at", "INTEGER");
-      await ensureColumn("ai_billing_usage", "audio_attempted_at", "INTEGER");
-      await ensureColumn("ai_billing_usage", "output_attempted_at", "INTEGER");
-      // A legacy failed delivery is ambiguous: Stripe might have accepted the
-      // request before the process observed the error. Freeze it for manual
-      // reconciliation instead of risking a second customer charge.
-      await rawExecute(`UPDATE ai_billing_usage
-        SET base_attempted_at = COALESCE(base_attempted_at, last_failed_at, created_at)
-        WHERE status = 'failed' AND base_units > 0 AND base_reported_at IS NULL`);
-      await rawExecute(`UPDATE ai_billing_usage
-        SET audio_attempted_at = COALESCE(audio_attempted_at, last_failed_at, created_at)
-        WHERE status = 'failed' AND duration_seconds > 0 AND audio_reported_at IS NULL`);
-      await rawExecute(`UPDATE ai_billing_usage
-        SET output_attempted_at = COALESCE(output_attempted_at, last_failed_at, created_at)
-        WHERE status = 'failed' AND output_tokens > 0 AND output_reported_at IS NULL`);
       await rawExecute(
         "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_cache ON ai_grading_attempts(cache_key)"
       );
     })();
+    initPromise = initialization.catch((error) => {
+      initPromise = null;
+      throw error;
+    });
   }
   return initPromise;
 }
@@ -787,6 +1218,81 @@ function requireNonNegativeInteger(name: string, value: number) {
 
 function normalizeBillingTeacherEmail(value: string) {
   return requireTrimmedValue("teacherEmail", value).toLowerCase();
+}
+
+function requireNonNegativeFiniteNumber(name: string, value: number) {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative finite number.`);
+  }
+  return value;
+}
+
+function normalizeSubscriptionPeriod(input: {
+  subscriptionStatus: string;
+  subscriptionPeriodStart?: number;
+  subscriptionPeriodEnd?: number;
+}) {
+  const status = input.subscriptionStatus.trim().toLowerCase();
+  const periodStart = requireNonNegativeInteger(
+    "subscriptionPeriodStart",
+    input.subscriptionPeriodStart ?? 0,
+  );
+  const periodEnd = requireNonNegativeInteger(
+    "subscriptionPeriodEnd",
+    input.subscriptionPeriodEnd ?? 0,
+  );
+  if (status === "active") {
+    if (periodStart <= 0 || periodEnd <= periodStart) {
+      throw new RangeError(
+        "An active Stripe subscription requires one valid current billing period.",
+      );
+    }
+    return { periodStart, periodEnd };
+  }
+  if (periodStart !== 0 || periodEnd !== 0) {
+    throw new RangeError(
+      "A non-entitled Stripe subscription cannot retain an active billing period.",
+    );
+  }
+  return { periodStart: 0, periodEnd: 0 };
+}
+
+type ReadyStripeUsageScope = Readonly<{
+  keyMode: StripeKeyMode;
+  accountId: string;
+  billingContractId: string;
+}>;
+
+type ReadyStripeSubscriptionScope = Readonly<{
+  keyMode: StripeKeyMode;
+  accountId: string;
+  billingContractId: string;
+}>;
+
+async function getReadyStripeSubscriptionScope(): Promise<ReadyStripeSubscriptionScope | null> {
+  const availability = getStripeSubscriptionBillingAvailability();
+  if (!availability.available) return null;
+  if (!(await isStripeSubscriptionRuntimeReady())) return null;
+  if (!(await isStripeBillingStorageReady())) return null;
+  const config = requireStripeSubscriptionBillingConfig();
+  return Object.freeze({
+    keyMode: config.keyMode,
+    accountId: config.accountId,
+    billingContractId: getStripeBillingContractId(config),
+  });
+}
+
+async function getReadyStripeUsageScope(): Promise<ReadyStripeUsageScope | null> {
+  const availability = getStripeUsageBillingAvailability();
+  if (!availability.available) return null;
+  if (!(await isStripeUsageRuntimeReady())) return null;
+  if (!(await isStripeBillingStorageReady())) return null;
+  const config = requireStripeUsageBillingConfig();
+  return Object.freeze({
+    keyMode: config.keyMode,
+    accountId: config.accountId,
+    billingContractId: getStripeBillingContractId(config),
+  });
 }
 
 function normalizeBillingMonth(value: string) {
@@ -1577,6 +2083,449 @@ export async function applyAiGradeToSubmission(
   return findSubmissionById(submissionId, ownerEmail);
 }
 
+export type FinalizeAiGradeDeliveryResult =
+  | { status: "applied"; billingRequired: boolean }
+  | {
+      status: "not_applied";
+      billingRequired: false;
+      reason:
+        | "attempt_ineligible"
+        | "submission_changed"
+        | "billing_unavailable"
+        | "access_revoked";
+    };
+
+async function reserveAiBillingCreditInTransaction(input: {
+  transaction: Transaction;
+  teacherEmail: string;
+  billingMonth: string;
+  priceBookId: string;
+  catalogFingerprint: string;
+  livemode: boolean;
+  now: number;
+}): Promise<{ qualifyingClassHighWater: number; freeCreditApplied: boolean }> {
+  const qualifyingResult = await input.transaction.execute({
+    sql: `SELECT COUNT(*) as qualifyingClassHighWater
+    FROM classes c
+    WHERE LOWER(c.owner_email) = LOWER(?)
+      AND c.deleted_at IS NULL
+      AND EXISTS (SELECT 1 FROM roster r WHERE r.class_id = c.id)
+      AND EXISTS (
+        SELECT 1
+        FROM assignments a
+        WHERE a.class_id = c.id
+          AND a.deleted_at IS NULL
+      )`,
+    args: [input.teacherEmail],
+  });
+  const observedHighWater = toNumber(
+    qualifyingResult.rows[0]?.qualifyingClassHighWater,
+  );
+  const cappedObservedHighWater = Math.min(
+    observedHighWater,
+    LEGACY_METERED_MAX_QUALIFYING_CLASSES,
+  );
+  await input.transaction.execute({
+    sql: `INSERT INTO ai_billing_credit_periods_v3 (
+      teacher_email, billing_month, price_book_id, catalog_fingerprint,
+      livemode, qualifying_class_high_water,
+      used_credits, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+    ON CONFLICT(
+      teacher_email,
+      billing_month,
+      price_book_id,
+      catalog_fingerprint,
+      livemode
+    ) DO UPDATE SET
+      qualifying_class_high_water = MIN(
+        ?,
+        MAX(
+          ai_billing_credit_periods_v3.qualifying_class_high_water,
+          excluded.qualifying_class_high_water
+        )
+      ),
+      updated_at = excluded.updated_at`,
+    args: [
+      input.teacherEmail,
+      input.billingMonth,
+      input.priceBookId,
+      input.catalogFingerprint,
+      input.livemode ? 1 : 0,
+      cappedObservedHighWater,
+      input.now,
+      input.now,
+      LEGACY_METERED_MAX_QUALIFYING_CLASSES,
+    ],
+  });
+  const periodResult = await input.transaction.execute({
+    sql: `SELECT
+      qualifying_class_high_water as qualifyingClassHighWater,
+      used_credits as usedCredits
+    FROM ai_billing_credit_periods_v3
+    WHERE teacher_email = ?
+      AND billing_month = ?
+      AND price_book_id = ?
+      AND catalog_fingerprint = ?
+      AND livemode = ?
+    LIMIT 1`,
+    args: [
+      input.teacherEmail,
+      input.billingMonth,
+      input.priceBookId,
+      input.catalogFingerprint,
+      input.livemode ? 1 : 0,
+    ],
+  });
+  const period = periodResult.rows[0];
+  if (!period) throw new Error("AI billing credit period could not be reserved.");
+  const qualifyingClassHighWater = toNumber(period.qualifyingClassHighWater);
+  const usedCredits = toNumber(period.usedCredits);
+  const freeCreditApplied =
+    usedCredits < Math.max(0, qualifyingClassHighWater - 1);
+  if (freeCreditApplied) {
+    const reservationResult = await input.transaction.execute({
+      sql: `UPDATE ai_billing_credit_periods_v3
+      SET used_credits = used_credits + 1,
+          updated_at = ?
+      WHERE teacher_email = ?
+        AND billing_month = ?
+        AND price_book_id = ?
+        AND catalog_fingerprint = ?
+        AND livemode = ?
+        AND used_credits = ?
+        AND used_credits < MAX(0, qualifying_class_high_water - 1)`,
+      args: [
+        input.now,
+        input.teacherEmail,
+        input.billingMonth,
+        input.priceBookId,
+        input.catalogFingerprint,
+        input.livemode ? 1 : 0,
+        usedCredits,
+      ],
+    });
+    if (toNumber(reservationResult.rowsAffected) !== 1) {
+      throw new Error("AI billing credit reservation lost its transaction guard.");
+    }
+  }
+  return { qualifyingClassHighWater, freeCreditApplied };
+}
+
+/**
+ * Applies the exact persisted AI result and, when the teacher has a verified
+ * Stripe entitlement, snapshots its billing destination in the same database
+ * transaction. A marker failure rolls the grade update back, closing the
+ * otherwise-unrecoverable apply-then-mark crash window.
+ */
+export async function finalizeAiGradeDelivery(input: {
+  attemptId: string;
+  ownerEmail: string;
+  priceBookId: string;
+  billingCandidate: boolean;
+  allowUnmeteredAccess: boolean;
+  reviewReservationId?: string;
+}): Promise<FinalizeAiGradeDeliveryResult> {
+  const attemptId = requireTrimmedValue("attemptId", input.attemptId);
+  const ownerEmail = normalizeBillingTeacherEmail(input.ownerEmail);
+  const priceBookId = requireTrimmedValue("priceBookId", input.priceBookId);
+  const stripeUsageScope =
+    priceBookId === TEACHER_AI_PRICE_BOOK.id
+      ? await getReadyStripeUsageScope()
+      : null;
+  const reviewReservationId = input.reviewReservationId?.trim() || null;
+  const readyStripeSubscriptionScope = reviewReservationId
+    ? await getReadyStripeSubscriptionScope()
+    : null;
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+
+  async function rollbackResult(
+    reason: Extract<FinalizeAiGradeDeliveryResult, { status: "not_applied" }>['reason'],
+  ): Promise<FinalizeAiGradeDeliveryResult> {
+    if (!transaction.closed) await transaction.rollback();
+    return { status: "not_applied", billingRequired: false, reason };
+  }
+
+  try {
+    const attemptResult = await transaction.execute({
+      sql: `SELECT
+        ag.submission_id as submissionId,
+        ag.status as status,
+        ag.delivery_status as deliveryStatus,
+        ag.cache_key as cacheKey,
+        ag.cache_hit as cacheHit,
+        ag.suggested_score as suggestedScore,
+        ag.feedback as feedback,
+        ag.rubric_scores as attemptRubricScores,
+        ag.error_code as errorCode,
+        ag.result_source as resultSource,
+        ag.confidence as confidence,
+        COALESCE(ag.completed_at, ag.created_at) as occurredAt,
+        a.rubric as assignmentRubric,
+        EXISTS(
+          SELECT 1
+          FROM users u
+          WHERE LOWER(u.email) = LOWER(?)
+            AND u.is_paid = 1
+            AND u.ai_access_grant_source IN (${MANUAL_AI_ACCESS_GRANT_SQL_LIST})
+        ) as manualAccess
+      FROM ai_grading_attempts ag
+      JOIN submissions s ON s.id = ag.submission_id
+      JOIN assignments a ON a.id = s.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      WHERE ag.id = ?
+        AND LOWER(ag.teacher_email) = LOWER(?)
+        AND LOWER(c.owner_email) = LOWER(?)
+        AND s.deleted_at IS NULL
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+      LIMIT 1`,
+      args: [ownerEmail, attemptId, ownerEmail, ownerEmail],
+    });
+    const attempt = attemptResult.rows[0];
+    if (!attempt) return await rollbackResult("attempt_ineligible");
+
+    const suggestedScore = Number(attempt.suggestedScore);
+    const baseAttemptEligible =
+      toStringValue(attempt.status) === "completed" &&
+      toStringValue(attempt.deliveryStatus) === "pending" &&
+      Number.isFinite(suggestedScore) &&
+      toStringValue(attempt.errorCode).trim() === "";
+    const billableAttemptEligible =
+      baseAttemptEligible &&
+      toStringValue(attempt.cacheKey).trim() !== "" &&
+      !["deterministic", "failed", "teacher_review", "withheld"].includes(
+        toStringValue(attempt.resultSource),
+      ) &&
+      toStringValue(attempt.confidence) === "high";
+    if (!baseAttemptEligible || (input.billingCandidate && !billableAttemptEligible)) {
+      return await rollbackResult("attempt_ineligible");
+    }
+
+    let billingAccount: Row | null = null;
+    if (stripeUsageScope) {
+      const accountResult = await transaction.execute({
+        sql: `SELECT
+          stripe_customer_id as stripeCustomerId,
+          stripe_subscription_id as stripeSubscriptionId
+        FROM stripe_billing_accounts
+        WHERE LOWER(teacher_email) = LOWER(?)
+          AND subscription_status = 'active'
+          AND price_book_id = ?
+          AND catalog_fingerprint = ?
+          AND stripe_account_id = ?
+          AND billing_contract_id = ?
+          AND livemode = ?
+          AND stripe_customer_id <> ''
+          AND stripe_subscription_id IS NOT NULL
+          AND stripe_subscription_id <> ''
+        LIMIT 1`,
+        args: [
+          ownerEmail,
+          priceBookId,
+          STRIPE_CATALOG_MANIFEST.fingerprint,
+          stripeUsageScope.accountId,
+          stripeUsageScope.billingContractId,
+          stripeUsageScope.keyMode === "live" ? 1 : 0,
+        ],
+      });
+      billingAccount = accountResult.rows[0] ?? null;
+    }
+
+    const hasManualAccess = toNumber(attempt.manualAccess) === 1;
+    if (
+      !billingAccount &&
+      !hasManualAccess &&
+      !input.allowUnmeteredAccess &&
+      !reviewReservationId
+    ) {
+      return await rollbackResult(
+        stripeUsageScope ? "access_revoked" : "billing_unavailable",
+      );
+    }
+
+    const rubricScores =
+      toStringValue(attempt.assignmentRubric).trim() &&
+      typeof attempt.attemptRubricScores === "string"
+        ? attempt.attemptRubricScores
+        : null;
+    const applyResult = await transaction.execute({
+      sql: `UPDATE submissions
+      SET grade = ?, feedback = ?, rubric_scores = ?, grade_source = 'ai'
+      WHERE id = ?
+        AND deleted_at IS NULL
+        AND grade IS NULL
+        AND TRIM(COALESCE(feedback, '')) = ''
+        AND rubric_scores IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM assignments a
+          JOIN classes c ON c.id = a.class_id
+          WHERE a.id = submissions.assignment_id
+            AND a.deleted_at IS NULL
+            AND c.deleted_at IS NULL
+            AND LOWER(c.owner_email) = LOWER(?)
+        )`,
+      args: [
+        suggestedScore,
+        toStringValue(attempt.feedback),
+        rubricScores,
+        toStringValue(attempt.submissionId),
+        ownerEmail,
+      ],
+    });
+    if (toNumber(applyResult.rowsAffected) !== 1) {
+      return await rollbackResult("submission_changed");
+    }
+
+    let billingRequired = input.billingCandidate && billingAccount !== null;
+    if (billingRequired) {
+      const duplicateResult = await transaction.execute({
+        sql: `SELECT 1
+        WHERE EXISTS (
+          SELECT 1
+          FROM ai_grading_attempts prior
+          WHERE prior.id <> ?
+            AND LOWER(prior.teacher_email) = LOWER(?)
+            AND prior.cache_key = ?
+            AND prior.billing_required = 1
+            AND prior.billing_price_book_id = ?
+            AND prior.billing_catalog_fingerprint = ?
+            AND prior.billing_livemode = ?
+        ) OR EXISTS (
+          SELECT 1
+          FROM ai_billing_usage_v3 usage
+          WHERE LOWER(usage.teacher_email) = LOWER(?)
+            AND usage.cache_key = ?
+            AND usage.price_book_id = ?
+            AND usage.catalog_fingerprint = ?
+            AND usage.livemode = ?
+        )
+        LIMIT 1`,
+        args: [
+          attemptId,
+          ownerEmail,
+          toStringValue(attempt.cacheKey),
+          priceBookId,
+          STRIPE_CATALOG_MANIFEST.fingerprint,
+          stripeUsageScope!.keyMode === "live" ? 1 : 0,
+          ownerEmail,
+          toStringValue(attempt.cacheKey),
+          priceBookId,
+          STRIPE_CATALOG_MANIFEST.fingerprint,
+          stripeUsageScope!.keyMode === "live" ? 1 : 0,
+        ],
+      });
+      billingRequired = duplicateResult.rows.length === 0;
+    }
+    if (billingRequired) {
+      if (!billingAccount) {
+        throw new Error("Verified Stripe billing account disappeared before finalization.");
+      }
+      const markerNow = Date.now();
+      const creditReservation = await reserveAiBillingCreditInTransaction({
+        transaction,
+        teacherEmail: ownerEmail,
+        billingMonth: getAiBillingUtcMonth(toNumber(attempt.occurredAt)),
+        priceBookId,
+        catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+        livemode: stripeUsageScope!.keyMode === "live",
+        now: markerNow,
+      });
+      const markerResult = await transaction.execute({
+        sql: `UPDATE ai_grading_attempts
+        SET billing_required = 1,
+            billing_price_book_id = ?,
+            billing_stripe_customer_id = ?,
+            billing_stripe_subscription_id = ?,
+            billing_catalog_fingerprint = ?,
+            billing_contract_id = ?,
+            billing_livemode = ?,
+            billing_qualifying_class_high_water = ?,
+            billing_free_credit_applied = ?
+        WHERE id = ?
+          AND billing_required = 0
+          AND billing_stripe_customer_id = ''
+          AND billing_stripe_subscription_id = ''
+          AND billing_catalog_fingerprint = ''
+           AND status = 'completed'
+          AND delivery_status = 'pending'
+          AND TRIM(cache_key) <> ''
+          AND suggested_score IS NOT NULL
+          AND TRIM(error_code) = ''
+          AND result_source NOT IN ('deterministic', 'failed', 'teacher_review', 'withheld')
+          AND confidence = 'high'
+          AND LOWER(teacher_email) = LOWER(?)
+          AND EXISTS (
+            SELECT 1
+            FROM submissions s
+            JOIN assignments a ON a.id = s.assignment_id
+            JOIN classes c ON c.id = a.class_id
+            WHERE s.id = ai_grading_attempts.submission_id
+              AND s.deleted_at IS NULL
+              AND a.deleted_at IS NULL
+              AND c.deleted_at IS NULL
+              AND LOWER(c.owner_email) = LOWER(?)
+              AND s.grade_source = 'ai'
+              AND s.grade = ai_grading_attempts.suggested_score
+          )`,
+        args: [
+          priceBookId,
+          toStringValue(billingAccount.stripeCustomerId),
+          toStringValue(billingAccount.stripeSubscriptionId),
+          STRIPE_CATALOG_MANIFEST.fingerprint,
+          stripeUsageScope!.billingContractId,
+          stripeUsageScope!.keyMode === "live" ? 1 : 0,
+          creditReservation.qualifyingClassHighWater,
+          creditReservation.freeCreditApplied ? 1 : 0,
+          attemptId,
+          ownerEmail,
+          ownerEmail,
+        ],
+      });
+      if (toNumber(markerResult.rowsAffected) !== 1) {
+        throw new Error("AI grade billing marker could not be persisted atomically.");
+      }
+    }
+
+    const deliveryResult = await transaction.execute({
+      sql: `UPDATE ai_grading_attempts
+      SET delivery_status = 'delivered'
+      WHERE id = ?
+        AND LOWER(teacher_email) = LOWER(?)
+        AND status = 'completed'
+        AND delivery_status = 'pending'`,
+      args: [attemptId, ownerEmail],
+    });
+    if (toNumber(deliveryResult.rowsAffected) !== 1) {
+      throw new Error("AI result delivery disposition could not be persisted atomically.");
+    }
+
+    if (reviewReservationId) {
+      const consumed = await consumeAiReviewReservationInTransaction({
+        transaction,
+        reservationId: reviewReservationId,
+        teacherEmail: ownerEmail,
+        attemptId,
+        readyStripeScope: readyStripeSubscriptionScope,
+        now: Date.now(),
+      });
+      if (!consumed) {
+        throw new Error("AI review allowance changed before result delivery.");
+      }
+    }
+
+    await transaction.commit();
+    return { status: "applied", billingRequired };
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
 export async function deleteSubmission(submissionId: string, ownerEmail: string): Promise<boolean> {
   const result = await query(
     `UPDATE submissions
@@ -1692,6 +2641,34 @@ export async function listStorageObjectsForHardDeleteBefore(cutoffTimestamp: num
     audioBlobUrls: audioResult.rows.map((row) => toStringValue(row.audioBlobUrl)).filter(Boolean),
     attachmentUrls: attachmentResult.rows.map((row) => toStringValue(row.attachmentUrl)).filter(Boolean),
   };
+}
+
+function normalizeAiBillingScope(scope: AiBillingScope): AiBillingScope {
+  return {
+    priceBookId: requireTrimmedValue("priceBookId", scope.priceBookId),
+    catalogFingerprint: requireTrimmedValue(
+      "catalogFingerprint",
+      scope.catalogFingerprint,
+    ),
+    billingContractId: requireTrimmedValue(
+      "billingContractId",
+      scope.billingContractId,
+    ),
+    livemode: scope.livemode === true,
+  };
+}
+
+export async function isAssignmentAttachmentReferenced(attachmentUrl: string) {
+  const normalized = attachmentUrl.trim();
+  if (!normalized) return false;
+  const result = await query(
+    `SELECT 1 as found
+    FROM assignments
+    WHERE attachment_url = ?
+    LIMIT 1`,
+    [normalized]
+  );
+  return Boolean(result.rows[0]);
 }
 
 export async function hardDeleteSoftDeletedBefore(cutoffTimestamp: number) {
@@ -1828,7 +2805,11 @@ export async function listTeacherFunnelRows(): Promise<TeacherFunnelRow[]> {
       COALESCE(assignment_counts.assignmentCount, 0) as assignmentCount,
       COALESCE(submission_counts.submissionCount, 0) as submissionCount,
       activity.latestActivityAt as latestActivityAt,
-      u.is_paid as isPaid
+      CASE
+        WHEN u.is_paid = 1
+          AND u.ai_access_grant_source IN (${MANUAL_AI_ACCESS_GRANT_SQL_LIST})
+        THEN 1 ELSE 0
+      END as isPaid
     FROM users u
     LEFT JOIN (
       SELECT LOWER(owner_email) as email, COUNT(*) as classCount
@@ -1886,7 +2867,11 @@ export async function findTeacherFunnelRowByEmail(
       COALESCE(assignment_counts.assignmentCount, 0) as assignmentCount,
       COALESCE(submission_counts.submissionCount, 0) as submissionCount,
       activity.latestActivityAt as latestActivityAt,
-      u.is_paid as isPaid
+      CASE
+        WHEN u.is_paid = 1
+          AND u.ai_access_grant_source IN (${MANUAL_AI_ACCESS_GRANT_SQL_LIST})
+        THEN 1 ELSE 0
+      END as isPaid
     FROM users u
     LEFT JOIN (
       SELECT LOWER(owner_email) as email, COUNT(*) as classCount
@@ -1983,13 +2968,13 @@ export async function upsertGoogleUserAndGetRole(email: string): Promise<UserRol
     // Allowlisted (teacher/admin) accounts are re-promoted on EVERY sign-in, not just
     // on first insert. Without this, an account that already signed in once as a
     // student stays a student forever and every teacher API returns 403 — a silent
-    // failure that is very hard to diagnose. is_paid is set so AI grading (which
-    // returns 402 for unpaid users) works for these accounts too.
-    // This only ever grants access; it never demotes an existing teacher.
+    // failure that is very hard to diagnose. Authentication allowlisting grants
+    // the teacher role only; AI allowance is a separate operator/billing decision.
+    // This only ever grants a role; it never demotes an existing teacher.
     await query(
-      `INSERT INTO users (email, role, created_at, is_paid)
-      VALUES (?, 'teacher', ?, 1)
-      ON CONFLICT(email) DO UPDATE SET role = 'teacher', is_paid = 1`,
+      `INSERT INTO users (email, role, created_at)
+      VALUES (?, 'teacher', ?)
+      ON CONFLICT(email) DO UPDATE SET role = 'teacher'`,
       [normalized, Date.now()]
     );
   } else {
@@ -2059,17 +3044,24 @@ export async function setUserDefaultLanguage(email: string, language: string): P
 export async function getUserIsPaid(email: string): Promise<boolean> {
   const normalized = email.trim().toLowerCase();
   const result = await query(
-    `SELECT is_paid FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+    `SELECT EXISTS(
+      SELECT 1 FROM users
+      WHERE LOWER(email) = LOWER(?)
+        AND is_paid = 1
+        AND ai_access_grant_source IN (${MANUAL_AI_ACCESS_GRANT_SQL_LIST})
+    ) as isPaid`,
     [normalized]
   );
-  return toNumber(result.rows[0]?.is_paid) === 1;
+  return toNumber(result.rows[0]?.isPaid) === 1;
 }
 
 export async function setUserPaid(email: string, isPaid: boolean): Promise<boolean> {
   const normalized = email.trim().toLowerCase();
   const result = await query(
-    `UPDATE users SET is_paid = ? WHERE LOWER(email) = LOWER(?)`,
-    [isPaid ? 1 : 0, normalized]
+    `UPDATE users
+    SET is_paid = ?, ai_access_grant_source = ?
+    WHERE LOWER(email) = LOWER(?)`,
+    [isPaid ? 1 : 0, isPaid ? "manual" : "", normalized]
   );
   return result.rowsAffected > 0;
 }
@@ -2081,8 +3073,15 @@ function rowToStripeBillingAccount(row: Row): StripeBillingAccountRow {
     stripeSubscriptionId:
       row.stripeSubscriptionId === null ? null : toStringValue(row.stripeSubscriptionId),
     subscriptionStatus: toStringValue(row.subscriptionStatus),
+    subscriptionPeriodStart: toNumber(row.subscriptionPeriodStart),
+    subscriptionPeriodEnd: toNumber(row.subscriptionPeriodEnd),
     priceBookId: toStringValue(row.priceBookId),
+    catalogFingerprint: toStringValue(row.catalogFingerprint),
+    stripeAccountId: toStringValue(row.stripeAccountId),
+    billingContractId: toStringValue(row.billingContractId),
+    livemode: toNumber(row.livemode) === 1,
     stripeEventCreated: toNumber(row.stripeEventCreated),
+    projectionRevision: toNumber(row.projectionRevision),
     createdAt: toNumber(row.createdAt),
     updatedAt: toNumber(row.updatedAt),
   };
@@ -2093,8 +3092,15 @@ const STRIPE_BILLING_ACCOUNT_SELECT = `SELECT
   stripe_customer_id as stripeCustomerId,
   stripe_subscription_id as stripeSubscriptionId,
   subscription_status as subscriptionStatus,
+  subscription_period_start as subscriptionPeriodStart,
+  subscription_period_end as subscriptionPeriodEnd,
   price_book_id as priceBookId,
+  catalog_fingerprint as catalogFingerprint,
+  stripe_account_id as stripeAccountId,
+  billing_contract_id as billingContractId,
+  livemode as livemode,
   stripe_event_created as stripeEventCreated,
+  projection_revision as projectionRevision,
   created_at as createdAt,
   updated_at as updatedAt
 FROM stripe_billing_accounts`;
@@ -2113,74 +3119,187 @@ export async function getStripeBillingAccountByTeacherEmail(
 }
 
 export async function getStripeBillingAccountByCustomerId(
-  stripeCustomerId: string
+  stripeCustomerId: string,
+  livemode?: boolean,
+  stripeAccountId?: string,
+  billingContractId?: string,
 ): Promise<StripeBillingAccountRow | null> {
   const customerId = requireTrimmedValue("stripeCustomerId", stripeCustomerId);
+  const normalizedAccountId = stripeAccountId?.trim();
+  const normalizedContractId = billingContractId?.trim();
   const result = await query(
     `${STRIPE_BILLING_ACCOUNT_SELECT}
     WHERE stripe_customer_id = ?
+      ${livemode === undefined ? "" : "AND livemode = ?"}
+      ${normalizedAccountId ? "AND stripe_account_id = ?" : ""}
+      ${normalizedContractId ? "AND billing_contract_id = ?" : ""}
     LIMIT 1`,
-    [customerId]
+    [
+      customerId,
+      ...(livemode === undefined ? [] : [livemode ? 1 : 0]),
+      ...(normalizedAccountId ? [normalizedAccountId] : []),
+      ...(normalizedContractId ? [normalizedContractId] : []),
+    ]
   );
   return result.rows[0] ? rowToStripeBillingAccount(result.rows[0]) : null;
 }
 
+/**
+ * Creates or refreshes one teacher-to-Customer identity. Runtime events may
+ * never remap that identity or its Stripe mode; a reviewed operator workflow
+ * must reconcile and clear a mapping before a replacement can be introduced.
+ */
 export async function upsertStripeBillingCustomer(input: {
   teacherEmail: string;
   stripeCustomerId: string;
+  stripeAccountId: string;
+  billingContractId: string;
+  livemode?: boolean;
   now?: number;
 }): Promise<StripeBillingAccountRow> {
   const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
   const stripeCustomerId = requireTrimmedValue("stripeCustomerId", input.stripeCustomerId);
+  const stripeAccountId = requireTrimmedValue("stripeAccountId", input.stripeAccountId);
+  const billingContractId = requireTrimmedValue(
+    "billingContractId",
+    input.billingContractId,
+  );
+  const livemode = input.livemode === true;
   const now = requireNonNegativeInteger("now", input.now ?? Date.now());
   await query(
     `INSERT INTO stripe_billing_accounts (
       teacher_email, stripe_customer_id, stripe_subscription_id,
-      subscription_status, price_book_id, stripe_event_created, created_at, updated_at
-    ) VALUES (?, ?, NULL, '', '', 0, ?, ?)
+      subscription_status, subscription_period_start, subscription_period_end,
+      price_book_id, catalog_fingerprint,
+      stripe_account_id, billing_contract_id, livemode,
+      stripe_event_created, created_at, updated_at
+    ) VALUES (?, ?, NULL, '', 0, 0, '', '', ?, ?, ?, 0, ?, ?)
     ON CONFLICT(teacher_email) DO UPDATE SET
-      stripe_subscription_id = CASE
-        WHEN stripe_billing_accounts.stripe_customer_id = excluded.stripe_customer_id
-          THEN stripe_billing_accounts.stripe_subscription_id
-        ELSE NULL
-      END,
-      subscription_status = CASE
-        WHEN stripe_billing_accounts.stripe_customer_id = excluded.stripe_customer_id
-          THEN stripe_billing_accounts.subscription_status
-        ELSE ''
-      END,
-      price_book_id = CASE
-        WHEN stripe_billing_accounts.stripe_customer_id = excluded.stripe_customer_id
-          THEN stripe_billing_accounts.price_book_id
-        ELSE ''
-      END,
-      stripe_event_created = CASE
-        WHEN stripe_billing_accounts.stripe_customer_id = excluded.stripe_customer_id
-          THEN stripe_billing_accounts.stripe_event_created
-        ELSE 0
-      END,
-      stripe_customer_id = excluded.stripe_customer_id,
-      updated_at = excluded.updated_at`,
-    [teacherEmail, stripeCustomerId, now, now]
+      projection_revision = stripe_billing_accounts.projection_revision + 1,
+      updated_at = excluded.updated_at
+    WHERE stripe_billing_accounts.stripe_customer_id = excluded.stripe_customer_id
+      AND stripe_billing_accounts.stripe_account_id = excluded.stripe_account_id
+      AND stripe_billing_accounts.billing_contract_id = excluded.billing_contract_id
+      AND stripe_billing_accounts.livemode = excluded.livemode`,
+    [
+      teacherEmail,
+      stripeCustomerId,
+      stripeAccountId,
+      billingContractId,
+      livemode ? 1 : 0,
+      now,
+      now,
+    ]
   );
   const account = await getStripeBillingAccountByTeacherEmail(teacherEmail);
   if (!account) throw new Error("Stripe billing customer upsert did not persist an account.");
+  if (
+    account.stripeCustomerId !== stripeCustomerId ||
+    account.stripeAccountId !== stripeAccountId ||
+    account.billingContractId !== billingContractId ||
+    account.livemode !== livemode
+  ) {
+    throw new Error(
+      "Stripe Customer identity is already mapped differently and requires manual reconciliation.",
+    );
+  }
   return account;
+}
+
+/**
+ * Rebinds a restored or rotated teacher mapping only after the caller has
+ * exhaustively verified the replacement Customer in the pinned Stripe account.
+ * The exact prior snapshot makes concurrent Checkout/webhook changes fail.
+ */
+export async function replaceStripeBillingCustomerMappingForRecovery(input: {
+  teacherEmail: string;
+  stripeCustomerId: string;
+  stripeAccountId: string;
+  billingContractId: string;
+  livemode?: boolean;
+  expectedAccount: Pick<
+    StripeBillingAccountRow,
+    | "stripeCustomerId"
+    | "stripeAccountId"
+    | "billingContractId"
+    | "livemode"
+    | "projectionRevision"
+  >;
+  now?: number;
+}): Promise<StripeBillingAccountRow | null> {
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const stripeCustomerId = requireTrimmedValue("stripeCustomerId", input.stripeCustomerId);
+  const stripeAccountId = requireTrimmedValue("stripeAccountId", input.stripeAccountId);
+  const billingContractId = requireTrimmedValue(
+    "billingContractId",
+    input.billingContractId,
+  );
+  const livemode = input.livemode === true;
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  const result = await query(
+    `UPDATE stripe_billing_accounts
+    SET stripe_customer_id = ?,
+        stripe_subscription_id = NULL,
+        subscription_status = '',
+        subscription_period_start = 0,
+        subscription_period_end = 0,
+        price_book_id = '',
+        catalog_fingerprint = '',
+        stripe_account_id = ?,
+        billing_contract_id = ?,
+        livemode = ?,
+        stripe_event_created = 0,
+        projection_revision = projection_revision + 1,
+        updated_at = ?
+    WHERE teacher_email = ?
+      AND stripe_customer_id = ?
+      AND stripe_account_id = ?
+      AND billing_contract_id = ?
+      AND livemode = ?
+      AND projection_revision = ?`,
+    [
+      stripeCustomerId,
+      stripeAccountId,
+      billingContractId,
+      livemode ? 1 : 0,
+      now,
+      teacherEmail,
+      input.expectedAccount.stripeCustomerId,
+      input.expectedAccount.stripeAccountId,
+      input.expectedAccount.billingContractId,
+      input.expectedAccount.livemode ? 1 : 0,
+      input.expectedAccount.projectionRevision,
+    ],
+  );
+  if (toNumber(result.rowsAffected) !== 1) return null;
+  return getStripeBillingAccountByTeacherEmail(teacherEmail);
 }
 
 /**
  * Projects a Stripe subscription webhook onto the local account. Older events
  * are ignored. At an equal Stripe timestamp, a non-entitled projection can
  * replace an entitled one, but an entitled projection cannot restore access
- * over a non-entitled one. This gives same-second events a fail-closed order.
+ * over an ordinary non-entitled one. The one exception is a verified retry
+ * replacing `invalid_catalog`, which is the fail-closed placeholder written
+ * before the webhook asks Stripe to retry the same event.
  */
 export async function upsertStripeBillingSubscription(input: {
   stripeCustomerId: string;
   stripeSubscriptionId: string;
   subscriptionStatus: string;
+  subscriptionPeriodStart?: number;
+  subscriptionPeriodEnd?: number;
   priceBookId: string;
+  catalogFingerprint: string;
+  stripeAccountId: string;
+  billingContractId: string;
+  livemode?: boolean;
   stripeEventCreated: number;
   now?: number;
+  expectedAccount?: Pick<
+    StripeBillingAccountRow,
+    "stripeSubscriptionId" | "subscriptionStatus" | "stripeEventCreated" | "projectionRevision"
+  >;
 }): Promise<StripeBillingAccountRow | null> {
   const stripeCustomerId = requireTrimmedValue("stripeCustomerId", input.stripeCustomerId);
   const stripeSubscriptionId = requireTrimmedValue(
@@ -2191,55 +3310,575 @@ export async function upsertStripeBillingSubscription(input: {
     "subscriptionStatus",
     input.subscriptionStatus
   ).toLowerCase();
+  const { periodStart, periodEnd } = normalizeSubscriptionPeriod({
+    subscriptionStatus,
+    subscriptionPeriodStart: input.subscriptionPeriodStart,
+    subscriptionPeriodEnd: input.subscriptionPeriodEnd,
+  });
   const priceBookId = requireTrimmedValue("priceBookId", input.priceBookId);
+  const catalogFingerprint = input.catalogFingerprint.trim();
+  const stripeAccountId = requireTrimmedValue("stripeAccountId", input.stripeAccountId);
+  const billingContractId = requireTrimmedValue(
+    "billingContractId",
+    input.billingContractId,
+  );
+  const livemode = input.livemode === true;
   const stripeEventCreated = requireNonNegativeInteger(
     "stripeEventCreated",
     input.stripeEventCreated
   );
   const now = requireNonNegativeInteger("now", input.now ?? Date.now());
-  await query(
+  const expectedAccount = input.expectedAccount
+    ? {
+        stripeSubscriptionId:
+          input.expectedAccount.stripeSubscriptionId === null
+            ? null
+            : requireTrimmedValue(
+                "expectedAccount.stripeSubscriptionId",
+                input.expectedAccount.stripeSubscriptionId,
+              ),
+        subscriptionStatus: input.expectedAccount.subscriptionStatus.trim().toLowerCase(),
+        stripeEventCreated: requireNonNegativeInteger(
+          "expectedAccount.stripeEventCreated",
+          input.expectedAccount.stripeEventCreated,
+        ),
+        projectionRevision: requireNonNegativeInteger(
+          "expectedAccount.projectionRevision",
+          input.expectedAccount.projectionRevision,
+        ),
+      }
+    : null;
+  if (
+    expectedAccount?.stripeSubscriptionId &&
+    expectedAccount.stripeSubscriptionId !== stripeSubscriptionId
+  ) {
+    throw new Error("Stripe subscription projection cannot replace the expected Subscription.");
+  }
+  const result = await query(
     `UPDATE stripe_billing_accounts
     SET stripe_subscription_id = ?,
         subscription_status = ?,
+        subscription_period_start = ?,
+        subscription_period_end = ?,
         price_book_id = ?,
+        catalog_fingerprint = ?,
         stripe_event_created = ?,
+        projection_revision = projection_revision + 1,
         updated_at = ?
     WHERE stripe_customer_id = ?
+      AND livemode = ?
+      AND stripe_account_id = ?
+      AND billing_contract_id = ?
+      ${
+        expectedAccount
+          ? `AND projection_revision = ?
+      AND stripe_event_created = ?
+      AND subscription_status = ?
+      AND ${
+        expectedAccount.stripeSubscriptionId === null
+          ? "stripe_subscription_id IS NULL"
+          : "stripe_subscription_id = ?"
+      }`
+          : ""
+      }
       AND (
         stripe_event_created < ?
         OR (
           stripe_event_created = ?
           AND NOT (
-            subscription_status NOT IN ('active', 'trialing')
-            AND ? IN ('active', 'trialing')
+            subscription_status <> 'active'
+            AND ? = 'active'
+            AND subscription_status <> 'invalid_catalog'
           )
         )
       )`,
     [
       stripeSubscriptionId,
       subscriptionStatus,
+      periodStart,
+      periodEnd,
       priceBookId,
+      catalogFingerprint,
       stripeEventCreated,
       now,
       stripeCustomerId,
+      livemode ? 1 : 0,
+      stripeAccountId,
+      billingContractId,
+      ...(expectedAccount
+        ? [
+            expectedAccount.projectionRevision,
+            expectedAccount.stripeEventCreated,
+            expectedAccount.subscriptionStatus,
+            ...(expectedAccount.stripeSubscriptionId === null
+              ? []
+              : [expectedAccount.stripeSubscriptionId]),
+          ]
+        : []),
       stripeEventCreated,
       stripeEventCreated,
       subscriptionStatus,
     ]
   );
-  return getStripeBillingAccountByCustomerId(stripeCustomerId);
+  if (expectedAccount && toNumber(result.rowsAffected) !== 1) return null;
+  return getStripeBillingAccountByCustomerId(
+    stripeCustomerId,
+    livemode,
+    stripeAccountId,
+    billingContractId,
+  );
+}
+
+/**
+ * Applies a freshly retrieved non-entitled Stripe state even when the event
+ * that triggered the read is old. The optimistic account snapshot prevents an
+ * old Subscription from replacing a newer mapping or racing a newer webhook.
+ */
+export async function projectCurrentStripeNonEntitledSubscription(input: {
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  subscriptionStatus: string;
+  priceBookId: string;
+  stripeAccountId: string;
+  billingContractId: string;
+  livemode?: boolean;
+  observedEventCreated: number;
+  expectedAccount: Pick<
+    StripeBillingAccountRow,
+    "stripeSubscriptionId" | "subscriptionStatus" | "stripeEventCreated" | "projectionRevision"
+  >;
+  now?: number;
+}): Promise<StripeBillingAccountRow | null> {
+  const stripeCustomerId = requireTrimmedValue("stripeCustomerId", input.stripeCustomerId);
+  const stripeSubscriptionId = requireTrimmedValue(
+    "stripeSubscriptionId",
+    input.stripeSubscriptionId,
+  );
+  const subscriptionStatus = requireTrimmedValue(
+    "subscriptionStatus",
+    input.subscriptionStatus,
+  ).toLowerCase();
+  if (subscriptionStatus === "active") {
+    throw new Error("Current-state projection is only valid for non-entitled subscriptions.");
+  }
+  const priceBookId = requireTrimmedValue("priceBookId", input.priceBookId);
+  const stripeAccountId = requireTrimmedValue("stripeAccountId", input.stripeAccountId);
+  const billingContractId = requireTrimmedValue(
+    "billingContractId",
+    input.billingContractId,
+  );
+  const livemode = input.livemode === true;
+  const observedEventCreated = requireNonNegativeInteger(
+    "observedEventCreated",
+    input.observedEventCreated,
+  );
+  const expectedSubscriptionId =
+    input.expectedAccount.stripeSubscriptionId === null
+      ? null
+      : requireTrimmedValue(
+          "expectedAccount.stripeSubscriptionId",
+          input.expectedAccount.stripeSubscriptionId,
+        );
+  if (expectedSubscriptionId && expectedSubscriptionId !== stripeSubscriptionId) {
+    throw new Error("Current Stripe state does not match the mapped Subscription.");
+  }
+  const expectedSubscriptionStatus = input.expectedAccount.subscriptionStatus
+    .trim()
+    .toLowerCase();
+  const expectedStripeEventCreated = requireNonNegativeInteger(
+    "expectedAccount.stripeEventCreated",
+    input.expectedAccount.stripeEventCreated,
+  );
+  const expectedProjectionRevision = requireNonNegativeInteger(
+    "expectedAccount.projectionRevision",
+    input.expectedAccount.projectionRevision,
+  );
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  const result = await query(
+    `UPDATE stripe_billing_accounts
+    SET stripe_subscription_id = ?,
+        subscription_status = ?,
+        subscription_period_start = 0,
+        subscription_period_end = 0,
+        price_book_id = ?,
+        catalog_fingerprint = '',
+        stripe_event_created = MAX(stripe_event_created, ?),
+        projection_revision = projection_revision + 1,
+        updated_at = ?
+    WHERE stripe_customer_id = ?
+      AND livemode = ?
+      AND stripe_account_id = ?
+      AND billing_contract_id = ?
+      AND projection_revision = ?
+      AND stripe_event_created = ?
+      AND subscription_status = ?
+      AND ${
+        expectedSubscriptionId === null
+          ? "stripe_subscription_id IS NULL"
+          : "stripe_subscription_id = ?"
+      }`,
+    [
+      stripeSubscriptionId,
+      subscriptionStatus,
+      priceBookId,
+      observedEventCreated,
+      now,
+      stripeCustomerId,
+      livemode ? 1 : 0,
+      stripeAccountId,
+      billingContractId,
+      expectedProjectionRevision,
+      expectedStripeEventCreated,
+      expectedSubscriptionStatus,
+      ...(expectedSubscriptionId === null ? [] : [expectedSubscriptionId]),
+    ],
+  );
+  if (toNumber(result.rowsAffected) !== 1) return null;
+  return getStripeBillingAccountByCustomerId(
+    stripeCustomerId,
+    livemode,
+    stripeAccountId,
+    billingContractId,
+  );
+}
+
+/**
+ * Applies a freshly retrieved and fully verified entitled Stripe state. This
+ * deliberately does not compare the triggering webhook timestamp: the remote
+ * Subscription read is current, while the webhook that prompted it may be old.
+ * Exact snapshot matching prevents that current-state observation from
+ * overwriting a concurrent webhook or a replacement Subscription. When the
+ * snapshot loses only because another handler already wrote the exact same
+ * verified projection, an exact-state fallback converges the watermark. A
+ * divergent status, Subscription, catalog, account, contract, or mode still
+ * fails the compare-and-swap.
+ */
+export async function projectCurrentStripeEntitledSubscription(input: {
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  subscriptionStatus: string;
+  subscriptionPeriodStart: number;
+  subscriptionPeriodEnd: number;
+  priceBookId: string;
+  catalogFingerprint: string;
+  stripeAccountId: string;
+  billingContractId: string;
+  livemode?: boolean;
+  observedEventCreated: number;
+  expectedAccount: Pick<
+    StripeBillingAccountRow,
+    "stripeSubscriptionId" | "subscriptionStatus" | "stripeEventCreated" | "projectionRevision"
+  >;
+  now?: number;
+}): Promise<StripeBillingAccountRow | null> {
+  const stripeCustomerId = requireTrimmedValue("stripeCustomerId", input.stripeCustomerId);
+  const stripeSubscriptionId = requireTrimmedValue(
+    "stripeSubscriptionId",
+    input.stripeSubscriptionId,
+  );
+  const subscriptionStatus = requireTrimmedValue(
+    "subscriptionStatus",
+    input.subscriptionStatus,
+  ).toLowerCase();
+  if (subscriptionStatus !== "active") {
+    throw new Error("Current entitled projection requires an active Subscription.");
+  }
+  const { periodStart, periodEnd } = normalizeSubscriptionPeriod({
+    subscriptionStatus,
+    subscriptionPeriodStart: input.subscriptionPeriodStart,
+    subscriptionPeriodEnd: input.subscriptionPeriodEnd,
+  });
+  const priceBookId = requireTrimmedValue("priceBookId", input.priceBookId);
+  const catalogFingerprint = requireTrimmedValue(
+    "catalogFingerprint",
+    input.catalogFingerprint,
+  );
+  const stripeAccountId = requireTrimmedValue("stripeAccountId", input.stripeAccountId);
+  const billingContractId = requireTrimmedValue(
+    "billingContractId",
+    input.billingContractId,
+  );
+  const livemode = input.livemode === true;
+  const observedEventCreated = requireNonNegativeInteger(
+    "observedEventCreated",
+    input.observedEventCreated,
+  );
+  const expectedSubscriptionId =
+    input.expectedAccount.stripeSubscriptionId === null
+      ? null
+      : requireTrimmedValue(
+          "expectedAccount.stripeSubscriptionId",
+          input.expectedAccount.stripeSubscriptionId,
+        );
+  if (expectedSubscriptionId && expectedSubscriptionId !== stripeSubscriptionId) {
+    throw new Error("Current Stripe state does not match the mapped Subscription.");
+  }
+  const expectedSubscriptionStatus = input.expectedAccount.subscriptionStatus
+    .trim()
+    .toLowerCase();
+  const expectedStripeEventCreated = requireNonNegativeInteger(
+    "expectedAccount.stripeEventCreated",
+    input.expectedAccount.stripeEventCreated,
+  );
+  const expectedProjectionRevision = requireNonNegativeInteger(
+    "expectedAccount.projectionRevision",
+    input.expectedAccount.projectionRevision,
+  );
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  const result = await query(
+    `UPDATE stripe_billing_accounts
+    SET stripe_subscription_id = ?,
+        subscription_status = ?,
+        subscription_period_start = ?,
+        subscription_period_end = ?,
+        price_book_id = ?,
+        catalog_fingerprint = ?,
+        stripe_event_created = MAX(stripe_event_created, ?),
+        projection_revision = projection_revision + 1,
+        updated_at = ?
+    WHERE stripe_customer_id = ?
+      AND livemode = ?
+      AND stripe_account_id = ?
+      AND billing_contract_id = ?
+      AND projection_revision = ?
+      AND stripe_event_created = ?
+      AND subscription_status = ?
+      AND ${
+        expectedSubscriptionId === null
+          ? "stripe_subscription_id IS NULL"
+          : "stripe_subscription_id = ?"
+      }`,
+    [
+      stripeSubscriptionId,
+      subscriptionStatus,
+      periodStart,
+      periodEnd,
+      priceBookId,
+      catalogFingerprint,
+      observedEventCreated,
+      now,
+      stripeCustomerId,
+      livemode ? 1 : 0,
+      stripeAccountId,
+      billingContractId,
+      expectedProjectionRevision,
+      expectedStripeEventCreated,
+      expectedSubscriptionStatus,
+      ...(expectedSubscriptionId === null ? [] : [expectedSubscriptionId]),
+    ],
+  );
+  if (toNumber(result.rowsAffected) !== 1) {
+    // Stripe commonly delivers customer.subscription.created alongside
+    // checkout.session.completed. Both handlers can retrieve and verify the
+    // same current Subscription from the same local snapshot. Let the losing
+    // handler converge only if the winner persisted every desired field in the
+    // same immutable billing scope. This remains one atomic conditional write,
+    // so a concurrent revocation or replacement cannot be mistaken for success.
+    const converged = await query(
+      `UPDATE stripe_billing_accounts
+      SET stripe_event_created = MAX(stripe_event_created, ?),
+          projection_revision = projection_revision + CASE
+            WHEN stripe_event_created < ? THEN 1
+            ELSE 0
+          END,
+          updated_at = CASE
+            WHEN stripe_event_created < ? THEN ?
+            ELSE updated_at
+          END
+      WHERE stripe_customer_id = ?
+        AND stripe_subscription_id = ?
+        AND subscription_status = ?
+        AND subscription_period_start = ?
+        AND subscription_period_end = ?
+        AND price_book_id = ?
+        AND catalog_fingerprint = ?
+        AND livemode = ?
+        AND stripe_account_id = ?
+        AND billing_contract_id = ?`,
+      [
+        observedEventCreated,
+        observedEventCreated,
+        observedEventCreated,
+        now,
+        stripeCustomerId,
+        stripeSubscriptionId,
+        subscriptionStatus,
+        periodStart,
+        periodEnd,
+        priceBookId,
+        catalogFingerprint,
+        livemode ? 1 : 0,
+        stripeAccountId,
+        billingContractId,
+      ],
+    );
+    if (toNumber(converged.rowsAffected) !== 1) return null;
+  }
+  return getStripeBillingAccountByCustomerId(
+    stripeCustomerId,
+    livemode,
+    stripeAccountId,
+    billingContractId,
+  );
+}
+
+/**
+ * Replaces a terminal mapped Subscription only after Checkout has retrieved and
+ * verified a new entitled Subscription. Exact snapshot matching makes this a
+ * compare-and-swap transition, so delayed Checkout events cannot win a race.
+ */
+export async function replaceTerminalStripeSubscriptionFromCheckout(input: {
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  subscriptionStatus: string;
+  subscriptionPeriodStart: number;
+  subscriptionPeriodEnd: number;
+  priceBookId: string;
+  catalogFingerprint: string;
+  stripeAccountId: string;
+  billingContractId: string;
+  livemode?: boolean;
+  observedEventCreated: number;
+  expectedAccount: Pick<
+    StripeBillingAccountRow,
+    "stripeSubscriptionId" | "subscriptionStatus" | "stripeEventCreated" | "projectionRevision"
+  >;
+  now?: number;
+}): Promise<StripeBillingAccountRow | null> {
+  const stripeCustomerId = requireTrimmedValue("stripeCustomerId", input.stripeCustomerId);
+  const stripeSubscriptionId = requireTrimmedValue(
+    "stripeSubscriptionId",
+    input.stripeSubscriptionId,
+  );
+  const subscriptionStatus = requireTrimmedValue(
+    "subscriptionStatus",
+    input.subscriptionStatus,
+  ).toLowerCase();
+  if (subscriptionStatus !== "active") {
+    throw new Error("Checkout replacement requires an entitled Subscription state.");
+  }
+  const { periodStart, periodEnd } = normalizeSubscriptionPeriod({
+    subscriptionStatus,
+    subscriptionPeriodStart: input.subscriptionPeriodStart,
+    subscriptionPeriodEnd: input.subscriptionPeriodEnd,
+  });
+  const priceBookId = requireTrimmedValue("priceBookId", input.priceBookId);
+  const catalogFingerprint = requireTrimmedValue(
+    "catalogFingerprint",
+    input.catalogFingerprint,
+  );
+  const stripeAccountId = requireTrimmedValue("stripeAccountId", input.stripeAccountId);
+  const billingContractId = requireTrimmedValue(
+    "billingContractId",
+    input.billingContractId,
+  );
+  const livemode = input.livemode === true;
+  const observedEventCreated = requireNonNegativeInteger(
+    "observedEventCreated",
+    input.observedEventCreated,
+  );
+  const expectedSubscriptionId =
+    input.expectedAccount.stripeSubscriptionId === null
+      ? null
+      : requireTrimmedValue(
+          "expectedAccount.stripeSubscriptionId",
+          input.expectedAccount.stripeSubscriptionId,
+        );
+  const expectedSubscriptionStatus = input.expectedAccount.subscriptionStatus
+    .trim()
+    .toLowerCase();
+  if (
+    !expectedSubscriptionId ||
+    expectedSubscriptionId === stripeSubscriptionId ||
+    !["canceled", "incomplete_expired"].includes(expectedSubscriptionStatus)
+  ) {
+    throw new Error("Checkout replacement requires a different terminal mapped Subscription.");
+  }
+  const expectedStripeEventCreated = requireNonNegativeInteger(
+    "expectedAccount.stripeEventCreated",
+    input.expectedAccount.stripeEventCreated,
+  );
+  const expectedProjectionRevision = requireNonNegativeInteger(
+    "expectedAccount.projectionRevision",
+    input.expectedAccount.projectionRevision,
+  );
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  const result = await query(
+    `UPDATE stripe_billing_accounts
+    SET stripe_subscription_id = ?,
+        subscription_status = ?,
+        subscription_period_start = ?,
+        subscription_period_end = ?,
+        price_book_id = ?,
+        catalog_fingerprint = ?,
+        stripe_event_created = MAX(stripe_event_created, ?),
+        projection_revision = projection_revision + 1,
+        updated_at = ?
+    WHERE stripe_customer_id = ?
+      AND livemode = ?
+      AND stripe_account_id = ?
+      AND billing_contract_id = ?
+      AND projection_revision = ?
+      AND stripe_subscription_id = ?
+      AND subscription_status = ?
+      AND stripe_event_created = ?`,
+    [
+      stripeSubscriptionId,
+      subscriptionStatus,
+      periodStart,
+      periodEnd,
+      priceBookId,
+      catalogFingerprint,
+      observedEventCreated,
+      now,
+      stripeCustomerId,
+      livemode ? 1 : 0,
+      stripeAccountId,
+      billingContractId,
+      expectedProjectionRevision,
+      expectedSubscriptionId,
+      expectedSubscriptionStatus,
+      expectedStripeEventCreated,
+    ],
+  );
+  if (toNumber(result.rowsAffected) !== 1) return null;
+  return getStripeBillingAccountByCustomerId(
+    stripeCustomerId,
+    livemode,
+    stripeAccountId,
+    billingContractId,
+  );
 }
 
 export async function getStripeSubscriptionGrantsAiAccess(teacherEmail: string): Promise<boolean> {
+  const scope = await getReadyStripeSubscriptionScope();
+  if (!scope) return false;
   const normalized = normalizeBillingTeacherEmail(teacherEmail);
+  const now = Date.now();
   const result = await query(
     `SELECT EXISTS(
       SELECT 1
       FROM stripe_billing_accounts
       WHERE teacher_email = ?
-        AND subscription_status IN ('active', 'trialing')
+        AND subscription_status = 'active'
+        AND subscription_period_start <= ?
+        AND subscription_period_end > ?
+        AND price_book_id = ?
+        AND catalog_fingerprint = ?
+        AND stripe_account_id = ?
+        AND billing_contract_id = ?
+        AND livemode = ?
     ) as hasAccess`,
-    [normalized]
+    [
+      normalized,
+      now,
+      now,
+      TEACHER_AI_PRICE_BOOK.id,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+      scope.accountId,
+      scope.billingContractId,
+      scope.keyMode === "live" ? 1 : 0,
+    ]
   );
   return toNumber(result.rows[0]?.hasAccess) === 1;
 }
@@ -2247,21 +3886,451 @@ export async function getStripeSubscriptionGrantsAiAccess(teacherEmail: string):
 /** Existing manual grants remain valid while Stripe subscriptions are additive. */
 export async function getUserHasAiAccess(email: string): Promise<boolean> {
   const normalized = normalizeBillingTeacherEmail(email);
-  const result = await query(
-    `SELECT CASE WHEN
-      EXISTS(
-        SELECT 1 FROM users
-        WHERE LOWER(email) = LOWER(?) AND is_paid = 1
-      )
-      OR EXISTS(
-        SELECT 1 FROM stripe_billing_accounts
-        WHERE teacher_email = ?
-          AND subscription_status IN ('active', 'trialing')
-      )
-      THEN 1 ELSE 0 END as hasAccess`,
-    [normalized, normalized]
+  const manual = await query(
+    `SELECT EXISTS(
+      SELECT 1 FROM users
+      WHERE LOWER(email) = LOWER(?)
+        AND is_paid = 1
+        AND ai_access_grant_source IN (${MANUAL_AI_ACCESS_GRANT_SQL_LIST})
+    ) as hasAccess`,
+    [normalized]
   );
-  return toNumber(result.rows[0]?.hasAccess) === 1;
+  if (toNumber(manual.rows[0]?.hasAccess) === 1) return true;
+  return getStripeSubscriptionGrantsAiAccess(normalized);
+}
+
+const AI_REVIEW_RESERVATION_LEASE_MS = 15 * 60 * 1_000;
+const TERMINAL_STRIPE_SUBSCRIPTION_STATUSES = new Set([
+  "canceled",
+  "incomplete_expired",
+]);
+
+type ResolvedAiReviewAllowance = {
+  status: AiReviewAllowanceStatus;
+  allowanceKind: AiReviewAllowanceKind | null;
+  scopeKey: string;
+  limit: number;
+  stripeSubscriptionId: string | null;
+  periodStart: number | null;
+  periodEnd: number | null;
+};
+
+async function resolveAiReviewAllowanceInTransaction(input: {
+  transaction: Transaction;
+  teacherEmail: string;
+  readyStripeScope: ReadyStripeSubscriptionScope | null;
+  now: number;
+}): Promise<ResolvedAiReviewAllowance> {
+  const result = await input.transaction.execute({
+    sql: `SELECT
+      CASE
+        WHEN COALESCE(u.is_paid, 0) = 1
+          AND u.ai_access_grant_source IN (${MANUAL_AI_ACCESS_GRANT_SQL_LIST})
+        THEN 1 ELSE 0
+      END as manualAccess,
+      sba.stripe_subscription_id as stripeSubscriptionId,
+      COALESCE(sba.subscription_status, '') as subscriptionStatus,
+      COALESCE(sba.subscription_period_start, 0) as subscriptionPeriodStart,
+      COALESCE(sba.subscription_period_end, 0) as subscriptionPeriodEnd,
+      COALESCE(sba.price_book_id, '') as priceBookId,
+      COALESCE(sba.catalog_fingerprint, '') as catalogFingerprint,
+      COALESCE(sba.stripe_account_id, '') as stripeAccountId,
+      COALESCE(sba.billing_contract_id, '') as billingContractId,
+      COALESCE(sba.livemode, 0) as livemode
+    FROM (SELECT ? as teacher_email) identity
+    LEFT JOIN users u ON LOWER(u.email) = LOWER(identity.teacher_email)
+    LEFT JOIN stripe_billing_accounts sba
+      ON LOWER(sba.teacher_email) = LOWER(identity.teacher_email)
+    LIMIT 1`,
+    args: [input.teacherEmail],
+  });
+  const row = result.rows[0];
+  const subscriptionId = toStringValue(row?.stripeSubscriptionId).trim();
+  const subscriptionStatus = toStringValue(row?.subscriptionStatus)
+    .trim()
+    .toLowerCase();
+
+  // Any mapped state that Stripe still considers nonterminal owns the access
+  // decision. It may not silently fall through to a lifetime bucket when its
+  // account, contract, catalog, mode, or period is stale or contradictory.
+  if (
+    subscriptionId &&
+    !TERMINAL_STRIPE_SUBSCRIPTION_STATUSES.has(subscriptionStatus)
+  ) {
+    const periodStart = toNumber(row?.subscriptionPeriodStart);
+    const periodEnd = toNumber(row?.subscriptionPeriodEnd);
+    const scope = input.readyStripeScope;
+    const exactActiveSubscription =
+      subscriptionStatus === "active" &&
+      scope !== null &&
+      toStringValue(row?.priceBookId) === STRIPE_CATALOG_MANIFEST.priceBookId &&
+      toStringValue(row?.catalogFingerprint) === STRIPE_CATALOG_MANIFEST.fingerprint &&
+      toStringValue(row?.stripeAccountId) === scope.accountId &&
+      toStringValue(row?.billingContractId) === scope.billingContractId &&
+      (toNumber(row?.livemode) === 1) === (scope.keyMode === "live") &&
+      Number.isSafeInteger(periodStart) &&
+      Number.isSafeInteger(periodEnd) &&
+      periodStart > 0 &&
+      periodEnd > periodStart &&
+      periodStart <= input.now &&
+      periodEnd > input.now;
+    if (!exactActiveSubscription) {
+      return {
+        status: "subscription_unavailable",
+        allowanceKind: null,
+        scopeKey: "",
+        limit: 0,
+        stripeSubscriptionId: subscriptionId,
+        periodStart: periodStart > 0 ? periodStart : null,
+        periodEnd: periodEnd > 0 ? periodEnd : null,
+      };
+    }
+    return {
+      status: "teacher_period",
+      allowanceKind: "teacher_period",
+      scopeKey: `teacher_period:${subscriptionId}:${periodStart}:${periodEnd}`,
+      limit: AI_REVIEW_TEACHER_PERIOD_LIMIT,
+      stripeSubscriptionId: subscriptionId,
+      periodStart,
+      periodEnd,
+    };
+  }
+
+  if (toNumber(row?.manualAccess) === 1) {
+    return {
+      status: "manual_lifetime",
+      allowanceKind: "manual_lifetime",
+      scopeKey: "manual_lifetime",
+      limit: AI_REVIEW_MANUAL_LIFETIME_LIMIT,
+      stripeSubscriptionId: null,
+      periodStart: null,
+      periodEnd: null,
+    };
+  }
+  return {
+    status: "free_lifetime",
+    allowanceKind: "free_lifetime",
+    scopeKey: "free_lifetime",
+    limit: AI_REVIEW_FREE_LIFETIME_LIMIT,
+    stripeSubscriptionId: null,
+    periodStart: null,
+    periodEnd: null,
+  };
+}
+
+async function summarizeAiReviewAllowanceInTransaction(input: {
+  transaction: Transaction;
+  teacherEmail: string;
+  allowance: ResolvedAiReviewAllowance;
+  now: number;
+}): Promise<AiReviewAllowanceSummary> {
+  if (!input.allowance.allowanceKind) {
+    return {
+      teacherEmail: input.teacherEmail,
+      status: "subscription_unavailable",
+      limit: 0,
+      reserved: 0,
+      consumed: 0,
+      used: 0,
+      remaining: 0,
+      stripeSubscriptionId: input.allowance.stripeSubscriptionId,
+      periodStart: input.allowance.periodStart,
+      periodEnd: input.allowance.periodEnd,
+    };
+  }
+  const result = await input.transaction.execute({
+    sql: `SELECT
+      SUM(CASE
+        WHEN status = 'reserved' AND updated_at > ? THEN 1 ELSE 0
+      END) as reserved,
+      SUM(CASE WHEN status = 'consumed' THEN 1 ELSE 0 END) as consumed
+    FROM ai_review_allowance_reservations_v1
+    WHERE LOWER(teacher_email) = LOWER(?)
+      AND scope_key = ?
+      AND status IN ('reserved', 'consumed')`,
+    args: [
+      input.now - AI_REVIEW_RESERVATION_LEASE_MS,
+      input.teacherEmail,
+      input.allowance.scopeKey,
+    ],
+  });
+  const reserved = toNumber(result.rows[0]?.reserved);
+  const consumed = toNumber(result.rows[0]?.consumed);
+  const used = reserved + consumed;
+  return {
+    teacherEmail: input.teacherEmail,
+    status: input.allowance.status,
+    limit: input.allowance.limit,
+    reserved,
+    consumed,
+    used,
+    remaining: Math.max(0, input.allowance.limit - used),
+    stripeSubscriptionId: input.allowance.stripeSubscriptionId,
+    periodStart: input.allowance.periodStart,
+    periodEnd: input.allowance.periodEnd,
+  };
+}
+
+/** Returns the currently authoritative allowance without creating capacity. */
+export async function getAiReviewAllowanceSummary(input: {
+  teacherEmail: string;
+  now?: number;
+}): Promise<AiReviewAllowanceSummary> {
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  const readyStripeScope = await getReadyStripeSubscriptionScope();
+  await ensureInitialized();
+  const transaction = await db.transaction("read");
+  try {
+    const allowance = await resolveAiReviewAllowanceInTransaction({
+      transaction,
+      teacherEmail,
+      readyStripeScope,
+      now,
+    });
+    const summary = await summarizeAiReviewAllowanceInTransaction({
+      transaction,
+      teacherEmail,
+      allowance,
+      now,
+    });
+    await transaction.commit();
+    return summary;
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+/**
+ * Atomically claims one potential successful review before any AI provider is
+ * called. Reserved rows count against the cap, so concurrent requests cannot
+ * oversubscribe it. A consumed semantic key is reusable without another unit.
+ */
+let aiReviewReservationQueue: Promise<void> = Promise.resolve();
+
+async function reserveAiReviewAllowanceAtomic(input: {
+  teacherEmail: string;
+  semanticKey: string;
+  now?: number;
+}): Promise<AiReviewReservationResult> {
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const semanticKey = requireTrimmedValue("semanticKey", input.semanticKey);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  const readyStripeScope = await getReadyStripeSubscriptionScope();
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  try {
+    const allowance = await resolveAiReviewAllowanceInTransaction({
+      transaction,
+      teacherEmail,
+      readyStripeScope,
+      now,
+    });
+    await transaction.execute({
+      sql: `UPDATE ai_review_allowance_reservations_v1
+      SET status = 'released', updated_at = ?, released_at = ?
+      WHERE LOWER(teacher_email) = LOWER(?)
+        AND status = 'reserved'
+        AND updated_at <= ?`,
+      args: [
+        now,
+        now,
+        teacherEmail,
+        now - AI_REVIEW_RESERVATION_LEASE_MS,
+      ],
+    });
+    const baseSummary = await summarizeAiReviewAllowanceInTransaction({
+      transaction,
+      teacherEmail,
+      allowance,
+      now,
+    });
+    if (!allowance.allowanceKind) {
+      await transaction.commit();
+      return { ...baseSummary, reservationStatus: "subscription_unavailable" };
+    }
+
+    const existingResult = await transaction.execute({
+      sql: `SELECT id, status, scope_key as scopeKey,
+        attempt_id as attemptId, updated_at as updatedAt
+      FROM ai_review_allowance_reservations_v1
+      WHERE LOWER(teacher_email) = LOWER(?) AND semantic_key = ?
+      LIMIT 1`,
+      args: [teacherEmail, semanticKey],
+    });
+    const existing = existingResult.rows[0];
+    if (toStringValue(existing?.status) === "consumed") {
+      const sourceAttemptId = toStringValue(existing?.attemptId).trim();
+      if (!sourceAttemptId) {
+        throw new Error("Consumed AI review allowance is missing its source attempt.");
+      }
+      await transaction.commit();
+      return { ...baseSummary, reservationStatus: "duplicate", sourceAttemptId };
+    }
+    if (
+      toStringValue(existing?.status) === "reserved" &&
+      toNumber(existing?.updatedAt) > now - AI_REVIEW_RESERVATION_LEASE_MS
+    ) {
+      await transaction.commit();
+      return { ...baseSummary, reservationStatus: "in_flight" };
+    }
+    if (baseSummary.remaining <= 0) {
+      await transaction.commit();
+      return { ...baseSummary, reservationStatus: "exhausted" };
+    }
+
+    const reservationId = existing
+      ? toStringValue(existing.id)
+      : makeId("air");
+    if (existing) {
+      const reclaimed = await transaction.execute({
+        sql: `UPDATE ai_review_allowance_reservations_v1
+        SET allowance_kind = ?, scope_key = ?, stripe_subscription_id = ?,
+            period_start = ?, period_end = ?, status = 'reserved', attempt_id = '',
+            updated_at = ?, consumed_at = NULL, released_at = NULL
+        WHERE id = ? AND LOWER(teacher_email) = LOWER(?)
+          AND semantic_key = ?
+          AND (status = 'released' OR (status = 'reserved' AND updated_at <= ?))`,
+        args: [
+          allowance.allowanceKind,
+          allowance.scopeKey,
+          allowance.stripeSubscriptionId ?? "",
+          allowance.periodStart ?? 0,
+          allowance.periodEnd ?? 0,
+          now,
+          reservationId,
+          teacherEmail,
+          semanticKey,
+          now - AI_REVIEW_RESERVATION_LEASE_MS,
+        ],
+      });
+      if (toNumber(reclaimed.rowsAffected) !== 1) {
+        throw new Error("AI review reservation changed during reclamation.");
+      }
+    } else {
+      await transaction.execute({
+        sql: `INSERT INTO ai_review_allowance_reservations_v1 (
+          id, teacher_email, semantic_key, allowance_kind, scope_key,
+          stripe_subscription_id, period_start, period_end, status, attempt_id,
+          created_at, updated_at, consumed_at, released_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', '', ?, ?, NULL, NULL)`,
+        args: [
+          reservationId,
+          teacherEmail,
+          semanticKey,
+          allowance.allowanceKind,
+          allowance.scopeKey,
+          allowance.stripeSubscriptionId ?? "",
+          allowance.periodStart ?? 0,
+          allowance.periodEnd ?? 0,
+          now,
+          now,
+        ],
+      });
+    }
+    const summary = await summarizeAiReviewAllowanceInTransaction({
+      transaction,
+      teacherEmail,
+      allowance,
+      now,
+    });
+    await transaction.commit();
+    return { ...summary, reservationStatus: "reserved", reservationId };
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+export async function reserveAiReviewAllowance(input: {
+  teacherEmail: string;
+  semanticKey: string;
+  now?: number;
+}): Promise<AiReviewReservationResult> {
+  const preceding = aiReviewReservationQueue;
+  let releaseQueue!: () => void;
+  aiReviewReservationQueue = new Promise<void>((resolve) => {
+    releaseQueue = resolve;
+  });
+  await preceding;
+  try {
+    return await reserveAiReviewAllowanceAtomic(input);
+  } finally {
+    releaseQueue();
+  }
+}
+
+/** Releases capacity only while the claim is still unconsumed. */
+export async function releaseAiReviewAllowanceReservation(input: {
+  reservationId: string;
+  teacherEmail: string;
+  now?: number;
+}): Promise<boolean> {
+  const reservationId = requireTrimmedValue("reservationId", input.reservationId);
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  const result = await query(
+    `UPDATE ai_review_allowance_reservations_v1
+    SET status = 'released', updated_at = ?, released_at = ?
+    WHERE id = ? AND LOWER(teacher_email) = LOWER(?) AND status = 'reserved'`,
+    [now, now, reservationId, teacherEmail],
+  );
+  return toNumber(result.rowsAffected) === 1;
+}
+
+async function consumeAiReviewReservationInTransaction(input: {
+  transaction: Transaction;
+  reservationId: string;
+  teacherEmail: string;
+  attemptId: string;
+  readyStripeScope: ReadyStripeSubscriptionScope | null;
+  now: number;
+}) {
+  const allowance = await resolveAiReviewAllowanceInTransaction({
+    transaction: input.transaction,
+    teacherEmail: input.teacherEmail,
+    readyStripeScope: input.readyStripeScope,
+    now: input.now,
+  });
+  if (!allowance.allowanceKind) return false;
+  const result = await input.transaction.execute({
+    sql: `UPDATE ai_review_allowance_reservations_v1
+    SET status = 'consumed', attempt_id = ?, updated_at = ?, consumed_at = ?,
+        released_at = NULL
+    WHERE id = ?
+      AND LOWER(teacher_email) = LOWER(?)
+      AND status = 'reserved'
+      AND allowance_kind = ?
+      AND scope_key = ?
+      AND semantic_key = (
+        SELECT cache_key FROM ai_grading_attempts
+        WHERE id = ?
+          AND LOWER(teacher_email) = LOWER(?)
+          AND status = 'completed'
+          AND delivery_status IN ('pending', 'not_applicable', 'delivered')
+          AND suggested_score IS NOT NULL
+          AND TRIM(error_code) = ''
+          AND TRIM(cache_key) <> ''
+        LIMIT 1
+      )`,
+    args: [
+      input.attemptId,
+      input.now,
+      input.now,
+      input.reservationId,
+      input.teacherEmail,
+      allowance.allowanceKind,
+      allowance.scopeKey,
+      input.attemptId,
+      input.teacherEmail,
+    ],
+  });
+  return toNumber(result.rowsAffected) === 1;
 }
 
 function rowToStripeWebhookEvent(row: Row): StripeWebhookEventRow {
@@ -2337,13 +4406,85 @@ export async function countQualifyingAiBillingClasses(teacherEmail: string): Pro
       )`,
     [normalized]
   );
-  return toNumber(result.rows[0]?.qualifyingClassCount);
+  return Math.min(
+    toNumber(result.rows[0]?.qualifyingClassCount),
+    LEGACY_METERED_MAX_QUALIFYING_CLASSES,
+  );
+}
+
+export type StripeBillingStorageHealth = {
+  ready: boolean;
+  legacyCreditPeriods: number;
+  legacyUsageRows: number;
+  legacyV2CreditPeriods: number;
+  legacyV2UsageRows: number;
+  unscopedAccounts: number;
+  unscopedBillingMarkers: number;
+  unscopedV3UsageRows: number;
+};
+
+/**
+ * Legacy billing rows have no trustworthy catalog or Stripe-mode scope. They
+ * remain untouched for audit, but billing must stay fail-closed until an
+ * operator reconciles them explicitly.
+ */
+export async function getStripeBillingStorageHealth(): Promise<StripeBillingStorageHealth> {
+  const result = await query(
+    `SELECT
+      (SELECT COUNT(*) FROM ai_billing_credit_periods) as legacyCreditPeriods,
+      (SELECT COUNT(*) FROM ai_billing_usage) as legacyUsageRows,
+      (SELECT COUNT(*) FROM ai_billing_credit_periods_v2) as legacyV2CreditPeriods,
+      (SELECT COUNT(*) FROM ai_billing_usage_v2) as legacyV2UsageRows,
+      (
+        SELECT COUNT(*) FROM stripe_billing_accounts
+        WHERE TRIM(stripe_account_id) = '' OR TRIM(billing_contract_id) = ''
+      ) as unscopedAccounts,
+      (
+        SELECT COUNT(*) FROM ai_grading_attempts
+        WHERE billing_required = 1 AND TRIM(billing_contract_id) = ''
+      ) as unscopedBillingMarkers,
+      (
+        SELECT COUNT(*) FROM ai_billing_usage_v3
+        WHERE TRIM(billing_contract_id) = ''
+      ) as unscopedV3UsageRows`,
+  );
+  const legacyCreditPeriods = toNumber(result.rows[0]?.legacyCreditPeriods);
+  const legacyUsageRows = toNumber(result.rows[0]?.legacyUsageRows);
+  const legacyV2CreditPeriods = toNumber(result.rows[0]?.legacyV2CreditPeriods);
+  const legacyV2UsageRows = toNumber(result.rows[0]?.legacyV2UsageRows);
+  const unscopedAccounts = toNumber(result.rows[0]?.unscopedAccounts);
+  const unscopedBillingMarkers = toNumber(result.rows[0]?.unscopedBillingMarkers);
+  const unscopedV3UsageRows = toNumber(result.rows[0]?.unscopedV3UsageRows);
+  return {
+    ready:
+      legacyCreditPeriods === 0 &&
+      legacyUsageRows === 0 &&
+      legacyV2CreditPeriods === 0 &&
+      legacyV2UsageRows === 0 &&
+      unscopedAccounts === 0 &&
+      unscopedBillingMarkers === 0 &&
+      unscopedV3UsageRows === 0,
+    legacyCreditPeriods,
+    legacyUsageRows,
+    legacyV2CreditPeriods,
+    legacyV2UsageRows,
+    unscopedAccounts,
+    unscopedBillingMarkers,
+    unscopedV3UsageRows,
+  };
+}
+
+export async function isStripeBillingStorageReady() {
+  return (await getStripeBillingStorageHealth()).ready;
 }
 
 function rowToAiBillingCreditPeriod(row: Row): AiBillingCreditPeriodRow {
   return {
     teacherEmail: toStringValue(row.teacherEmail),
     billingMonth: toStringValue(row.billingMonth),
+    priceBookId: toStringValue(row.priceBookId),
+    catalogFingerprint: toStringValue(row.catalogFingerprint),
+    livemode: toNumber(row.livemode) === 1,
     qualifyingClassHighWater: toNumber(row.qualifyingClassHighWater),
     usedCredits: toNumber(row.usedCredits),
     createdAt: toNumber(row.createdAt),
@@ -2353,22 +4494,37 @@ function rowToAiBillingCreditPeriod(row: Row): AiBillingCreditPeriodRow {
 
 export async function getAiBillingCreditPeriod(
   teacherEmail: string,
-  billingMonth = getAiBillingUtcMonth()
+  billingMonth: string,
+  scope: AiBillingScope,
 ): Promise<AiBillingCreditPeriodRow | null> {
   const normalized = normalizeBillingTeacherEmail(teacherEmail);
   const month = normalizeBillingMonth(billingMonth);
+  const normalizedScope = normalizeAiBillingScope(scope);
   const result = await query(
     `SELECT
       teacher_email as teacherEmail,
       billing_month as billingMonth,
+      price_book_id as priceBookId,
+      catalog_fingerprint as catalogFingerprint,
+      livemode as livemode,
       qualifying_class_high_water as qualifyingClassHighWater,
       used_credits as usedCredits,
       created_at as createdAt,
       updated_at as updatedAt
-    FROM ai_billing_credit_periods
-    WHERE teacher_email = ? AND billing_month = ?
+    FROM ai_billing_credit_periods_v3
+    WHERE teacher_email = ?
+      AND billing_month = ?
+      AND price_book_id = ?
+      AND catalog_fingerprint = ?
+      AND livemode = ?
     LIMIT 1`,
-    [normalized, month]
+    [
+      normalized,
+      month,
+      normalizedScope.priceBookId,
+      normalizedScope.catalogFingerprint,
+      normalizedScope.livemode ? 1 : 0,
+    ],
   );
   return result.rows[0] ? rowToAiBillingCreditPeriod(result.rows[0]) : null;
 }
@@ -2381,9 +4537,7 @@ function normalizeAiBillingUsageStatus(value: unknown): AiBillingUsageStatus {
 
 function normalizeAiBillingUsageDimension(value: unknown): AiBillingUsageDimension | null {
   const dimension = toStringValue(value);
-  return dimension === "base" || dimension === "audio" || dimension === "output"
-    ? dimension
-    : null;
+  return dimension === "base" || dimension === "audio" ? dimension : null;
 }
 
 function rowToAiBillingUsage(row: Row): AiBillingUsageRow {
@@ -2395,6 +4549,11 @@ function rowToAiBillingUsage(row: Row): AiBillingUsageRow {
     priceBookId: toStringValue(row.priceBookId),
     attemptId: toStringValue(row.attemptId),
     submissionId: toStringValue(row.submissionId),
+    stripeCustomerId: toStringValue(row.stripeCustomerId),
+    stripeSubscriptionId: toStringValue(row.stripeSubscriptionId),
+    catalogFingerprint: toStringValue(row.catalogFingerprint),
+    billingContractId: toStringValue(row.billingContractId),
+    livemode: toNumber(row.livemode) === 1,
     freeCreditApplied: toNumber(row.freeCreditApplied) === 1,
     baseUnits: toNumber(row.baseUnits),
     durationSeconds: toNumber(row.durationSeconds),
@@ -2422,6 +4581,11 @@ const AI_BILLING_USAGE_SELECT = `SELECT
   price_book_id as priceBookId,
   attempt_id as attemptId,
   submission_id as submissionId,
+  stripe_customer_id as stripeCustomerId,
+  stripe_subscription_id as stripeSubscriptionId,
+  catalog_fingerprint as catalogFingerprint,
+  billing_contract_id as billingContractId,
+  livemode as livemode,
   free_credit_applied as freeCreditApplied,
   base_units as baseUnits,
   duration_seconds as durationSeconds,
@@ -2438,12 +4602,12 @@ const AI_BILLING_USAGE_SELECT = `SELECT
   last_failed_at as lastFailedAt,
   created_at as createdAt,
   updated_at as updatedAt
-FROM ai_billing_usage`;
+FROM ai_billing_usage_v3`;
 
 /**
- * Claims one semantic result and its monthly credit in a single write batch.
- * A unique teacher/cache/price-book key makes concurrent duplicate calls return
- * the row won by the first transaction without consuming a second credit.
+ * Materializes one semantic result from its immutable delivery-time marker.
+ * Credit assignment was already reserved atomically with grade finalization;
+ * outbox creation only copies that decision and can safely be replayed.
  */
 export async function createAiBillingUsage(input: {
   teacherEmail: string;
@@ -2454,6 +4618,8 @@ export async function createAiBillingUsage(input: {
   baseUnits?: number;
   durationSeconds: number;
   outputTokens: number;
+  livemode?: boolean;
+  occurredAt?: number;
   now?: number;
 }): Promise<AiBillingUsageRow | null> {
   const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
@@ -2465,64 +4631,140 @@ export async function createAiBillingUsage(input: {
   // quantities as the billing source of truth. A marked successful result is
   // exactly one base unit, and the durable attempt owns its variable units.
   requireNonNegativeInteger("baseUnits", input.baseUnits ?? 1);
-  requireNonNegativeInteger("durationSeconds", input.durationSeconds);
+  requireNonNegativeFiniteNumber("durationSeconds", input.durationSeconds);
   requireNonNegativeInteger("outputTokens", input.outputTokens);
+  const livemode = input.livemode === true;
   const now = requireNonNegativeInteger("now", input.now ?? Date.now());
-  const billingMonth = getAiBillingUtcMonth(now);
+  const requestedOccurredAt =
+    input.occurredAt === undefined
+      ? null
+      : requireNonNegativeInteger("occurredAt", input.occurredAt);
+  if (!(await isStripeBillingStorageReady())) {
+    throw new Error(
+      "Legacy unscoped Stripe billing rows require manual reconciliation before usage can be recorded.",
+    );
+  }
+  const occurrence = await query(
+    `SELECT
+      COALESCE(completed_at, created_at) as occurredAt,
+      billing_contract_id as billingContractId,
+      billing_livemode as billingLivemode
+    FROM ai_grading_attempts
+    WHERE id = ?
+      AND submission_id = ?
+      AND LOWER(teacher_email) = LOWER(?)
+      AND cache_key = ?
+      AND billing_price_book_id = ?
+      AND status = 'completed'
+      AND delivery_status = 'delivered'
+      AND billing_required = 1
+    LIMIT 1`,
+    [attemptId, submissionId, teacherEmail, cacheKey, priceBookId]
+  );
+  if (!occurrence.rows[0]) return null;
+  const occurredAt = toNumber(occurrence.rows[0].occurredAt);
+  const billingContractId = requireTrimmedValue(
+    "billingContractId",
+    toStringValue(occurrence.rows[0].billingContractId),
+  );
+  if ((toNumber(occurrence.rows[0].billingLivemode) === 1) !== livemode) return null;
+  if (requestedOccurredAt !== null && requestedOccurredAt !== occurredAt) return null;
+  const billingMonth = getAiBillingUtcMonth(occurredAt);
+  const [billingYear, billingMonthNumber] = billingMonth.split("-").map(Number);
+  const billingMonthStart = Date.UTC(billingYear, billingMonthNumber - 1, 1);
+  const billingMonthEnd = Date.UTC(billingYear, billingMonthNumber, 1);
   const id = makeId("aiu");
 
   const results = await writeBatch([
     {
-      sql: `INSERT INTO ai_billing_credit_periods (
-        teacher_email, billing_month, qualifying_class_high_water,
+      sql: `INSERT INTO ai_billing_credit_periods_v3 (
+        teacher_email, billing_month, price_book_id, catalog_fingerprint,
+        livemode, qualifying_class_high_water,
         used_credits, created_at, updated_at
       )
-      SELECT ?, ?, MIN(COUNT(*), ?), 0, ?, ?
-      FROM classes c
-      WHERE LOWER(c.owner_email) = LOWER(?)
-        AND c.deleted_at IS NULL
-        AND EXISTS (
-          SELECT 1 FROM roster r WHERE r.class_id = c.id
-        )
-        AND EXISTS (
-          SELECT 1
-          FROM assignments a
-          WHERE a.class_id = c.id
-            AND a.deleted_at IS NULL
-        )
-      ON CONFLICT(teacher_email, billing_month) DO UPDATE SET
-        qualifying_class_high_water = MIN(
-          ?,
-          MAX(
-            ai_billing_credit_periods.qualifying_class_high_water,
-            excluded.qualifying_class_high_water
-          )
+      SELECT
+        ?, ?, ?, ?, ?, ag.billing_qualifying_class_high_water,
+        (
+          SELECT COUNT(*)
+          FROM ai_grading_attempts reserved
+          WHERE LOWER(reserved.teacher_email) = LOWER(?)
+            AND reserved.billing_required = 1
+            AND reserved.billing_price_book_id = ?
+            AND reserved.billing_catalog_fingerprint = ?
+            AND reserved.billing_livemode = ?
+            AND reserved.billing_free_credit_applied = 1
+            AND COALESCE(reserved.completed_at, reserved.created_at) >= ?
+            AND COALESCE(reserved.completed_at, reserved.created_at) < ?
+        ),
+        ?, ?
+      FROM ai_grading_attempts ag
+      WHERE ag.id = ?
+        AND ag.submission_id = ?
+        AND LOWER(ag.teacher_email) = LOWER(?)
+        AND ag.cache_key = ?
+        AND ag.billing_required = 1
+        AND ag.billing_price_book_id = ?
+        AND ag.billing_catalog_fingerprint = ?
+        AND ag.billing_stripe_customer_id <> ''
+        AND ag.billing_stripe_subscription_id <> ''
+        AND ag.billing_livemode = ?
+      ON CONFLICT(
+        teacher_email,
+        billing_month,
+        price_book_id,
+        catalog_fingerprint,
+        livemode
+      ) DO UPDATE SET
+        qualifying_class_high_water = MAX(
+          ai_billing_credit_periods_v3.qualifying_class_high_water,
+          excluded.qualifying_class_high_water
+        ),
+        used_credits = MAX(
+          ai_billing_credit_periods_v3.used_credits,
+          excluded.used_credits
         ),
         updated_at = excluded.updated_at`,
       args: [
         teacherEmail,
         billingMonth,
-        TEACHER_AI_PRICING_LIMITS.classCount.max,
-        now,
-        now,
+        priceBookId,
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        livemode ? 1 : 0,
         teacherEmail,
-        TEACHER_AI_PRICING_LIMITS.classCount.max,
+        priceBookId,
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        livemode ? 1 : 0,
+        billingMonthStart,
+        billingMonthEnd,
+        now,
+        now,
+        attemptId,
+        submissionId,
+        teacherEmail,
+        cacheKey,
+        priceBookId,
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        livemode ? 1 : 0,
       ],
     },
     {
-      sql: `INSERT INTO ai_billing_usage (
+      sql: `INSERT INTO ai_billing_usage_v3 (
         id, teacher_email, billing_month, cache_key, price_book_id,
-        attempt_id, submission_id, free_credit_applied, base_units,
+        attempt_id, submission_id, stripe_customer_id,
+        stripe_subscription_id, catalog_fingerprint, billing_contract_id, livemode,
+        free_credit_applied, base_units,
         duration_seconds, output_tokens, base_reported_at, audio_reported_at,
         output_reported_at, status, last_error_dimension, last_error,
         last_failed_at, created_at, updated_at
       )
       SELECT
         ?, ?, ?, ?, ?, ?, ?,
-        CASE
-          WHEN p.used_credits < MAX(0, p.qualifying_class_high_water - 1)
-          THEN 1 ELSE 0
-        END,
+        ag.billing_stripe_customer_id,
+        ag.billing_stripe_subscription_id,
+        ag.billing_catalog_fingerprint,
+        ag.billing_contract_id,
+        ag.billing_livemode,
+        ag.billing_free_credit_applied,
         1,
         MAX(
           0,
@@ -2534,30 +4776,43 @@ export async function createAiBillingUsage(input: {
         ),
         ag.billable_output_tokens,
         NULL, NULL, NULL,
-        CASE
-          WHEN p.used_credits < MAX(0, p.qualifying_class_high_water - 1)
-          THEN 'credited'
-          ELSE 'pending'
-        END,
+        CASE WHEN ag.billing_free_credit_applied = 1 THEN 'credited' ELSE 'pending' END,
         NULL, '', NULL, ?, ?
-      FROM ai_billing_credit_periods p
+      FROM ai_billing_credit_periods_v3 p
       JOIN submissions s ON s.id = ?
       JOIN assignments a ON a.id = s.assignment_id
       JOIN classes c ON c.id = a.class_id
       JOIN ai_grading_attempts ag ON ag.id = ?
       WHERE p.teacher_email = ?
         AND p.billing_month = ?
+        AND p.price_book_id = ?
+        AND p.catalog_fingerprint = ?
+        AND p.livemode = ?
         AND LOWER(c.owner_email) = LOWER(?)
-        AND s.deleted_at IS NULL
-        AND a.deleted_at IS NULL
-        AND c.deleted_at IS NULL
+        AND s.submitted_at <= ?
+        AND (s.deleted_at IS NULL OR s.deleted_at >= ?)
+        AND a.created_at <= ?
+        AND (a.deleted_at IS NULL OR a.deleted_at >= ?)
+        AND c.created_at <= ?
+        AND (c.deleted_at IS NULL OR c.deleted_at >= ?)
         AND ag.submission_id = s.id
         AND LOWER(ag.teacher_email) = LOWER(?)
         AND ag.status = 'completed'
         AND ag.cache_key = ?
         AND ag.billing_required = 1
         AND ag.billing_price_book_id = ?
-      ON CONFLICT(teacher_email, cache_key, price_book_id) DO NOTHING`,
+        AND ag.billing_catalog_fingerprint = ?
+        AND ag.billing_contract_id = ?
+        AND ag.billing_stripe_customer_id <> ''
+        AND ag.billing_stripe_subscription_id <> ''
+        AND ag.billing_livemode = ?
+      ON CONFLICT(
+        teacher_email,
+        cache_key,
+        price_book_id,
+        catalog_fingerprint,
+        livemode
+      ) DO NOTHING`,
       args: [
         id,
         teacherEmail,
@@ -2566,43 +4821,49 @@ export async function createAiBillingUsage(input: {
         priceBookId,
         attemptId,
         submissionId,
-        now,
+        occurredAt,
         now,
         submissionId,
         attemptId,
         teacherEmail,
         billingMonth,
+        priceBookId,
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        livemode ? 1 : 0,
         teacherEmail,
+        occurredAt,
+        occurredAt,
+        occurredAt,
+        occurredAt,
+        occurredAt,
+        occurredAt,
         teacherEmail,
         cacheKey,
         priceBookId,
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        billingContractId,
+        livemode ? 1 : 0,
       ],
-    },
-    {
-      sql: `UPDATE ai_billing_credit_periods
-      SET used_credits = used_credits + 1,
-          updated_at = ?
-      WHERE teacher_email = ?
-        AND billing_month = ?
-        AND EXISTS (
-          SELECT 1
-          FROM ai_billing_usage u
-          WHERE u.id = ?
-            AND u.free_credit_applied = 1
-        )`,
-      args: [now, teacherEmail, billingMonth, id],
     },
     {
       sql: `${AI_BILLING_USAGE_SELECT}
       WHERE teacher_email = ?
         AND cache_key = ?
         AND price_book_id = ?
+        AND catalog_fingerprint = ?
+        AND livemode = ?
       LIMIT 1`,
-      args: [teacherEmail, cacheKey, priceBookId],
+      args: [
+        teacherEmail,
+        cacheKey,
+        priceBookId,
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        livemode ? 1 : 0,
+      ],
     },
   ]);
 
-  const row = results[3]?.rows[0];
+  const row = results[2]?.rows[0];
   return row ? rowToAiBillingUsage(row) : null;
 }
 
@@ -2617,20 +4878,41 @@ export async function getAiBillingUsageById(id: string): Promise<AiBillingUsageR
   return result.rows[0] ? rowToAiBillingUsage(result.rows[0]) : null;
 }
 
-export async function listPendingAiBillingUsage(limit = 100): Promise<AiBillingUsageRow[]> {
+export async function listPendingAiBillingUsage(
+  limit = 100,
+  livemode?: boolean,
+  now = Date.now(),
+  billingContractId?: string,
+): Promise<AiBillingUsageRow[]> {
   const safeLimit = Math.max(1, Math.min(requireNonNegativeInteger("limit", limit), 500));
+  const safeNow = requireNonNegativeInteger("now", now);
+  const supportedSince = getStripeAutomaticUsageRecoverySupportedSince(safeNow);
+  const normalizedContractId = billingContractId?.trim();
   const result = await query(
     `${AI_BILLING_USAGE_SELECT}
     WHERE free_credit_applied = 0
+      AND price_book_id = ?
+      AND catalog_fingerprint = ?
+      AND stripe_customer_id <> ''
+      AND stripe_subscription_id <> ''
       AND status IN ('pending', 'failed')
+      ${livemode === undefined ? "" : "AND livemode = ?"}
+      ${normalizedContractId ? "AND billing_contract_id = ?" : ""}
+      AND created_at >= ?
       AND (
         (base_units > 0 AND base_reported_at IS NULL AND base_attempted_at IS NULL)
         OR (duration_seconds > 0 AND audio_reported_at IS NULL AND audio_attempted_at IS NULL)
-        OR (output_tokens > 0 AND output_reported_at IS NULL AND output_attempted_at IS NULL)
       )
     ORDER BY created_at ASC, id ASC
     LIMIT ?`,
-    [safeLimit]
+    [
+      TEACHER_AI_PRICE_BOOK.id,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+      ...(livemode === undefined ? [] : [livemode ? 1 : 0]),
+      ...(normalizedContractId ? [normalizedContractId] : []),
+      supportedSince,
+      safeLimit,
+    ]
   );
   return result.rows.map(rowToAiBillingUsage);
 }
@@ -2653,16 +4935,11 @@ const AI_BILLING_DIMENSION_COLUMNS: Record<
     attemptedAt: "audio_attempted_at",
     reportedAt: "audio_reported_at",
   },
-  output: {
-    quantity: "output_tokens",
-    attemptedAt: "output_attempted_at",
-    reportedAt: "output_reported_at",
-  },
 };
 
 function requireAiBillingDimension(value: AiBillingUsageDimension) {
-  if (value !== "base" && value !== "audio" && value !== "output") {
-    throw new Error("dimension must be base, audio, or output.");
+  if (value !== "base" && value !== "audio") {
+    throw new Error("dimension must be base or audio.");
   }
   return value;
 }
@@ -2684,7 +4961,7 @@ export async function claimAiBillingUsageDimensionForDelivery(input: {
   const columns = AI_BILLING_DIMENSION_COLUMNS[dimension];
   const results = await writeBatch([
     {
-      sql: `UPDATE ai_billing_usage
+      sql: `UPDATE ai_billing_usage_v3
       SET ${columns.attemptedAt} = ?,
           updated_at = ?
       WHERE id = ?
@@ -2717,7 +4994,7 @@ export async function markAiBillingUsageDimensionReported(input: {
   const columns = AI_BILLING_DIMENSION_COLUMNS[dimension];
   const results = await writeBatch([
     {
-      sql: `UPDATE ai_billing_usage
+      sql: `UPDATE ai_billing_usage_v3
       SET ${columns.reportedAt} = COALESCE(${columns.reportedAt}, ?),
           last_error_dimension = CASE
             WHEN last_error_dimension = ? THEN NULL ELSE last_error_dimension
@@ -2735,11 +5012,10 @@ export async function markAiBillingUsageDimensionReported(input: {
       args: [reportedAt, dimension, dimension, dimension, reportedAt, usageId],
     },
     {
-      sql: `UPDATE ai_billing_usage
+      sql: `UPDATE ai_billing_usage_v3
       SET status = CASE
             WHEN (base_units = 0 OR base_reported_at IS NOT NULL)
               AND (duration_seconds = 0 OR audio_reported_at IS NOT NULL)
-              AND (output_tokens = 0 OR output_reported_at IS NOT NULL)
             THEN 'reported'
             WHEN last_error <> '' THEN 'failed'
             ELSE 'pending'
@@ -2771,7 +5047,7 @@ export async function markAiBillingUsageDimensionFailed(input: {
   const columns = AI_BILLING_DIMENSION_COLUMNS[dimension];
   const results = await writeBatch([
     {
-      sql: `UPDATE ai_billing_usage
+      sql: `UPDATE ai_billing_usage_v3
       SET status = 'failed',
           last_error_dimension = ?,
           last_error = ?,
@@ -2795,21 +5071,31 @@ export async function markAiBillingUsageDimensionFailed(input: {
 
 export async function getAiBillingMonthlySummary(
   teacherEmail: string,
-  billingMonth = getAiBillingUtcMonth()
+  billingMonth: string,
+  scope: AiBillingScope,
 ): Promise<AiBillingMonthlySummary> {
   const normalized = normalizeBillingTeacherEmail(teacherEmail);
   const month = normalizeBillingMonth(billingMonth);
+  const normalizedScope = normalizeAiBillingScope(scope);
   const result = await query(
     `SELECT
       COALESCE((
         SELECT qualifying_class_high_water
-        FROM ai_billing_credit_periods
-        WHERE teacher_email = ? AND billing_month = ?
+        FROM ai_billing_credit_periods_v3
+        WHERE teacher_email = ?
+          AND billing_month = ?
+          AND price_book_id = ?
+          AND catalog_fingerprint = ?
+          AND livemode = ?
       ), 0) as qualifyingClassHighWater,
       COALESCE((
         SELECT used_credits
-        FROM ai_billing_credit_periods
-        WHERE teacher_email = ? AND billing_month = ?
+        FROM ai_billing_credit_periods_v3
+        WHERE teacher_email = ?
+          AND billing_month = ?
+          AND price_book_id = ?
+          AND catalog_fingerprint = ?
+          AND livemode = ?
       ), 0) as usedCredits,
       COUNT(*) as successfulResults,
       COALESCE(SUM(CASE WHEN free_credit_applied = 1 THEN 1 ELSE 0 END), 0) as freeCreditResults,
@@ -2820,12 +5106,37 @@ export async function getAiBillingMonthlySummary(
       COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pendingResults,
       COALESCE(SUM(CASE WHEN status = 'reported' THEN 1 ELSE 0 END), 0) as reportedResults,
       COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failedResults
-    FROM ai_billing_usage
-    WHERE teacher_email = ? AND billing_month = ?`,
-    [normalized, month, normalized, month, normalized, month]
+    FROM ai_billing_usage_v3
+    WHERE teacher_email = ?
+      AND billing_month = ?
+      AND price_book_id = ?
+      AND catalog_fingerprint = ?
+      AND billing_contract_id = ?
+      AND livemode = ?`,
+    [
+      normalized,
+      month,
+      normalizedScope.priceBookId,
+      normalizedScope.catalogFingerprint,
+      normalizedScope.livemode ? 1 : 0,
+      normalized,
+      month,
+      normalizedScope.priceBookId,
+      normalizedScope.catalogFingerprint,
+      normalizedScope.livemode ? 1 : 0,
+      normalized,
+      month,
+      normalizedScope.priceBookId,
+      normalizedScope.catalogFingerprint,
+      normalizedScope.billingContractId,
+      normalizedScope.livemode ? 1 : 0,
+    ],
   );
   const row = result.rows[0];
-  const qualifyingClassHighWater = toNumber(row?.qualifyingClassHighWater);
+  const qualifyingClassHighWater = Math.min(
+    toNumber(row?.qualifyingClassHighWater),
+    LEGACY_METERED_MAX_QUALIFYING_CLASSES,
+  );
   const earnedCredits = Math.max(0, qualifyingClassHighWater - 1);
   const usedCredits = toNumber(row?.usedCredits);
   return {
@@ -2858,6 +5169,7 @@ export type SubmissionForAiGradeRow = {
   rubric: Rubric | null;
   maxPoints: number;
   finalGrade: number | null;
+  finalGradeSource?: "teacher" | "ai";
   finalFeedback: string;
 };
 
@@ -2929,11 +5241,15 @@ export async function findSubmissionForAiGrade(
       a.rubric as rubric,
       a.max_points as maxPoints,
       s.grade as finalGrade,
+      s.grade_source as finalGradeSource,
       COALESCE(s.feedback, '') as finalFeedback
     FROM submissions s
     JOIN assignments a ON a.id = s.assignment_id
     JOIN classes c ON c.id = a.class_id
     WHERE s.id = ?
+      AND s.grade IS NULL
+      AND TRIM(COALESCE(s.feedback, '')) = ''
+      AND s.rubric_scores IS NULL
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
@@ -2954,6 +5270,7 @@ export async function findSubmissionForAiGrade(
     rubric: parseJsonValue<Rubric>(row.rubric),
     maxPoints: toNumber(row.maxPoints),
     finalGrade: toNullableNumber(row.finalGrade),
+    finalGradeSource: toStringValue(row.finalGradeSource) === "ai" ? "ai" : "teacher",
     finalFeedback: toStringValue(row.finalFeedback),
   };
 }
@@ -2964,6 +5281,11 @@ function rowToAiAttempt(row: Row): AiGradingAttemptRow {
     submissionId: toStringValue(row.submissionId),
     teacherEmail: toStringValue(row.teacherEmail),
     status: toStringValue(row.status) === "failed" ? "failed" : "completed",
+    deliveryStatus: ["delivered", "withheld", "not_applicable"].includes(
+      toStringValue(row.deliveryStatus),
+    )
+      ? (toStringValue(row.deliveryStatus) as AiGradingAttemptDeliveryStatus)
+      : "pending",
     transcript: toStringValue(row.transcript),
     detectedLanguage: toStringValue(row.detectedLanguage),
     transcriptQuality: toStringValue(row.transcriptQuality),
@@ -2999,6 +5321,13 @@ function rowToAiAttempt(row: Row): AiGradingAttemptRow {
     resultSource: toStringValue(row.resultSource) || "ai",
     billingRequired: toNumber(row.billingRequired) === 1,
     billingPriceBookId: toStringValue(row.billingPriceBookId),
+    billingStripeCustomerId: toStringValue(row.billingStripeCustomerId),
+    billingStripeSubscriptionId: toStringValue(row.billingStripeSubscriptionId),
+    billingCatalogFingerprint: toStringValue(row.billingCatalogFingerprint),
+    billingContractId: toStringValue(row.billingContractId),
+    billingLivemode: toNumber(row.billingLivemode) === 1,
+    billingQualifyingClassHighWater: toNumber(row.billingQualifyingClassHighWater),
+    billingFreeCreditApplied: toNumber(row.billingFreeCreditApplied) === 1,
     billableOutputTokens: toNumber(row.billableOutputTokens),
     createdAt: toNumber(row.createdAt),
     completedAt: toNullableNumber(row.completedAt),
@@ -3044,12 +5373,15 @@ export async function createAiGradingAttempt(input: {
   billingPriceBookId?: string;
   billableOutputTokens?: number;
 }): Promise<AiGradingAttemptRow> {
-  const requestedBillingRequired = input.billingRequired === true;
   const billingPriceBookId = input.billingPriceBookId?.trim() ?? "";
-  const billingAccount =
-    requestedBillingRequired && billingPriceBookId
-      ? await getStripeBillingAccountByTeacherEmail(input.teacherEmail)
-      : null;
+  // Billing identity and credit assignment must be committed atomically with
+  // grade delivery. Attempt creation therefore never manufactures a marker;
+  // finalizeAiGradeDelivery (or the guarded post-apply compatibility helper)
+  // owns that transition.
+  const billingRequired = false;
+  const billingQualifyingClassHighWater = 0;
+  const deliveryStatus: AiGradingAttemptDeliveryStatus =
+    input.status === "failed" ? "not_applicable" : "pending";
   const item = {
     ...input,
     id: makeId("ai"),
@@ -3069,18 +5401,21 @@ export async function createAiGradingAttempt(input: {
     estimatedCostMicrousd: toNonNegativeInteger(input.estimatedCostMicrousd),
     promptVersion: input.promptVersion ?? "",
     resultSource: input.resultSource ?? "ai",
-    billingRequired:
-      requestedBillingRequired &&
-      Boolean(billingAccount) &&
-      (billingAccount?.subscriptionStatus === "active" ||
-        billingAccount?.subscriptionStatus === "trialing") &&
-      billingAccount?.priceBookId === billingPriceBookId,
+    deliveryStatus,
+    billingRequired,
     billingPriceBookId,
+    billingStripeCustomerId: "",
+    billingStripeSubscriptionId: "",
+    billingCatalogFingerprint: "",
+    billingContractId: "",
+    billingLivemode: false,
+    billingQualifyingClassHighWater,
+    billingFreeCreditApplied: false,
     billableOutputTokens: toNonNegativeInteger(input.billableOutputTokens),
   };
   await query(
     `INSERT INTO ai_grading_attempts (
-      id, submission_id, teacher_email, status, transcript, detected_language,
+      id, submission_id, teacher_email, status, delivery_status, transcript, detected_language,
       transcript_quality, duration_seconds, suggested_score, rubric_scores,
       feedback, strengths, improvements, evidence, confidence, warnings,
       teacher_attention, transcription_provider, grading_provider,
@@ -3088,16 +5423,22 @@ export async function createAiGradingAttempt(input: {
       cache_key, cache_hit, input_tokens, cached_input_tokens, output_tokens,
       latency_ms, retries, escalated, escalation_reason, estimated_cost_microusd,
       prompt_version, result_source, billing_required, billing_price_book_id,
-      billable_output_tokens, created_at, completed_at
+      billing_stripe_customer_id, billing_stripe_subscription_id,
+      billing_catalog_fingerprint, billing_contract_id, billing_livemode,
+      billing_qualifying_class_high_water, billing_free_credit_applied,
+      billable_output_tokens,
+      created_at, completed_at
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?
     )`,
     [
       item.id,
       item.submissionId,
       item.teacherEmail.toLowerCase(),
       item.status,
+      item.deliveryStatus,
       item.transcript,
       item.detectedLanguage,
       item.transcriptQuality,
@@ -3131,6 +5472,13 @@ export async function createAiGradingAttempt(input: {
       item.resultSource,
       item.billingRequired ? 1 : 0,
       item.billingPriceBookId,
+      item.billingStripeCustomerId,
+      item.billingStripeSubscriptionId,
+      item.billingCatalogFingerprint,
+      item.billingContractId,
+      item.billingLivemode ? 1 : 0,
+      item.billingQualifyingClassHighWater,
+      item.billingFreeCreditApplied ? 1 : 0,
       item.billableOutputTokens,
       item.createdAt,
       item.completedAt,
@@ -3141,6 +5489,170 @@ export async function createAiGradingAttempt(input: {
     errorCode: item.errorCode ?? "",
     errorMessage: item.errorMessage ?? "",
   };
+}
+
+/**
+ * Owner-scoped lookup used only to resolve an idempotent retry after an AI
+ * grade was already delivered. Callers must not send a graded row to a
+ * provider; gradeOneSubmission enforces that boundary again after hashing.
+ */
+export async function findOwnedSubmissionForAiReview(
+  submissionId: string,
+  ownerEmail: string,
+): Promise<SubmissionForAiGradeRow | null> {
+  const result = await query(
+    `SELECT
+      s.id as submissionId,
+      a.id as assignmentId,
+      a.title as assignmentTitle,
+      COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl,
+      COALESCE(a.description, '') as description,
+      a.instructions as instructions,
+      COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as targetLanguage,
+      a.rubric as rubric,
+      a.max_points as maxPoints,
+      s.grade as finalGrade,
+      s.grade_source as finalGradeSource,
+      COALESCE(s.feedback, '') as finalFeedback
+    FROM submissions s
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE s.id = ?
+      AND s.deleted_at IS NULL
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+      AND LOWER(c.owner_email) = LOWER(?)
+    LIMIT 1`,
+    [submissionId, ownerEmail],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    submissionId: toStringValue(row.submissionId),
+    assignmentId: toStringValue(row.assignmentId),
+    assignmentTitle: toStringValue(row.assignmentTitle),
+    audioBlobUrl: toStringValue(row.audioBlobUrl),
+    description: toStringValue(row.description),
+    instructions: toStringValue(row.instructions),
+    targetLanguage: toStringValue(row.targetLanguage) || "Spanish",
+    rubric: parseJsonValue<Rubric>(row.rubric),
+    maxPoints: toNumber(row.maxPoints),
+    finalGrade: toNullableNumber(row.finalGrade),
+    finalGradeSource: toStringValue(row.finalGradeSource) === "ai" ? "ai" : "teacher",
+    finalFeedback: toStringValue(row.finalFeedback),
+  };
+}
+
+export async function markAiGradingAttemptNotApplicable(input: {
+  attemptId: string;
+  ownerEmail: string;
+  reviewReservationId?: string;
+}): Promise<boolean> {
+  const attemptId = requireTrimmedValue("attemptId", input.attemptId);
+  const ownerEmail = normalizeBillingTeacherEmail(input.ownerEmail);
+  const reviewReservationId = input.reviewReservationId?.trim() || null;
+  const readyStripeScope = reviewReservationId
+    ? await getReadyStripeSubscriptionScope()
+    : null;
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  try {
+    const result = await transaction.execute({
+      sql: `UPDATE ai_grading_attempts
+      SET delivery_status = 'not_applicable'
+      WHERE id = ?
+        AND LOWER(teacher_email) = LOWER(?)
+        AND status = 'completed'
+        AND delivery_status = 'pending'
+        AND billing_required = 0
+        AND EXISTS (
+          SELECT 1
+          FROM submissions s
+          JOIN assignments a ON a.id = s.assignment_id
+          JOIN classes c ON c.id = a.class_id
+          WHERE s.id = ai_grading_attempts.submission_id
+            AND s.deleted_at IS NULL
+            AND a.deleted_at IS NULL
+            AND c.deleted_at IS NULL
+            AND LOWER(c.owner_email) = LOWER(?)
+        )`,
+      args: [attemptId, ownerEmail, ownerEmail],
+    });
+    if (toNumber(result.rowsAffected) !== 1) {
+      await transaction.rollback();
+      return false;
+    }
+    if (reviewReservationId) {
+      const consumed = await consumeAiReviewReservationInTransaction({
+        transaction,
+        reservationId: reviewReservationId,
+        teacherEmail: ownerEmail,
+        attemptId,
+        readyStripeScope,
+        now: Date.now(),
+      });
+      if (!consumed) {
+        await transaction.rollback();
+        return false;
+      }
+    }
+    await transaction.commit();
+    return true;
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+/**
+ * Makes a result permanently non-public when grade/billing finalization loses
+ * its atomic guard. Pending and withheld attempts are excluded from all public
+ * attempt reads, so even a cleanup failure cannot expose an unfinalized result.
+ */
+export async function withholdAiGradingAttemptResult(input: {
+  attemptId: string;
+  ownerEmail: string;
+  reason: string;
+}): Promise<boolean> {
+  const attemptId = requireTrimmedValue("attemptId", input.attemptId);
+  const ownerEmail = normalizeBillingTeacherEmail(input.ownerEmail);
+  const reason = requireTrimmedValue("reason", input.reason).slice(0, 120);
+  const result = await query(
+    `UPDATE ai_grading_attempts
+    SET status = 'failed',
+        delivery_status = 'withheld',
+        transcript = '',
+        detected_language = '',
+        transcript_quality = '',
+        suggested_score = NULL,
+        rubric_scores = '[]',
+        feedback = '',
+        strengths = '[]',
+        improvements = '[]',
+        evidence = '[]',
+        confidence = 'low',
+        warnings = '[]',
+        teacher_attention = 'unable_to_grade',
+        error_code = 'result_not_delivered',
+        error_message = ?,
+        result_source = 'withheld'
+    WHERE id = ?
+      AND LOWER(teacher_email) = LOWER(?)
+      AND delivery_status = 'pending'
+      AND billing_required = 0
+      AND EXISTS (
+        SELECT 1
+        FROM submissions s
+        JOIN assignments a ON a.id = s.assignment_id
+        JOIN classes c ON c.id = a.class_id
+        WHERE s.id = ai_grading_attempts.submission_id
+          AND LOWER(c.owner_email) = LOWER(?)
+      )`,
+    [reason, attemptId, ownerEmail, ownerEmail],
+  );
+  return toNumber(result.rowsAffected) === 1;
 }
 
 /**
@@ -3157,61 +5669,220 @@ export async function markAiGradingAttemptBillingRequired(input: {
   const attemptId = requireTrimmedValue("attemptId", input.attemptId);
   const ownerEmail = requireTrimmedValue("ownerEmail", input.ownerEmail).toLowerCase();
   const priceBookId = requireTrimmedValue("priceBookId", input.priceBookId);
-  const result = await query(
-    `UPDATE ai_grading_attempts
-    SET billing_required = 1,
-        billing_price_book_id = ?
-    WHERE id = ?
-      AND status = 'completed'
-      AND TRIM(cache_key) <> ''
-      AND cache_hit = 0
-      AND suggested_score IS NOT NULL
-      AND TRIM(error_code) = ''
-      AND result_source NOT IN ('cache', 'deterministic', 'failed', 'teacher_review')
-      AND confidence = 'high'
-      AND LOWER(teacher_email) = LOWER(?)
-      AND EXISTS (
+  const stripeUsageScope =
+    priceBookId === TEACHER_AI_PRICE_BOOK.id
+      ? await getReadyStripeUsageScope()
+      : null;
+  if (!stripeUsageScope) return false;
+  const livemode = stripeUsageScope.keyMode === "live";
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  async function rollbackResult(result: boolean) {
+    if (!transaction.closed) await transaction.rollback();
+    return result;
+  }
+  try {
+    const existing = await transaction.execute({
+      sql: `SELECT 1
+      FROM ai_grading_attempts
+      WHERE id = ?
+        AND LOWER(teacher_email) = LOWER(?)
+        AND billing_required = 1
+        AND billing_price_book_id = ?
+        AND billing_catalog_fingerprint = ?
+        AND billing_contract_id = ?
+        AND billing_stripe_customer_id <> ''
+        AND billing_stripe_subscription_id <> ''
+      LIMIT 1`,
+      args: [
+        attemptId,
+        ownerEmail,
+        priceBookId,
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        stripeUsageScope.billingContractId,
+      ],
+    });
+    if (existing.rows.length === 1) return await rollbackResult(true);
+
+    const candidateResult = await transaction.execute({
+      sql: `SELECT
+        ag.cache_key as cacheKey,
+        COALESCE(ag.completed_at, ag.created_at) as occurredAt,
+        sba.stripe_customer_id as stripeCustomerId,
+        sba.stripe_subscription_id as stripeSubscriptionId
+      FROM ai_grading_attempts ag
+      JOIN submissions s ON s.id = ag.submission_id
+      JOIN assignments a ON a.id = s.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      JOIN stripe_billing_accounts sba
+        ON LOWER(sba.teacher_email) = LOWER(ag.teacher_email)
+      WHERE ag.id = ?
+        AND LOWER(ag.teacher_email) = LOWER(?)
+        AND ag.billing_required = 0
+        AND ag.billing_stripe_customer_id = ''
+        AND ag.billing_stripe_subscription_id = ''
+        AND ag.billing_catalog_fingerprint = ''
+        AND ag.status = 'completed'
+        AND ag.delivery_status = 'pending'
+        AND TRIM(ag.cache_key) <> ''
+        AND ag.suggested_score IS NOT NULL
+        AND TRIM(ag.error_code) = ''
+        AND ag.result_source NOT IN ('deterministic', 'failed', 'teacher_review', 'withheld')
+        AND ag.confidence = 'high'
+        AND s.deleted_at IS NULL
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND LOWER(c.owner_email) = LOWER(?)
+        AND s.grade_source = 'ai'
+        AND s.grade = ag.suggested_score
+        AND sba.subscription_status = 'active'
+        AND sba.price_book_id = ?
+        AND sba.catalog_fingerprint = ?
+        AND sba.stripe_account_id = ?
+        AND sba.billing_contract_id = ?
+        AND sba.livemode = ?
+        AND sba.stripe_customer_id <> ''
+        AND sba.stripe_subscription_id IS NOT NULL
+        AND sba.stripe_subscription_id <> ''
+      LIMIT 1`,
+      args: [
+        attemptId,
+        ownerEmail,
+        ownerEmail,
+        priceBookId,
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        stripeUsageScope.accountId,
+        stripeUsageScope.billingContractId,
+        livemode ? 1 : 0,
+      ],
+    });
+    const candidate = candidateResult.rows[0];
+    if (!candidate) return await rollbackResult(false);
+
+    const duplicateResult = await transaction.execute({
+      sql: `SELECT 1
+      WHERE EXISTS (
         SELECT 1
-        FROM submissions s
-        JOIN assignments a ON a.id = s.assignment_id
-        JOIN classes c ON c.id = a.class_id
-        WHERE s.id = ai_grading_attempts.submission_id
-          AND s.deleted_at IS NULL
-          AND a.deleted_at IS NULL
-          AND c.deleted_at IS NULL
-          AND LOWER(c.owner_email) = LOWER(?)
-          AND s.grade_source = 'ai'
-          AND s.grade IS NOT NULL
-          AND ai_grading_attempts.suggested_score IS NOT NULL
-          AND s.grade = ai_grading_attempts.suggested_score
+        FROM ai_grading_attempts prior
+        WHERE prior.id <> ?
+          AND LOWER(prior.teacher_email) = LOWER(?)
+          AND prior.cache_key = ?
+          AND prior.billing_required = 1
+          AND prior.billing_price_book_id = ?
+          AND prior.billing_catalog_fingerprint = ?
+          AND prior.billing_livemode = ?
+      ) OR EXISTS (
+        SELECT 1
+        FROM ai_billing_usage_v3 usage
+        WHERE LOWER(usage.teacher_email) = LOWER(?)
+          AND usage.cache_key = ?
+          AND usage.price_book_id = ?
+          AND usage.catalog_fingerprint = ?
+          AND usage.livemode = ?
       )
-      AND EXISTS (
-        SELECT 1
-        FROM stripe_billing_accounts sba
-        WHERE LOWER(sba.teacher_email) = LOWER(?)
-          AND sba.subscription_status IN ('active', 'trialing')
-          AND sba.price_book_id = ?
-      )`,
-    [priceBookId, attemptId, ownerEmail, ownerEmail, ownerEmail, priceBookId]
-  );
-  return toNumber(result.rowsAffected) === 1;
+      LIMIT 1`,
+      args: [
+        attemptId,
+        ownerEmail,
+        toStringValue(candidate.cacheKey),
+        priceBookId,
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        livemode ? 1 : 0,
+        ownerEmail,
+        toStringValue(candidate.cacheKey),
+        priceBookId,
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        livemode ? 1 : 0,
+      ],
+    });
+    if (duplicateResult.rows.length > 0) {
+      const delivered = await transaction.execute({
+        sql: `UPDATE ai_grading_attempts
+        SET delivery_status = 'delivered'
+        WHERE id = ?
+          AND LOWER(teacher_email) = LOWER(?)
+          AND status = 'completed'
+          AND delivery_status = 'pending'
+          AND billing_required = 0`,
+        args: [attemptId, ownerEmail],
+      });
+      if (toNumber(delivered.rowsAffected) !== 1) return await rollbackResult(false);
+      await transaction.commit();
+      return false;
+    }
+
+    const markerNow = Date.now();
+    const creditReservation = await reserveAiBillingCreditInTransaction({
+      transaction,
+      teacherEmail: ownerEmail,
+      billingMonth: getAiBillingUtcMonth(toNumber(candidate.occurredAt)),
+      priceBookId,
+      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+      livemode,
+      now: markerNow,
+    });
+    const markerResult = await transaction.execute({
+      sql: `UPDATE ai_grading_attempts
+      SET billing_required = 1,
+          delivery_status = 'delivered',
+          billing_price_book_id = ?,
+          billing_stripe_customer_id = ?,
+          billing_stripe_subscription_id = ?,
+          billing_catalog_fingerprint = ?,
+          billing_contract_id = ?,
+          billing_livemode = ?,
+          billing_qualifying_class_high_water = ?,
+          billing_free_credit_applied = ?
+      WHERE id = ?
+        AND LOWER(teacher_email) = LOWER(?)
+        AND billing_required = 0
+        AND delivery_status = 'pending'
+        AND billing_stripe_customer_id = ''
+        AND billing_stripe_subscription_id = ''
+        AND billing_catalog_fingerprint = ''`,
+      args: [
+        priceBookId,
+        toStringValue(candidate.stripeCustomerId),
+        toStringValue(candidate.stripeSubscriptionId),
+        STRIPE_CATALOG_MANIFEST.fingerprint,
+        stripeUsageScope.billingContractId,
+        livemode ? 1 : 0,
+        creditReservation.qualifyingClassHighWater,
+        creditReservation.freeCreditApplied ? 1 : 0,
+        attemptId,
+        ownerEmail,
+      ],
+    });
+    if (toNumber(markerResult.rowsAffected) !== 1) {
+      return await rollbackResult(false);
+    }
+    await transaction.commit();
+    return true;
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
 }
 
 /**
- * Finds current-month, subscribed-at-delivery attempts whose durable billing
+ * Finds supported-window, subscribed-at-delivery attempts whose durable billing
  * marker has not produced a semantic usage row yet. This closes the gap if the
  * process stops after saving a grade but before creating its Stripe outbox row.
  */
 export async function listUnqueuedAiBillingAttempts(
   priceBookId: string,
   limit = 100,
-  now = Date.now()
+  now = Date.now(),
+  livemode?: boolean,
+  billingContractId?: string,
 ): Promise<UnqueuedAiBillingAttemptRow[]> {
   const normalizedPriceBookId = requireTrimmedValue("priceBookId", priceBookId);
   const safeLimit = Math.max(1, Math.min(requireNonNegativeInteger("limit", limit), 500));
   const safeNow = requireNonNegativeInteger("now", now);
-  const current = new Date(safeNow);
-  const monthStart = Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), 1);
+  const supportedSince = getStripeAutomaticUsageRecoverySupportedSince(safeNow);
+  const normalizedContractId = billingContractId?.trim();
   const result = await query(
     `SELECT
       ag.id as attemptId,
@@ -3220,23 +5891,43 @@ export async function listUnqueuedAiBillingAttempts(
       ag.billing_price_book_id as priceBookId,
       ag.submission_id as submissionId,
       ag.duration_seconds as durationSeconds,
-      ag.billable_output_tokens as outputTokens
+      ag.billable_output_tokens as outputTokens,
+      ag.billing_livemode as livemode,
+      ag.billing_contract_id as billingContractId,
+      COALESCE(ag.completed_at, ag.created_at) as occurredAt
     FROM ai_grading_attempts ag
     WHERE ag.status = 'completed'
       AND ag.billing_required = 1
       AND ag.billing_price_book_id = ?
+      AND ag.billing_catalog_fingerprint = ?
+      AND ag.billing_stripe_customer_id <> ''
+      AND ag.billing_stripe_subscription_id <> ''
+      ${livemode === undefined ? "" : "AND ag.billing_livemode = ?"}
+      ${normalizedContractId ? "AND ag.billing_contract_id = ?" : ""}
       AND ag.cache_key <> ''
-      AND ag.created_at >= ?
+      AND (
+        ag.billing_free_credit_applied = 1
+        OR COALESCE(ag.completed_at, ag.created_at) >= ?
+      )
       AND NOT EXISTS (
         SELECT 1
-        FROM ai_billing_usage u
+        FROM ai_billing_usage_v3 u
         WHERE LOWER(u.teacher_email) = LOWER(ag.teacher_email)
           AND u.cache_key = ag.cache_key
           AND u.price_book_id = ag.billing_price_book_id
+          AND u.catalog_fingerprint = ag.billing_catalog_fingerprint
+          AND u.livemode = ag.billing_livemode
       )
-    ORDER BY ag.created_at ASC, ag.id ASC
+    ORDER BY COALESCE(ag.completed_at, ag.created_at) ASC, ag.id ASC
     LIMIT ?`,
-    [normalizedPriceBookId, monthStart, safeLimit]
+    [
+      normalizedPriceBookId,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+      ...(livemode === undefined ? [] : [livemode ? 1 : 0]),
+      ...(normalizedContractId ? [normalizedContractId] : []),
+      supportedSince,
+      safeLimit,
+    ]
   );
   return result.rows.map((row) => ({
     attemptId: toStringValue(row.attemptId),
@@ -3246,7 +5937,218 @@ export async function listUnqueuedAiBillingAttempts(
     submissionId: toStringValue(row.submissionId),
     durationSeconds: toNumber(row.durationSeconds),
     outputTokens: toNumber(row.outputTokens),
+    livemode: toNumber(row.livemode) === 1,
+    billingContractId: toStringValue(row.billingContractId),
+    occurredAt: toNumber(row.occurredAt),
   }));
+}
+
+/**
+ * Counts every durable billing state that must be drained or reconciled before
+ * retention cleanup can delete its grading source. Attempted-but-unreported and
+ * expired-unqueued states require manual review; the other two are recoverable
+ * automatically while the Stripe runtime is healthy.
+ */
+export async function getAiBillingReconciliationHealth(
+  priceBookId = TEACHER_AI_PRICE_BOOK.id,
+  now = Date.now(),
+  scope?: Readonly<{ livemode: boolean; billingContractId: string }>,
+): Promise<AiBillingReconciliationHealth> {
+  const normalizedPriceBookId = requireTrimmedValue("priceBookId", priceBookId);
+  const safeNow = requireNonNegativeInteger("now", now);
+  const supportedSince = getStripeAutomaticUsageRecoverySupportedSince(safeNow);
+  const normalizedScope = scope
+    ? {
+        livemode: scope.livemode === true ? 1 : 0,
+        billingContractId: requireTrimmedValue(
+          "billingContractId",
+          scope.billingContractId,
+        ),
+      }
+    : null;
+  const currentUsageScopeSql = normalizedScope
+    ? "AND livemode = ? AND billing_contract_id = ?"
+    : "AND 1 = 0";
+  const invalidUsageScopeSql = normalizedScope
+    ? "OR livemode <> ? OR billing_contract_id <> ?"
+    : "OR 1 = 1";
+  const currentAttemptScopeSql = normalizedScope
+    ? "AND ag.billing_livemode = ? AND ag.billing_contract_id = ?"
+    : "AND 1 = 0";
+  const invalidAttemptScopeSql = normalizedScope
+    ? "OR ag.billing_livemode <> ? OR ag.billing_contract_id <> ?"
+    : "OR 1 = 1";
+  const scopeArgs = normalizedScope
+    ? [normalizedScope.livemode, normalizedScope.billingContractId]
+    : [];
+  const result = await query(
+    `SELECT
+      COALESCE((
+        SELECT SUM(
+          CASE WHEN base_units > 0 AND base_attempted_at IS NULL
+            AND base_reported_at IS NULL THEN 1 ELSE 0 END
+          + CASE WHEN duration_seconds > 0 AND audio_attempted_at IS NULL
+            AND audio_reported_at IS NULL THEN 1 ELSE 0 END
+        )
+        FROM ai_billing_usage_v3
+        WHERE free_credit_applied = 0
+          AND price_book_id = ?
+          AND catalog_fingerprint = ?
+          AND stripe_customer_id <> ''
+          AND stripe_subscription_id <> ''
+          ${currentUsageScopeSql}
+          AND created_at >= ?
+      ), 0) as pendingUnattempted,
+      COALESCE((
+        SELECT SUM(
+          CASE WHEN base_units > 0 AND base_attempted_at IS NULL
+            AND base_reported_at IS NULL THEN 1 ELSE 0 END
+          + CASE WHEN duration_seconds > 0 AND audio_attempted_at IS NULL
+            AND audio_reported_at IS NULL THEN 1 ELSE 0 END
+        )
+        FROM ai_billing_usage_v3
+        WHERE free_credit_applied = 0
+          AND price_book_id = ?
+          AND catalog_fingerprint = ?
+          AND stripe_customer_id <> ''
+          AND stripe_subscription_id <> ''
+          ${currentUsageScopeSql}
+          AND created_at < ?
+      ), 0) as expiredPendingUnattempted,
+      COALESCE((
+        SELECT SUM(
+          CASE WHEN base_units > 0 AND base_attempted_at IS NULL
+            AND base_reported_at IS NULL THEN 1 ELSE 0 END
+          + CASE WHEN duration_seconds > 0 AND audio_attempted_at IS NULL
+            AND audio_reported_at IS NULL THEN 1 ELSE 0 END
+        )
+        FROM ai_billing_usage_v3
+        WHERE free_credit_applied = 0
+          AND price_book_id = ?
+          AND (
+            catalog_fingerprint <> ?
+            OR stripe_customer_id = ''
+            OR stripe_subscription_id = ''
+            ${invalidUsageScopeSql}
+          )
+      ), 0) as invalidPendingUnattempted,
+      COALESCE((
+        SELECT SUM(
+          CASE WHEN base_units > 0 AND base_attempted_at IS NOT NULL
+            AND base_reported_at IS NULL THEN 1 ELSE 0 END
+          + CASE WHEN duration_seconds > 0 AND audio_attempted_at IS NOT NULL
+            AND audio_reported_at IS NULL THEN 1 ELSE 0 END
+        )
+        FROM ai_billing_usage_v3
+        WHERE free_credit_applied = 0
+          AND price_book_id = ?
+      ), 0) as attemptedUnreported,
+      COALESCE((
+        SELECT COUNT(*)
+        FROM ai_grading_attempts ag
+        WHERE ag.status = 'completed'
+          AND ag.billing_required = 1
+          AND ag.billing_price_book_id = ?
+          AND ag.billing_catalog_fingerprint = ?
+          AND ag.billing_stripe_customer_id <> ''
+          AND ag.billing_stripe_subscription_id <> ''
+          ${currentAttemptScopeSql}
+          AND ag.cache_key <> ''
+          AND (
+            ag.billing_free_credit_applied = 1
+            OR COALESCE(ag.completed_at, ag.created_at) >= ?
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM ai_billing_usage_v3 u
+            WHERE LOWER(u.teacher_email) = LOWER(ag.teacher_email)
+              AND u.cache_key = ag.cache_key
+              AND u.price_book_id = ag.billing_price_book_id
+              AND u.catalog_fingerprint = ag.billing_catalog_fingerprint
+              AND u.livemode = ag.billing_livemode
+          )
+      ), 0) as recoverableUnqueued,
+      COALESCE((
+        SELECT COUNT(*)
+        FROM ai_grading_attempts ag
+        WHERE ag.status = 'completed'
+          AND ag.billing_required = 1
+          AND ag.billing_price_book_id = ?
+          AND ag.cache_key <> ''
+          AND (
+            ag.billing_catalog_fingerprint <> ?
+            OR ag.billing_stripe_customer_id = ''
+            OR ag.billing_stripe_subscription_id = ''
+            ${invalidAttemptScopeSql}
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM ai_billing_usage_v3 u
+            WHERE LOWER(u.teacher_email) = LOWER(ag.teacher_email)
+              AND u.cache_key = ag.cache_key
+              AND u.price_book_id = ag.billing_price_book_id
+              AND u.catalog_fingerprint = ag.billing_catalog_fingerprint
+              AND u.livemode = ag.billing_livemode
+          )
+      ), 0) as invalidUnqueued,
+      COALESCE((
+        SELECT COUNT(*)
+        FROM ai_grading_attempts ag
+        WHERE ag.status = 'completed'
+          AND ag.billing_required = 1
+          AND ag.billing_price_book_id = ?
+          AND ag.billing_catalog_fingerprint = ?
+          AND ag.billing_stripe_customer_id <> ''
+          AND ag.billing_stripe_subscription_id <> ''
+          ${currentAttemptScopeSql}
+          AND ag.cache_key <> ''
+          AND ag.billing_free_credit_applied = 0
+          AND COALESCE(ag.completed_at, ag.created_at) < ?
+          AND NOT EXISTS (
+            SELECT 1
+            FROM ai_billing_usage_v3 u
+            WHERE LOWER(u.teacher_email) = LOWER(ag.teacher_email)
+              AND u.cache_key = ag.cache_key
+              AND u.price_book_id = ag.billing_price_book_id
+              AND u.catalog_fingerprint = ag.billing_catalog_fingerprint
+              AND u.livemode = ag.billing_livemode
+          )
+      ), 0) as expiredUnqueued`,
+    [
+      normalizedPriceBookId,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+      ...scopeArgs,
+      supportedSince,
+      normalizedPriceBookId,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+      ...scopeArgs,
+      supportedSince,
+      normalizedPriceBookId,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+      ...scopeArgs,
+      normalizedPriceBookId,
+      normalizedPriceBookId,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+      ...scopeArgs,
+      supportedSince,
+      normalizedPriceBookId,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+      ...scopeArgs,
+      normalizedPriceBookId,
+      STRIPE_CATALOG_MANIFEST.fingerprint,
+      ...scopeArgs,
+      supportedSince,
+    ]
+  );
+  return {
+    pendingUnattempted: toNumber(result.rows[0]?.pendingUnattempted),
+    expiredPendingUnattempted: toNumber(result.rows[0]?.expiredPendingUnattempted),
+    invalidPendingUnattempted: toNumber(result.rows[0]?.invalidPendingUnattempted),
+    attemptedUnreported: toNumber(result.rows[0]?.attemptedUnreported),
+    recoverableUnqueued: toNumber(result.rows[0]?.recoverableUnqueued),
+    invalidUnqueued: toNumber(result.rows[0]?.invalidUnqueued),
+    expiredUnqueued: toNumber(result.rows[0]?.expiredUnqueued),
+  };
 }
 
 export async function listAiGradingAttemptsForSubmission(
@@ -3260,6 +6162,7 @@ export async function listAiGradingAttemptsForSubmission(
       ag.submission_id as submissionId,
       ag.teacher_email as teacherEmail,
       ag.status as status,
+      ag.delivery_status as deliveryStatus,
       ag.transcript as transcript,
       ag.detected_language as detectedLanguage,
       ag.transcript_quality as transcriptQuality,
@@ -3293,6 +6196,13 @@ export async function listAiGradingAttemptsForSubmission(
       ag.result_source as resultSource,
       ag.billing_required as billingRequired,
       ag.billing_price_book_id as billingPriceBookId,
+      ag.billing_stripe_customer_id as billingStripeCustomerId,
+      ag.billing_stripe_subscription_id as billingStripeSubscriptionId,
+      ag.billing_catalog_fingerprint as billingCatalogFingerprint,
+      ag.billing_contract_id as billingContractId,
+      ag.billing_livemode as billingLivemode,
+      ag.billing_qualifying_class_high_water as billingQualifyingClassHighWater,
+      ag.billing_free_credit_applied as billingFreeCreditApplied,
       ag.billable_output_tokens as billableOutputTokens,
       ag.created_at as createdAt,
       ag.completed_at as completedAt
@@ -3305,11 +6215,44 @@ export async function listAiGradingAttemptsForSubmission(
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
+      AND ag.delivery_status IN ('delivered', 'not_applicable')
     ORDER BY ag.created_at DESC
     LIMIT ?`,
     [submissionId, ownerEmail, Math.max(1, Math.min(limit, 20))]
   );
   return result.rows.map(rowToAiAttempt);
+}
+
+/** Durable source for a consumed semantic-key retry; never exposes cross-owner data. */
+export async function getReusableAiReviewAttempt(input: {
+  attemptId: string;
+  teacherEmail: string;
+  semanticKey: string;
+}): Promise<AiGradingAttemptRow | null> {
+  const attemptId = requireTrimmedValue("attemptId", input.attemptId);
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const semanticKey = requireTrimmedValue("semanticKey", input.semanticKey);
+  const source = await query(
+    `SELECT submission_id as submissionId
+    FROM ai_grading_attempts
+    WHERE id = ?
+      AND LOWER(teacher_email) = LOWER(?)
+      AND cache_key = ?
+      AND status = 'completed'
+      AND delivery_status IN ('delivered', 'not_applicable')
+      AND suggested_score IS NOT NULL
+      AND TRIM(error_code) = ''
+    LIMIT 1`,
+    [attemptId, teacherEmail, semanticKey],
+  );
+  const submissionId = toStringValue(source.rows[0]?.submissionId).trim();
+  if (!submissionId) return null;
+  const attempts = await listAiGradingAttemptsForSubmission(
+    submissionId,
+    teacherEmail,
+    20,
+  );
+  return attempts.find((attempt) => attempt.id === attemptId) ?? null;
 }
 
 function rowToGradingResultCache(row: Row): GradingResultCacheRow {
@@ -3843,9 +6786,10 @@ export async function ensureLocalAiFixture(): Promise<{
   const audioData = `data:audio/webm;base64,${Buffer.from("synthetic local audio fixture").toString("base64")}`;
 
   await query(
-    `INSERT INTO users (email, role, created_at, is_paid)
-    VALUES (?, 'teacher', ?, 1)
-    ON CONFLICT(email) DO UPDATE SET role = 'teacher', is_paid = 1`,
+    `INSERT INTO users (email, role, created_at, is_paid, ai_access_grant_source)
+    VALUES (?, 'teacher', ?, 1, 'manual')
+    ON CONFLICT(email) DO UPDATE SET
+      role = 'teacher', is_paid = 1, ai_access_grant_source = 'manual'`,
     [teacherEmail, Date.now()]
   );
   await query(

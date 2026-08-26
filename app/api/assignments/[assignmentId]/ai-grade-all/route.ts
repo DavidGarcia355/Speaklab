@@ -3,11 +3,10 @@ import { requireTeacherEmail } from "@/lib/authz";
 import {
   countAiAttemptsForTeacherSince,
   countAiAttemptsSince,
-  getUserHasAiAccess,
+  getAiReviewAllowanceSummary,
   listUngradedSubmissionsForAiGrade,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
-import { reserveGenerationBudget } from "@/lib/ai/budget";
 import { assertAiProviderConfig, getAiConfig, isAiTeacherDenied, isLocalMockAi } from "@/lib/ai/config";
 import { gradeOneSubmission } from "@/lib/ai/grade-one";
 import { assertGradingProviderConfiguration, getGradingConfig } from "@/lib/grading/config";
@@ -42,13 +41,25 @@ export async function GET(
     const { assignmentId } = await context.params;
 
     const pending = await listUngradedSubmissionsForAiGrade(assignmentId, teacherEmail);
-    const quota = await remainingQuota(teacherEmail, config.dailyTeacherLimit, config.dailyGlobalLimit);
+    const [quota, allowance] = await Promise.all([
+      remainingQuota(teacherEmail, config.dailyTeacherLimit, config.dailyGlobalLimit),
+      config.accessMode === "paid" && !isLocalMockAi(config)
+        ? getAiReviewAllowanceSummary({ teacherEmail })
+        : Promise.resolve(null),
+    ]);
+    const allowanceReady = allowance?.status !== "subscription_unavailable";
+    const allowanceRemaining = allowance?.remaining ?? Number.POSITIVE_INFINITY;
 
     return NextResponse.json({
       ungradedCount: pending.length,
       remaining: quota.remaining,
-      fits: pending.length > 0 && pending.length <= quota.remaining,
+      fits:
+        pending.length > 0 &&
+        pending.length <= quota.remaining &&
+        allowanceReady &&
+        pending.length <= allowanceRemaining,
       estimatedSeconds: pending.length * config.cooldownSeconds,
+      allowance,
     });
   });
 }
@@ -72,11 +83,6 @@ export async function POST(
     if (isAiTeacherDenied(teacherEmail, config)) {
       throw new HttpError(403, "AI grading is not available for this account.");
     }
-    if (!isLocalMockAi(config) && config.accessMode === "paid") {
-      const hasAiAccess = await getUserHasAiAccess(teacherEmail);
-      if (!hasAiAccess) throw new HttpError(402, "AI grading requires an active AI billing plan.");
-    }
-
     const { assignmentId } = await context.params;
     const requestBody = request.headers.get("content-type")?.includes("application/json")
       ? ((await request.json().catch(() => null)) as { enhanced?: unknown } | null)
@@ -89,23 +95,36 @@ export async function POST(
 
     // Refuse a batch we cannot finish rather than stopping halfway through a
     // class and leaving the teacher to work out who did and did not get graded.
-    const quota = await remainingQuota(teacherEmail, config.dailyTeacherLimit, config.dailyGlobalLimit);
+    const [quota, allowance] = await Promise.all([
+      remainingQuota(teacherEmail, config.dailyTeacherLimit, config.dailyGlobalLimit),
+      config.accessMode === "paid" && !isLocalMockAi(config)
+        ? getAiReviewAllowanceSummary({ teacherEmail })
+        : Promise.resolve(null),
+    ]);
+    if (allowance?.status === "subscription_unavailable") {
+      throw new HttpError(
+        409,
+        "Your billing period could not be verified. Refresh billing or contact support before using another AI review.",
+      );
+    }
+    if (allowance && pending.length > allowance.remaining) {
+      const nextStep =
+        allowance.status === "teacher_period"
+          ? "Need more AI reviews? Ask your school about a TryHabla School Pilot."
+          : allowance.status === "free_lifetime"
+            ? "Choose Teacher for 300 AI reviews per Stripe billing period."
+            : "Contact us to scope a TryHabla School Pilot.";
+      throw new HttpError(
+        429,
+        `This run needs ${pending.length} AI reviews, but ${allowance.remaining} remain in your current allowance. ${nextStep}`,
+      );
+    }
     if (pending.length > quota.remaining) {
       throw new HttpError(
         429,
         `This would need ${pending.length} AI generations but only ${quota.remaining} remain today. ` +
           `Grade some by hand, or run this again tomorrow when the daily limit resets.`
       );
-    }
-
-    if (!isLocalMockAi(config)) {
-      const reserved = await reserveGenerationBudget({
-        config,
-        generationCount: pending.length,
-      });
-      if (!reserved) {
-        throw new HttpError(429, "The monthly AI usage limit has been reached. Try again next month.");
-      }
     }
 
     const results: Array<{

@@ -118,9 +118,16 @@ describe("grading persistence", () => {
     });
 
     expect(attempt).toMatchObject({ cacheHit: true, inputTokens: 100, estimatedCostMicrousd: 123 });
+    await expect(
+      db.markAiGradingAttemptNotApplicable({
+        attemptId: attempt.id,
+        ownerEmail: teacherEmail,
+      }),
+    ).resolves.toBe(true);
     await expect(db.listAiGradingAttemptsForSubmission(submission.id, teacherEmail)).resolves.toEqual([
       expect.objectContaining({
         id: attempt.id,
+        deliveryStatus: "not_applicable",
         cacheKey: "attempt-cache-key",
         cachedInputTokens: 40,
         outputTokens: 20,

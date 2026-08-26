@@ -50,8 +50,8 @@ export default function DismissibleCauseBand() {
         <p>
           My mom is a Spanish teacher fighting recurrent endometrial cancer. She is the reason
           Habla exists. I built it to make her classroom easier, and now I&apos;m building it into
-          something that can help me support her as much as possible. The core stays free, and all
-          proceeds from optional AI go toward her fight.
+          something that can help me support her as much as possible. The core classroom is free,
+          and revenue from Teacher helps me operate Habla and support my family through her fight.
         </p>
       </div>
       <div className="actions home-cause-actions">

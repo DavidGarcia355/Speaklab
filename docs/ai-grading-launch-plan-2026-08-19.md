@@ -11,7 +11,7 @@ Do not enable real-student OpenAI calls until all four external launch gates are
 3. Keep teacher self-registration closed before setting `AI_ACCESS_MODE=all`, inventory current teacher accounts, and constrain identity-provider tenants.
 4. Verify the production private Blob store with a synthetic upload, playback, AI, deletion, and failure-recovery smoke test.
 
-`AI_STUDENT_DATA_APPROVED=true` is an operator attestation, not evidence that those reviews occurred. The app-side `$200` reservation ceiling is conservative nominal accounting, not the OpenAI billing system's hard ceiling.
+The versioned `AI_STUDENT_DATA_APPROVED` value is an operator attestation, not evidence that those reviews occurred. The currently accepted token is documented in `docs/environment-variables.md` and must be renewed when the policy, provider, model set, or retention behavior changes. The app-side `$200` reservation ceiling is conservative nominal accounting, not the OpenAI billing system's hard ceiling.
 
 ## Current request flow
 
@@ -27,9 +27,9 @@ Teacher class page
      -> submission ownership and generation/cooldown/daily limits
      -> atomic nominal monthly budget reservation
      -> authorized audio download
-     -> OpenAI audio transcription (default: whisper-1)
+     -> OpenAI audio transcription (release candidate: gpt-4o-mini-transcribe)
      -> duration/language/quality validation
-     -> OpenAI structured grading (default: gpt-4o-mini)
+     -> OpenAI structured grading (release candidate: gpt-5-nano; gpt-5-mini escalation)
      -> strict rubric-ID/output validation
      -> persist completed or sanitized failed attempt
      -> return a draft suggestion for teacher review
@@ -71,7 +71,7 @@ Main implementation areas:
 
 1. Create an OpenAI API project dedicated to production, enable billing, set a hard project spend limit/alerts, and create a least-privilege project service-account key.
 2. Complete student/minor-data review and publish approved privacy/terms pages. Confirm OpenAI retention controls or ZDR before processing protected under-age personal data.
-3. Keep `ALLOW_TEACHER_SELF_REGISTRATION=false`; decide exactly which school tenants/accounts qualify for “free for everyone.”
+3. Keep `ALLOW_TEACHER_SELF_REGISTRATION=false`; decide exactly which school tenants/accounts qualify for pilot AI access.
 4. Configure Vercel with OpenAI providers, the key, conservative daily limits, `$200` app reservation, bulk disabled, and AI still globally disabled.
 5. Run synthetic production smoke tests, inspect logs/storage/deletion, then enable single grading for a small approved cohort before widening access.
 
@@ -93,8 +93,8 @@ Main implementation areas:
 ### Phase 3 — quality and model evaluation
 
 1. Build a privacy-approved, representative eval set with teacher-scored examples, accents/dialects, noise, code-switching, empty/off-topic audio, and adversarial transcript instructions.
-2. Keep `gpt-4o-mini` as the behavior-compatible baseline. Compare current [OpenAI models](https://developers.openai.com/api/docs/models), especially cost-sensitive GPT-5.6 Luna and balanced GPT-5.6 Terra, only after the eval harness exists.
-3. Add a model-aware transcription adapter before comparing Whisper with newer transcription models; their response formats are not drop-in identical.
+2. Treat the explicitly pinned `gpt-5-nano` baseline and `gpt-5-mini` escalation path as part of the reviewed release configuration. Compare other current [OpenAI models](https://developers.openai.com/api/docs/models) only after the eval harness exists and renew the student-data approval when the approved model set changes.
+3. Keep transcription model selection explicit and covered by contract tests before changing `gpt-4o-mini-transcribe`; transcription response formats are not necessarily drop-in identical.
 4. Measure teacher agreement, grounded evidence, unable-to-grade calibration, p50/p95 latency, retry rate, and provider cost per accepted suggestion.
 5. Consider a Responses API migration after contract tests. Do not add web search, file search, or other built-in tools to grading without a specific product need; they add nondeterminism, latency, cost, and data exposure.
 6. Treat direct-audio/multimodal grading as a separate product and fairness evaluation. Transcript text cannot establish pronunciation, pacing, prosody, accent intelligibility, or audio quality.
@@ -114,7 +114,7 @@ Lightweight live validation should use only synthetic audio in a non-production 
 
 ## Product or infrastructure decisions still required
 
-- Who exactly is included in “free for everyone”: every existing teacher, approved school tenants, invited cohorts, or public signup?
+- Who exactly is included in pilot AI access: every existing teacher, approved school tenants, or invited cohorts?
 - Which student ages/districts can use OpenAI, and what consent/disclosure/retention/ZDR rules apply?
 - Is automatic scoring limited to transcript-observable criteria, or will the product fund and validate a direct-audio path?
 - What is the final monthly provider hard limit, per-teacher fair-use policy, alert threshold, and response when the budget is exhausted?

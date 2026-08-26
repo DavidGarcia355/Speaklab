@@ -1,11 +1,14 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+
+const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "."),
-      "server-only": path.resolve(__dirname, "test-stubs/server-only.ts"),
+      "@": path.resolve(repositoryRoot),
+      "server-only": path.resolve(repositoryRoot, "test-stubs/server-only.ts"),
     },
   },
   test: {

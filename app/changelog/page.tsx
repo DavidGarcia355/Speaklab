@@ -1,11 +1,12 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
+import { createPublicMetadata } from "@/lib/public-metadata";
 
-export const metadata: Metadata = {
-  title: "What's New - Habla",
+export const metadata = createPublicMetadata({
+  title: "What's New",
   description: "Recent updates, bug fixes, and improvements to Habla.",
-};
+  path: "/changelog",
+});
 
 const RELEASES = [
   {

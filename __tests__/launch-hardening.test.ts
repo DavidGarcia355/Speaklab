@@ -56,8 +56,9 @@ describe("launch hardening helpers", () => {
     expect(mockFetch).toHaveBeenCalledOnce();
     expect(mockFetch).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ body: expect.stringContaining("teacher@example.com") })
+      expect.objectContaining({ body: expect.stringContaining("a teacher account was enabled") })
     );
+    expect(JSON.stringify(mockFetch.mock.calls)).not.toContain("teacher@example.com");
   });
 
   it("keeps Google sign-in working when activity logging or Discord fail", async () => {

@@ -1,32 +1,20 @@
 import { NextResponse } from "next/server";
 import { requireSchoolStudentEmail } from "@/lib/authz";
+import { assertRecordingDuration } from "@/lib/audio-duration";
 import { deleteSubmissionAudio, uploadSubmissionAudio } from "@/lib/audio-storage";
 import {
   countStudentSubmissions,
   createSubmission,
   findAssignmentById,
-  isStudentOnRoster,
   upsertRosterEntry,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
 import { enforceSubmissionRateLimit } from "@/lib/rate-limit";
+import { enforceStudentAssignmentAccessPolicy } from "@/lib/student-assignment-access";
 import { getEnv } from "@/lib/env";
 import { parseAudioDataUrl, parseOrThrow400, submissionCreateSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
-
-function emailDomain(email: string) {
-  const [, domain = ""] = email.toLowerCase().split("@");
-  return domain.trim();
-}
-
-function shouldEnforceStudentDomain() {
-  return process.env.ENFORCE_STUDENT_DOMAIN === "true";
-}
-
-function shouldRequireRosterForSubmissions() {
-  return process.env.REQUIRE_ROSTER_FOR_SUBMISSIONS === "true";
-}
 
 export async function POST(
   request: Request,
@@ -40,28 +28,11 @@ export async function POST(
     }
 
     const studentEmail = await requireSchoolStudentEmail();
-    const bypassEnabled =
-      process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true";
-    const enforcedDomain = (process.env.STUDENT_DOMAIN || emailDomain(assignment.ownerEmail)).trim().toLowerCase();
-    const studentDomain = emailDomain(studentEmail);
-    if (
-      !bypassEnabled &&
-      shouldEnforceStudentDomain() &&
-      enforcedDomain &&
-      studentDomain !== enforcedDomain
-    ) {
-      throw new HttpError(
-        403,
-        "This class only accepts submissions from the configured school email domain."
-      );
-    }
-
-    if (!bypassEnabled && shouldRequireRosterForSubmissions()) {
-      const onRoster = await isStudentOnRoster(assignment.classId, studentEmail);
-      if (!onRoster) {
-        throw new HttpError(403, "This assignment only accepts submissions from students on the class roster.");
-      }
-    }
+    await enforceStudentAssignmentAccessPolicy({
+      classId: assignment.classId,
+      ownerEmail: assignment.ownerEmail,
+      studentEmail,
+    });
 
     await enforceSubmissionRateLimit(studentEmail);
 
@@ -78,6 +49,11 @@ export async function POST(
     const body = parseOrThrow400(submissionCreateSchema, await request.json());
     const studentName = body.studentName ?? "";
     const parsedAudio = parseAudioDataUrl(body.audioData);
+    await assertRecordingDuration({
+      buffer: parsedAudio.buffer,
+      mimeType: parsedAudio.mimeType,
+      maxRecordingSeconds: assignment.maxRecordingSeconds,
+    });
     const submissionId = `sub_${crypto.randomUUID()}`;
     let audioBlobUrl = "";
     try {

@@ -80,10 +80,36 @@ type AiAttempt = {
   confidence: "high" | "medium" | "low";
   warnings: string[];
   teacherAttention: string;
-  transcriptionProvider: string;
-  gradingProvider: string;
   errorMessage: string;
   gradeApplied?: boolean;
+};
+type AiReviewAllowance = {
+  status:
+    | "free_lifetime"
+    | "manual_lifetime"
+    | "teacher_period"
+    | "subscription_unavailable";
+  limit: number;
+  reserved: number;
+  consumed: number;
+  used: number;
+  remaining: number;
+  periodStart: number | null;
+  periodEnd: number | null;
+};
+type BulkAiPreflight = {
+  ungradedCount: number;
+  remaining: number;
+  fits: boolean;
+  estimatedSeconds: number;
+  allowance: AiReviewAllowance | null;
+};
+type BulkAiResult = {
+  total: number;
+  completed: number;
+  graded: number;
+  skipped: number;
+  failed: number;
 };
 type Tone = "warning" | "success" | "neutral";
 type AssignmentView = AssignmentSummary & {
@@ -121,6 +147,7 @@ type DeleteTarget =
   | null;
 
 type AssignmentClipboard = {
+  sourceAssignmentId: string;
   title: string;
   description: string;
   instructions: string;
@@ -128,9 +155,7 @@ type AssignmentClipboard = {
   maxSubmissions: number;
   maxRecordingSeconds: number;
   rubric: AssignmentSummary["rubric"];
-  attachmentName: string;
-  attachmentUrl: string;
-  attachmentContentType: string;
+  hasAttachment: boolean;
   copiedAt: number;
 };
 
@@ -146,6 +171,36 @@ function formatDateTime(ts: number) {
 
 function pluralize(count: number, singular: string, plural?: string) {
   return count === 1 ? `${count} ${singular}` : `${count} ${plural ?? `${singular}s`}`;
+}
+
+function bulkAiLimitTitle(preflight: BulkAiPreflight) {
+  if (preflight.allowance?.status === "subscription_unavailable") {
+    return "AI billing needs attention";
+  }
+  if (
+    preflight.allowance &&
+    preflight.ungradedCount > preflight.allowance.remaining
+  ) {
+    return "Not enough AI reviews in this allowance";
+  }
+  return "Not enough AI grading left today";
+}
+
+function bulkAiLimitDescription(preflight: BulkAiPreflight) {
+  const allowance = preflight.allowance;
+  if (allowance?.status === "subscription_unavailable") {
+    return "Your billing period could not be verified. Refresh billing or contact support before using another AI review. Recording, playback, and manual grading remain available.";
+  }
+  if (allowance && preflight.ungradedCount > allowance.remaining) {
+    const nextStep =
+      allowance.status === "teacher_period"
+        ? "Need more AI reviews? Ask your school about a TryHabla School Pilot."
+        : allowance.status === "free_lifetime"
+          ? "Choose Teacher for 300 AI reviews per Stripe billing period."
+          : "Contact us to scope a TryHabla School Pilot.";
+    return `This run needs ${preflight.ungradedCount} AI reviews, but ${allowance.remaining} remain in your current allowance. ${nextStep} Recording, playback, and manual grading remain available.`;
+  }
+  return `This needs ${preflight.ungradedCount} AI generations but only ${preflight.remaining} remain today. Grade some by hand, or try again tomorrow when the limit resets.`;
 }
 
 function autoResizeTextarea(element: HTMLTextAreaElement) {
@@ -212,6 +267,9 @@ function readAssignmentClipboard() {
     if (!parsed?.title || !parsed?.instructions) return null;
     return {
       ...parsed,
+      sourceAssignmentId:
+        typeof parsed.sourceAssignmentId === "string" ? parsed.sourceAssignmentId : "",
+      hasAttachment: parsed.hasAttachment === true,
       maxSubmissions: Number.isInteger(parsed.maxSubmissions) ? parsed.maxSubmissions : 0,
       maxRecordingSeconds: Number.isInteger(parsed.maxRecordingSeconds) ? parsed.maxRecordingSeconds : 180,
     };
@@ -261,19 +319,6 @@ export default function ClassDetailPage() {
   const [aiBulkGradingEnabled, setAiBulkGradingEnabled] = useState(false);
   const [localAiTestMode, setLocalAiTestMode] = useState(false);
 
-  type BulkAiPreflight = {
-    ungradedCount: number;
-    remaining: number;
-    fits: boolean;
-    estimatedSeconds: number;
-  };
-  type BulkAiResult = {
-    total: number;
-    completed: number;
-    graded: number;
-    skipped: number;
-    failed: number;
-  };
   const [bulkAiPreflight, setBulkAiPreflight] = useState<BulkAiPreflight | null>(null);
   const [bulkAiChecking, setBulkAiChecking] = useState(false);
   const [bulkAiRunning, setBulkAiRunning] = useState(false);
@@ -1124,19 +1169,21 @@ export default function ClassDetailPage() {
   }
 
   async function copyStudentLink(assignmentId: string) {
+    const url = `${window.location.origin}/a/${assignmentId}`;
     try {
-      const url = `${window.location.origin}/a/${assignmentId}`;
       await navigator.clipboard.writeText(url);
+      setErrorMsg("");
       setCopiedId(assignmentId);
       window.setTimeout(() => setCopiedId(""), 1400);
     } catch {
-      setErrorMsg("Copy failed. Select the link directly from your browser address bar.");
+      setErrorMsg(`Copy failed. Open the student page at ${url}, then copy that page's address.`);
     }
   }
 
   function copyAssignment(assignment: AssignmentView) {
     try {
       const clipboard: AssignmentClipboard = {
+        sourceAssignmentId: assignment.id,
         title: assignment.title,
         description: assignment.description,
         instructions: assignment.instructions,
@@ -1144,9 +1191,7 @@ export default function ClassDetailPage() {
         maxSubmissions: assignment.maxSubmissions,
         maxRecordingSeconds: assignment.maxRecordingSeconds,
         rubric: assignment.rubric,
-        attachmentName: assignment.attachmentName,
-        attachmentUrl: assignment.attachmentUrl,
-        attachmentContentType: assignment.attachmentContentType,
+        hasAttachment: Boolean(assignment.attachmentUrl),
         copiedAt: Date.now(),
       };
       window.localStorage.setItem(ASSIGNMENT_CLIPBOARD_KEY, JSON.stringify(clipboard));
@@ -1180,14 +1225,8 @@ export default function ClassDetailPage() {
           maxSubmissions: clipboard.maxSubmissions,
           maxRecordingSeconds: clipboard.maxRecordingSeconds,
           rubric: clipboard.rubric,
-          ...(clipboard.attachmentUrl
-            ? {
-                existingAttachment: {
-                  fileName: clipboard.attachmentName || "Directions file",
-                  url: clipboard.attachmentUrl,
-                  contentType: clipboard.attachmentContentType || "application/pdf",
-                },
-              }
+          ...(clipboard.hasAttachment && clipboard.sourceAssignmentId
+            ? { sourceAssignmentId: clipboard.sourceAssignmentId }
             : {}),
         }),
       });
@@ -1340,8 +1379,8 @@ export default function ClassDetailPage() {
         </div>
       </div>
 
-      {errorMsg ? <p className="notice danger">{errorMsg}</p> : null}
-      {infoMsg ? <p className="notice success">{infoMsg}</p> : null}
+      {errorMsg ? <p className="notice danger" role="alert">{errorMsg}</p> : null}
+      {infoMsg ? <p className="notice success" role="status" aria-live="polite">{infoMsg}</p> : null}
 
       <section className="grid cols-3 section-gap">
         <article className="card kpi-card"><p className="meta stat-label"><BookOpen size={14} /> Assignments</p><p className="stat-value">{payload.stats.assignmentCount}</p><p className="meta kpi-note">Published tasks</p></article>
@@ -1371,7 +1410,27 @@ export default function ClassDetailPage() {
               <>
                 <div className="dense-row assignment-main-header">
                   <div><h2 className="assignment-title">{activeAssignment.title}</h2>{activeAssignment.description ? <p className="meta assignment-description">{activeAssignment.description}</p> : null}<p className="meta assignment-meta">Created {formatDate(activeAssignment.createdAt)}</p></div>
-                  <div className="assignment-header-actions"><span className={`status-badge status-${activeAssignment.tone}`}>{activeAssignment.label}</span><button type="button" className="icon-btn" onClick={openAssignmentEditModal}><Pencil size={15} /></button><button type="button" className="icon-btn icon-btn-danger" onClick={() => setDeleteTarget({ type: "assignment", assignment: activeAssignment })}><Trash2 size={15} /></button></div>
+                  <div className="assignment-header-actions">
+                    <span className={`status-badge status-${activeAssignment.tone}`}>{activeAssignment.label}</span>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={openAssignmentEditModal}
+                      aria-label={`Edit assignment ${activeAssignment.title}`}
+                      title="Edit assignment"
+                    >
+                      <Pencil size={15} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn-danger"
+                      onClick={() => setDeleteTarget({ type: "assignment", assignment: activeAssignment })}
+                      aria-label={`Delete assignment ${activeAssignment.title}`}
+                      title="Delete assignment"
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="actions assignment-actions">
@@ -1395,7 +1454,7 @@ export default function ClassDetailPage() {
                 {activeAssignment.attachmentUrl ? (
                   <div className="notice info assignment-attachment-notice">
                     Attachment: <strong>{activeAssignment.attachmentName || "Directions file"}</strong>
-                    <a className="text-link" href={activeAssignment.attachmentUrl} target="_blank" rel="noreferrer">
+                    <a className="text-link" href={`/api/assignments/${encodeURIComponent(activeAssignment.id)}/attachment`} target="_blank" rel="noreferrer">
                       Open file
                     </a>
                   </div>
@@ -1462,9 +1521,60 @@ export default function ClassDetailPage() {
                           <div className="dense-row">
                             <div>
                               {isEditing ? (
-                                <div className="inline-edit-row"><input className="input inline-edit-input" value={editingSubmissionName} onChange={(event) => setEditingSubmissionName(event.target.value)} maxLength={80} autoFocus /><button type="button" className="icon-btn icon-btn-confirm" onClick={() => void saveSubmissionName(submission)} disabled={nameSaving}><Check size={15} /></button><button type="button" className="icon-btn" onClick={() => { setEditingSubmissionId(""); setEditingSubmissionName(""); }}><X size={15} /></button></div>
+                                <div className="inline-edit-row">
+                                  <label className="sr-only" htmlFor={`student-name-${submission.id}`}>
+                                    Student name
+                                  </label>
+                                  <input
+                                    id={`student-name-${submission.id}`}
+                                    className="input inline-edit-input"
+                                    value={editingSubmissionName}
+                                    onChange={(event) => setEditingSubmissionName(event.target.value)}
+                                    maxLength={80}
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    className="icon-btn icon-btn-confirm"
+                                    onClick={() => void saveSubmissionName(submission)}
+                                    disabled={nameSaving}
+                                    aria-label={`Save student name for ${submission.studentName}`}
+                                    title="Save student name"
+                                  >
+                                    <Check size={15} aria-hidden="true" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="icon-btn"
+                                    onClick={() => { setEditingSubmissionId(""); setEditingSubmissionName(""); }}
+                                    aria-label={`Cancel editing student name for ${submission.studentName}`}
+                                    title="Cancel editing"
+                                  >
+                                    <X size={15} aria-hidden="true" />
+                                  </button>
+                                </div>
                               ) : (
-                                <div className="submission-name-row"><strong>{submission.studentName}</strong><button type="button" className="icon-btn" onClick={() => { setEditingSubmissionId(submission.id); setEditingSubmissionName(submission.studentName); }}><Pencil size={14} /></button><button type="button" className="icon-btn icon-btn-danger" onClick={() => setDeleteTarget({ type: "submission", submission })}><Trash2 size={14} /></button></div>
+                                <div className="submission-name-row">
+                                  <strong>{submission.studentName}</strong>
+                                  <button
+                                    type="button"
+                                    className="icon-btn"
+                                    onClick={() => { setEditingSubmissionId(submission.id); setEditingSubmissionName(submission.studentName); }}
+                                    aria-label={`Edit student name for ${submission.studentName}`}
+                                    title="Edit student name"
+                                  >
+                                    <Pencil size={14} aria-hidden="true" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="icon-btn icon-btn-danger"
+                                    onClick={() => setDeleteTarget({ type: "submission", submission })}
+                                    aria-label={`Delete submission from ${submission.studentName}`}
+                                    title="Delete submission"
+                                  >
+                                    <Trash2 size={14} aria-hidden="true" />
+                                  </button>
+                                </div>
                               )}
                               <div className="meta">{formatDateTime(submission.submittedAt)}</div>
                               <div className="meta">{submission.studentEmail || "No email captured"}</div>
@@ -1493,6 +1603,12 @@ export default function ClassDetailPage() {
                                       {criterion.description ? <p className="meta">{criterion.description}</p> : null}
                                     </div>
                                     <div className="score-field">
+                                      <label
+                                        className="sr-only"
+                                        htmlFor={`criterion-score-${submission.id}-${criterion.id}`}
+                                      >
+                                        {criterion.name} score for {submission.studentName}
+                                      </label>
                                       <input
                                         id={`criterion-score-${submission.id}-${criterion.id}`}
                                         className="input score-input"
@@ -1525,7 +1641,7 @@ export default function ClassDetailPage() {
                             <div className="notice info">
                               <p className="meta" style={{ marginBottom: "0.35rem" }}>
                                 <strong>{localAiTestMode ? "Local AI test mode" : "AI grade details"}</strong>{" "}
-                                {aiSuggestion.gradingProvider === "mock" ? "Mock result" : "Review and edit anytime"}
+                                {localAiTestMode ? "Mock result" : "Review and edit anytime"}
                               </p>
                               <p className="meta" style={{ marginBottom: "0.35rem" }}>
                                 <span className="status-badge status-warning">
@@ -1598,14 +1714,18 @@ export default function ClassDetailPage() {
         </div>
 
         <div className="toolbar-compact">
+          <label className="sr-only" htmlFor="roster-student-name">Student name</label>
           <input
+            id="roster-student-name"
             className="input toolbar-input"
             placeholder="Student name"
             value={addStudentName}
             onChange={(event) => setAddStudentName(event.target.value)}
             maxLength={80}
           />
+          <label className="sr-only" htmlFor="roster-student-email">Student email</label>
           <input
+            id="roster-student-email"
             className="input toolbar-input"
             placeholder="student@school.edu"
             type="email"
@@ -1621,7 +1741,9 @@ export default function ClassDetailPage() {
           >
             {addStudentSaving ? "Adding..." : "Add student"}
           </button>
+          <label className="sr-only" htmlFor="roster-csv">Roster CSV file</label>
           <input
+            id="roster-csv"
             ref={csvInputRef}
             type="file"
             accept=".csv,text/csv"
@@ -1762,12 +1884,12 @@ export default function ClassDetailPage() {
         open={bulkAiPreflight !== null}
         title={
           bulkAiPreflight && !bulkAiPreflight.fits
-            ? "Not enough AI grading left today"
+            ? bulkAiLimitTitle(bulkAiPreflight)
             : `AI grade ${bulkAiPreflight?.ungradedCount ?? 0} submission${bulkAiPreflight?.ungradedCount === 1 ? "" : "s"}?`
         }
         description={
           bulkAiPreflight && !bulkAiPreflight.fits
-            ? `This needs ${bulkAiPreflight.ungradedCount} AI generations but only ${bulkAiPreflight.remaining} remain today. Grade some by hand, or try again tomorrow when the limit resets.`
+            ? bulkAiLimitDescription(bulkAiPreflight)
             : `Every eligible submission gets an AI score, rubric breakdown, and feedback saved automatically and visible to that student immediately. You can review and edit every grade afterward. This takes about ${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60))} minute${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60)) === 1 ? "" : "s"}.`
         }
         confirmLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "OK" : "Grade with AI"}
@@ -1872,7 +1994,7 @@ export default function ClassDetailPage() {
             ) : activeAssignment?.attachmentUrl && !assignmentAttachmentRemoved ? (
               <div className="notice info assignment-attachment-notice">
                 Current attachment: <strong>{activeAssignment.attachmentName}</strong>
-                <a className="text-link" href={activeAssignment.attachmentUrl} target="_blank" rel="noreferrer">
+                <a className="text-link" href={`/api/assignments/${encodeURIComponent(activeAssignment.id)}/attachment`} target="_blank" rel="noreferrer">
                   Open
                 </a>
                 <button

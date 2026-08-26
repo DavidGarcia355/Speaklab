@@ -16,9 +16,14 @@ describe("student-visible AI grade provenance", () => {
     });
   });
 
-  it("discloses automatic generation, provider processing, and teacher editability", () => {
-    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("AI can generate a score and feedback automatically");
+  it("discloses provider processing, stored AI output, and teacher editability", () => {
+    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("recorded answer");
+    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("configured for this Habla deployment");
+    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("may store the transcript");
+    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("may be visible before your teacher reviews");
     expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("AI-generated results are labeled");
     expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("teacher can review, edit, or replace them");
+    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("whether AI is authorized");
+    expect(STUDENT_AI_GRADING_DISCLOSURE).not.toContain("school's approved AI provider");
   });
 });

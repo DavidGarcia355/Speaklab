@@ -6,11 +6,13 @@ import BrandBar from "@/app/components/BrandBar";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import PageTitle from "@/app/components/PageTitle";
 
+type RegistrationState = "checking" | "available" | "invite-only" | "signed-out";
+
 export default function TeacherRegisterPage() {
   const router = useRouter();
   const [errorMsg, setErrorMsg] = useState("");
   const [saving, setSaving] = useState(false);
-  const [checkingRole, setCheckingRole] = useState(true);
+  const [registrationState, setRegistrationState] = useState<RegistrationState>("checking");
 
   useEffect(() => {
     let cancelled = false;
@@ -18,16 +20,26 @@ export default function TeacherRegisterPage() {
     async function loadRole() {
       try {
         const response = await fetch("/api/auth/role", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = (await response.json()) as { role?: string };
+        if (!response.ok) {
+          if (!cancelled) {
+            setRegistrationState(response.status === 401 ? "signed-out" : "invite-only");
+          }
+          return;
+        }
+        const data = (await response.json()) as {
+          role?: string;
+          teacherRegistrationAvailable?: boolean;
+        };
         if (!cancelled && data.role === "teacher") {
           router.replace("/teacher");
           router.refresh();
+          return;
+        }
+        if (!cancelled) {
+          setRegistrationState(data.teacherRegistrationAvailable ? "available" : "invite-only");
         }
       } catch {
-        // Keep the page usable even if the role check fails.
-      } finally {
-        if (!cancelled) setCheckingRole(false);
+        if (!cancelled) setRegistrationState("invite-only");
       }
     }
 
@@ -70,30 +82,47 @@ export default function TeacherRegisterPage() {
       <BrandBar label="Teacher Registration" />
       <section className="hero">
         <p className="pill">Teacher setup</p>
-        <h1>Set up your teacher account</h1>
-        <p>Upgrade your Habla account to create classes, share speaking prompts, and review recordings.</p>
+        <h1>Request or activate teacher access</h1>
+        <p>Create classes, share speaking prompts, and review recordings in one classroom workspace.</p>
       </section>
 
       <section className="card form-shell panel-subtle section-gap">
-        <h2 className="surface-title">Ready to teach with Habla?</h2>
-        <p className="meta">This takes one click and opens your teacher dashboard right away.</p>
+        <h2 className="surface-title">
+          {registrationState === "available" ? "Your teacher access is ready" : "Teacher access is invite-only"}
+        </h2>
+        <p className="meta">
+          {registrationState === "available"
+            ? "Your signed-in account is approved. Activate it to open the teacher dashboard."
+            : registrationState === "checking"
+              ? "Checking whether your signed-in account is approved for the current pilot."
+              : registrationState === "signed-out"
+                ? "Sign in to check whether your account is already approved, or request a place in the current pilot."
+                : "Habla is adding teachers through a reviewed pilot while privacy and district materials are finalized."}
+        </p>
         {errorMsg ? <p className="notice danger">{errorMsg}</p> : null}
         <div className="actions form-actions">
-          <button
-            className="btn btn-primary"
-            type="button"
-            onClick={() => void registerTeacher()}
-            disabled={saving || checkingRole}
-          >
-            {checkingRole ? "Checking account..." : saving ? "Setting up..." : "Get started as a teacher"}
-          </button>
+          {registrationState === "available" ? (
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={() => void registerTeacher()}
+              disabled={saving}
+            >
+              {saving ? "Activating..." : "Activate teacher access"}
+            </button>
+          ) : registrationState === "checking" ? (
+            <button className="btn btn-primary" type="button" disabled>
+              Checking account...
+            </button>
+          ) : (
+            <a className="btn btn-primary" href="/feedback">
+              Request teacher pilot access
+            </a>
+          )}
         </div>
-        <p className="meta teacher-register-note">
-          Already signed in? We&apos;ll take you straight into class setup after this step.
-        </p>
         <div className="actions" style={{ marginTop: "0.5rem" }}>
           <GoogleSignInLink className="btn btn-ghost" callbackUrl="/teacher/register">
-            Need to sign in first?
+            {registrationState === "signed-out" ? "Sign in to check access" : "Use another Google account"}
           </GoogleSignInLink>
         </div>
       </section>

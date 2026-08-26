@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -12,27 +11,29 @@ import {
 import BrandBar from "@/app/components/BrandBar";
 import PricingCalculator from "@/app/pricing/PricingCalculator";
 import StripeSupportButton from "@/app/pricing/StripeSupportButton";
-import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
+import { createPublicMetadata } from "@/lib/public-metadata";
 
-export const metadata: Metadata = {
-  title: "Pricing - Habla",
+export const metadata = createPublicMetadata({
+  title: "Pricing",
   description:
-    "Habla's core audio classroom is free forever. Estimate optional AI grading from your classes, roster size, assignments, and recording length.",
-};
+    "Start with TryHabla Free, add 300 successful AI reviews with Teacher, or ask about a founder-managed School Pilot.",
+  path: "/pricing",
+});
 
-const CORE_FEATURES = [
+const FREE_FEATURES = [
+  "30 successful AI reviews for the lifetime of your teacher account",
   "Classes, rosters, and speaking assignments",
   "Student audio recording and submissions",
   "Teacher playback, rubrics, grading, and feedback",
   "Roster tools and gradebook CSV export",
 ] as const;
 
-const AI_RULES = [
-  "One fewer monthly AI credit than your number of qualifying active classes",
-  "Charged only after a successful, unique AI grade",
-  "AI feedback is included with every successful grade",
-  "No charge for failed attempts or duplicate delivery of the same result",
-  "A free credit covers the whole result and never rolls over",
+const TEACHER_RULES = [
+  "300 successful AI reviews in each Stripe billing period",
+  "Recordings can be up to five minutes each",
+  "Failures, unable-to-grade results, and exact retries do not use another review",
+  "Unused reviews do not roll over",
+  "No automatic overages; AI pauses at the limit while the free classroom stays available",
 ] as const;
 
 export default function PricingPage() {
@@ -42,20 +43,20 @@ export default function PricingPage() {
 
       <section className="pricing-hero">
         <div className="pricing-hero-copy">
-          <p className="pill">Free audio classroom</p>
-          <h1>Use Habla forever. Add AI only when it earns its keep.</h1>
+          <p className="pill">Clear classroom pricing</p>
+          <h1>Start free. Add AI when it saves you time.</h1>
           <p>
-            Classes, rosters, assignments, recordings, and teacher grading stay free. Optional AI is
-            usage-based, so a small classroom pays for small usage and a busy classroom can see its
-            estimate before turning AI on.
+            Free includes the complete audio classroom and a lifetime allowance of 30 successful AI
+            reviews. Teacher is $20 per month for 300 reviews per Stripe billing period, with no
+            automatic overages.
           </p>
           <div className="actions hero-actions">
-            <a className="btn btn-primary" href="#support-habla">
-              Support Habla now
+            <Link className="btn btn-primary" href="/teacher/register">
+              Start free
               <ArrowRight size={17} aria-hidden="true" />
-            </a>
-            <Link className="btn btn-ghost" href="/teacher/register">
-              Get teacher access
+            </Link>
+            <Link className="btn btn-ghost" href="/billing">
+              View Teacher billing
             </Link>
           </div>
         </div>
@@ -63,8 +64,8 @@ export default function PricingPage() {
           <span className="pricing-signal-orbit pricing-signal-orbit-one" />
           <span className="pricing-signal-orbit pricing-signal-orbit-two" />
           <AudioLines size={78} strokeWidth={1.7} />
-          <strong>$0 core</strong>
-          <small>AI flexes with you</small>
+          <strong>$0 to start</strong>
+          <small>30 lifetime AI reviews</small>
         </div>
       </section>
 
@@ -81,12 +82,11 @@ export default function PricingPage() {
         </div>
         <div>
           <p className="pill pill-subtle">A price with a purpose</p>
-          <h2 id="pricing-cause-heading">
-            All proceeds from Habla go toward my mom&apos;s fight against endometrial cancer.
-          </h2>
+          <h2 id="pricing-cause-heading">Built for teachers. Built for my mom.</h2>
           <p>
-            I build and maintain Habla myself. Choosing optional AI helps support my family while I
-            keep the core audio classroom free for teachers and students.
+            I build and maintain Habla myself. Revenue from Teacher helps me operate the service,
+            keep the core classroom free, and support my family while my mom fights endometrial
+            cancer.
           </p>
         </div>
         <Link className="btn btn-ghost" href="/about">
@@ -105,11 +105,9 @@ export default function PricingPage() {
             <h2 id="support-habla-heading">Support Habla now</h2>
           </div>
           <p>
-            Pay any amount with PayPal and include the exact email you use to sign in to Try Habla.
-            Your full payment becomes prepaid AI credit at the published rates, and access is
-            activated within 24 hours. This temporary PayPal flow does not auto-renew or transfer
-            automatically to Stripe. Payments support Try Habla and my family and are not
-            tax-deductible.
+            PayPal is a voluntary way to support TryHabla and my family. It does not purchase or
+            activate AI access, does not auto-renew, and is not tax-deductible. Teacher billing is
+            handled separately through Stripe when it is offered on the signed-in billing page.
           </p>
         </div>
         <StripeSupportButton />
@@ -117,19 +115,19 @@ export default function PricingPage() {
 
       <section className="pricing-value-grid section-gap" aria-labelledby="pricing-model-heading">
         <h2 id="pricing-model-heading" className="sr-only">
-          Habla pricing model
+          TryHabla pricing options
         </h2>
 
         <article className="pricing-value-card pricing-value-core">
           <div className="pricing-value-icon" aria-hidden="true">
             <AudioLines size={25} />
           </div>
-          <p className="pill pill-subtle">Habla core</p>
-          <h2>Audio learning stays free</h2>
+          <p className="pill pill-subtle">Free</p>
+          <h2>The complete audio classroom, plus a real AI trial</h2>
           <p className="pricing-value-price">$0</p>
-          <p className="pricing-value-cadence">forever — no subscription</p>
+          <p className="pricing-value-cadence">no card required</p>
           <ul>
-            {CORE_FEATURES.map((feature) => (
+            {FREE_FEATURES.map((feature) => (
               <li key={feature}>
                 <Check size={17} aria-hidden="true" />
                 <span>{feature}</span>
@@ -142,24 +140,26 @@ export default function PricingPage() {
           <div className="pricing-value-icon" aria-hidden="true">
             <BrainCircuit size={25} />
           </div>
-          <p className="pill pill-subtle">Optional AI</p>
-          <h2>Simple pricing that fits your classroom</h2>
-          <div className="pricing-rate-grid" aria-label="AI launch rates">
+          <p className="pill pill-subtle">Teacher</p>
+          <h2>AI feedback for regular classroom use</h2>
+          <p className="pricing-value-price">$20</p>
+          <p className="pricing-value-cadence">per month</p>
+          <div className="pricing-rate-grid" aria-label="Teacher plan classroom capacity">
             <div>
-              <strong>{TEACHER_AI_PRICE_BOOK.baseSuccessfulGradeUsd * 100}¢</strong>
-              <span>per successful grade</span>
+              <strong>300</strong>
+              <span>successful AI reviews per Stripe billing period</span>
             </div>
             <div>
-              <strong>{TEACHER_AI_PRICE_BOOK.audioMinuteUsd * 100}¢</strong>
-              <span>per audio minute</span>
+              <strong>10</strong>
+              <span>full assignments for one class of 30 students</span>
             </div>
             <div>
-              <strong>Included</strong>
-              <span>AI feedback with every grade</span>
+              <strong>2 each</strong>
+              <span>full assignments across five classes of 30 students</span>
             </div>
           </div>
           <ul>
-            {AI_RULES.map((rule) => (
+            {TEACHER_RULES.map((rule) => (
               <li key={rule}>
                 <Check size={17} aria-hidden="true" />
                 <span>{rule}</span>
@@ -167,9 +167,12 @@ export default function PricingPage() {
             ))}
           </ul>
           <Link className="btn btn-primary pricing-billing-cta" href="/billing">
-            Set up AI billing
+            Choose Teacher
             <ArrowRight size={17} aria-hidden="true" />
           </Link>
+          <p className="pricing-note">
+            Need more AI reviews? Ask your school about a TryHabla School Pilot.
+          </p>
         </article>
       </section>
 
@@ -182,13 +185,13 @@ export default function PricingPage() {
           <div>
             <p className="pill pill-subtle">
               <Gauge size={15} aria-hidden="true" />
-              Live classroom estimate
+              Classroom capacity
             </p>
-            <h2 id="ai-calculator-heading">See what you would pay before turning AI on</h2>
+            <h2 id="ai-calculator-heading">See which option fits your classes</h2>
           </div>
           <p>
-            Use the controls to estimate what you would pay Habla each month. The estimate assumes AI
-            runs on every configured submission; using AI less often costs less.
+            Estimate how many successful AI reviews your classes would use. This is a planning tool,
+            not a usage charge or invoice.
           </p>
         </div>
         <PricingCalculator />
@@ -207,12 +210,15 @@ export default function PricingPage() {
             <p>Reaching an AI limit pauses AI only. Recording, teaching, and manual grading remain available.</p>
           </article>
           <article>
-            <strong>One delivered result, one charge</strong>
-            <p>You pay once for each successful, unique result; never for failed attempts or duplicate delivery.</p>
+            <strong>Only successful reviews count</strong>
+            <p>Failures, unable-to-grade results, and exact retries do not use another review.</p>
           </article>
           <article>
-            <strong>Actual usage, clear units</strong>
-            <p>Audio is measured to the second, and feedback is included with every successful grade.</p>
+            <strong>One known monthly price</strong>
+            <p>
+              Teacher is $20 per Stripe billing period. There are no automatic usage charges or
+              overages.
+            </p>
           </article>
         </div>
       </section>
@@ -222,23 +228,25 @@ export default function PricingPage() {
           <Building2 size={28} />
         </div>
         <div>
-          <p className="pill pill-subtle">Schools and districts</p>
-          <h2>District pricing is completely separate.</h2>
+          <p className="pill pill-subtle">School Pilot - Contact us</p>
+          <h2>A founder-managed, manually provisioned teacher cohort.</h2>
           <p>
-            Districts use a private agreement built around pooled usage, security review, retention,
-            support, and local purchasing requirements. The teacher calculator does not quote a
-            district rollout or imply district approval.
+            David scopes each School Pilot directly with the school, including the teacher cohort,
+            expected review volume, onboarding, privacy review, and pilot terms. School Pilot is not
+            a self-service plan and does not imply a school admin console or district approval.
           </p>
         </div>
         <Link className="btn btn-ghost" href="/feedback">
-          Contact Habla
+          Contact us
         </Link>
       </section>
 
       <p className="pricing-rollout-note">
-        Rates are in USD and the calculator estimates what a teacher would pay Habla; it is not a quote
-        or invoice. Teacher AI billing is opening in stages; sign in to check availability. Taxes may
-        apply. District terms remain separate.
+        Prices are in USD. Free includes a lifetime allowance of 30 successful AI reviews per
+        teacher account. Teacher includes 300 reviews per Stripe billing period for $20 per month;
+        unused reviews do not roll over, and there are no automatic overages. Stripe shows the final
+        amount before payment. PayPal support does not buy AI access. School Pilot terms are scoped
+        manually.
       </p>
     </main>
   );

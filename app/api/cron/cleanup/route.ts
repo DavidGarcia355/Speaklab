@@ -27,10 +27,30 @@ export async function GET(request: Request) {
       throw new HttpError(403, "You don't have access to this page.");
     }
 
-    const billingUsage = await flushPendingAiBillingUsage(100).catch((error) => {
+    let billingUsage;
+    try {
+      billingUsage = await flushPendingAiBillingUsage(100);
+    } catch (error) {
       console.error("Stripe usage retry failed", error);
-      return { attempted: 0, reported: 0, failed: 1 };
-    });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Stripe billing reconciliation health could not be verified.",
+        },
+        { status: 503, headers: { "Retry-After": "300" } }
+      );
+    }
+
+    if (billingUsage.blocksSourceCleanup) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Stripe billing source rows must be queued or reconciled before cleanup can continue.",
+          billingUsage,
+        },
+        { status: 503, headers: { "Retry-After": "300" } }
+      );
+    }
 
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const storageObjects = await listStorageObjectsForHardDeleteBefore(cutoff);
@@ -56,6 +76,19 @@ export async function GET(request: Request) {
     }
 
     const result = await hardDeleteSoftDeletedBefore(cutoff);
+    if (billingUsage.needsReconciliation) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Retention cleanup completed, but the Stripe billing ledger still requires reconciliation.",
+          ...result,
+          audioObjects,
+          attachmentObjects,
+          billingUsage,
+        },
+        { status: 503, headers: { "Retry-After": "300" } }
+      );
+    }
     return NextResponse.json({
       ok: true,
       ...result,

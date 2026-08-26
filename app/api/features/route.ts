@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { withApiHandler } from "@/lib/http";
 import { assertAiProviderConfig, getAiConfig, isLocalMockAi } from "@/lib/ai/config";
+import {
+  assertGradingProviderConfiguration,
+  getGradingConfig,
+} from "@/lib/grading/config";
 
 export const runtime = "nodejs";
 
@@ -11,6 +15,7 @@ export async function GET(request: Request) {
     if (aiReady) {
       try {
         assertAiProviderConfig(config);
+        assertGradingProviderConfiguration(getGradingConfig());
       } catch {
         aiReady = false;
       }
@@ -19,9 +24,6 @@ export async function GET(request: Request) {
     return NextResponse.json({
       aiGradingEnabled: aiReady,
       aiBulkGradingEnabled: aiReady && config.bulkEnabled,
-      aiTranscriptionProvider: config.transcriptionProvider,
-      aiGradingProvider: config.gradingProvider,
-      aiAccessMode: config.accessMode,
       localAiTestMode: isLocalMockAi(config),
       localAuthBypassEnabled:
         process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true",
