@@ -35,6 +35,7 @@ This inventory reflects repository behavior. It does not verify production Verce
 | `AUDIO_BLOB_STORE_ID` | Identifies the private Vercel Blob store used for student recordings and assignment attachments. Deployed Vercel functions authenticate with project OIDC. | Required for private-media runtime operations in production and for migration dry run/apply. | Server and local/off-Vercel migration tooling | Upload/playback/delete operations fail safely; the migration refuses to start. |
 | `AUDIO_READ_WRITE_TOKEN` | Static credential for the private store used by the one-time migration from a secured local/off-Vercel process. | Required for migration dry run and apply outside Vercel. Do not keep it in Vercel. | Local/off-Vercel migration tooling | The migration refuses to start because it cannot byte-validate private database references. |
 | `BLOB_READ_WRITE_TOKEN` | Static credential for inventorying and deleting objects in the legacy public Blob store. It is not used for normal private-media runtime access. | Required only for the migration dry run and apply. Remove/revoke it after verified cleanup. | Local/off-Vercel migration tooling | The migration refuses to start; normal private-media runtime is unaffected. |
+| `MEDIA_MIGRATION_DIAGNOSTIC_KEY` | Temporary random key, at least 32 bytes, used only to create stable opaque HMAC identifiers in a migration diagnostic report. Never print or commit it. | Required only with the dry-run-only `--diagnostics` option. Remove it after the investigation. | Local/off-Vercel migration tooling only | Ordinary dry run/apply is unaffected; diagnostic mode refuses to start. |
 
 Student audio and assignment attachments must use private/access-controlled Blob storage. Public
 fallback is disabled for new media. Keep both static migration tokens out of Vercel; production
@@ -45,6 +46,14 @@ The migration is dry-run by default:
 ```bash
 node scripts/migrate-public-audio-to-private.mjs
 ```
+
+If the aggregate dry run reports legacy-source validation failures, rerun it from the same secured
+operator environment with `--diagnostics` and a temporary `MEDIA_MIGRATION_DIAGNOSTIC_KEY`. The
+diagnostic report includes only keyed reference IDs, media class, database-reference counts,
+legacy-list membership, and safe request/HTTP/body-read phases for those legacy sources. Existing
+private-reference failures remain represented by the separate private-validation counters. The
+report never includes raw database IDs, object paths, URLs, media, student details, or provider
+error messages. Reuse the same key only while correlating reruns, then remove it.
 
 The dry run requires both private-store variables above as well as the Turso and legacy-store
 credentials. Apply mode requires

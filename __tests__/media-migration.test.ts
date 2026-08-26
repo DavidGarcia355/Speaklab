@@ -2,6 +2,7 @@ import { createClient, type Client } from "@libsql/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   parseMigrationArgs,
+  readMigrationDiagnosticKey,
   readMigrationConfig,
   runMediaMigration,
 } from "@/scripts/migrate-public-audio-to-private.mjs";
@@ -135,9 +136,11 @@ function migrationDependencies() {
     }
     return new Response(null, { status: 404 });
   });
+  const sleepImpl = vi.fn<(milliseconds: number) => Promise<void>>(async () => undefined);
   return {
     blob,
     fetchImpl,
+    sleepImpl,
     restoreDelete: () => blob.del.mockReset().mockImplementation(deleteImplementation),
   };
 }
@@ -164,6 +167,11 @@ describe("private media migration", () => {
       apply: false,
       backupConfirmed: false,
       legacyMediaBackupConfirmed: false,
+      diagnostics: false,
+    });
+    expect(parseMigrationArgs(["--diagnostics"])).toMatchObject({
+      apply: false,
+      diagnostics: true,
     });
     expect(() => parseMigrationArgs(["--apply"])).toThrow(/backup-confirmed/);
     expect(() => parseMigrationArgs(["--backup-confirmed"])).toThrow(/only valid/);
@@ -174,6 +182,14 @@ describe("private media migration", () => {
       /legacy-media-backup-confirmed/
     );
     expect(() => parseMigrationArgs(["--legacy-media-backup-confirmed"])).toThrow(/only valid/);
+    expect(() =>
+      parseMigrationArgs([
+        "--apply",
+        "--backup-confirmed",
+        "--legacy-media-backup-confirmed",
+        "--diagnostics",
+      ])
+    ).toThrow(/dry-run/);
     expect(
       parseMigrationArgs([
         "--apply",
@@ -189,6 +205,13 @@ describe("private media migration", () => {
     expect(() =>
       readMigrationConfig({ TURSO_DATABASE_URL: "libsql://example", TURSO_AUTH_TOKEN: "token" })
     ).toThrow(/AUDIO_BLOB_STORE_ID/);
+    expect(() => readMigrationDiagnosticKey({})).toThrow(/MEDIA_MIGRATION_DIAGNOSTIC_KEY/);
+    expect(() =>
+      readMigrationDiagnosticKey({ MEDIA_MIGRATION_DIAGNOSTIC_KEY: "too-short" })
+    ).toThrow(/MEDIA_MIGRATION_DIAGNOSTIC_KEY/);
+    expect(
+      readMigrationDiagnosticKey({ MEDIA_MIGRATION_DIAGNOSTIC_KEY: "d".repeat(32) })
+    ).toBe("d".repeat(32));
   });
 
   it("inventories every legacy shape without writing in dry-run mode", async () => {
@@ -217,6 +240,7 @@ describe("private media migration", () => {
     });
     expect(dependencies.blob.put).not.toHaveBeenCalled();
     expect(dependencies.blob.del).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty("diagnostics");
   });
 
   it("validates existing private references and aborts apply before writes when one is corrupt", async () => {
@@ -279,6 +303,243 @@ describe("private media migration", () => {
     expect(result.errorKinds).toEqual({ "Error.SourceFetchFailed": 1 });
     expect(result.changes.audioMigrated).toBe(0);
     expect(JSON.stringify(result)).not.toContain(publicAudio);
+  });
+
+  it("recovers after two transient source failures with at most three total attempts", async () => {
+    await client.execute("DELETE FROM assignments");
+    await client.execute("DELETE FROM submissions WHERE id <> 'sub_public'");
+    const dependencies = migrationDependencies();
+    dependencies.fetchImpl
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null, { status: 429 }))
+      .mockResolvedValueOnce(
+        new Response(webm, { headers: { "content-type": "audio/webm" } })
+      );
+
+    const result = await runMediaMigration({
+      client,
+      apply: false,
+      backupConfirmed: false,
+      config,
+      ...dependencies,
+    });
+
+    expect(result.validation).toMatchObject({ sourcesChecked: 1, ready: 1, failed: 0 });
+    expect(dependencies.fetchImpl).toHaveBeenCalledTimes(3);
+    expect(dependencies.sleepImpl.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([
+      100,
+      250,
+    ]);
+    expect(dependencies.blob.put).not.toHaveBeenCalled();
+  });
+
+  it.each([302, 400, 404])("does not retry permanent HTTP %s responses", async (status) => {
+    await client.execute("DELETE FROM assignments");
+    await client.execute("DELETE FROM submissions WHERE id <> 'sub_public'");
+    const dependencies = migrationDependencies();
+    dependencies.fetchImpl.mockResolvedValue(new Response(null, { status }));
+
+    const result = await runMediaMigration({
+      client,
+      apply: false,
+      backupConfirmed: false,
+      config,
+      ...dependencies,
+    });
+
+    expect(result.validation).toMatchObject({ sourcesChecked: 1, ready: 0, failed: 1 });
+    expect(dependencies.fetchImpl).toHaveBeenCalledOnce();
+    expect(dependencies.sleepImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not retry media validation failures after a successful source read", async () => {
+    await client.execute("DELETE FROM assignments");
+    await client.execute("DELETE FROM submissions WHERE id <> 'sub_public'");
+    const dependencies = migrationDependencies();
+    dependencies.fetchImpl.mockResolvedValue(
+      new Response("not valid webm", { headers: { "content-type": "audio/webm" } })
+    );
+
+    const result = await runMediaMigration({
+      client,
+      apply: false,
+      backupConfirmed: false,
+      config,
+      ...dependencies,
+    });
+
+    expect(result.errorKinds).toEqual({ "TypeError.MediaSignatureMismatch": 1 });
+    expect(dependencies.fetchImpl).toHaveBeenCalledOnce();
+    expect(dependencies.sleepImpl).not.toHaveBeenCalled();
+  });
+
+  it("reports the final body-read phase after exhausting bounded retries", async () => {
+    await client.execute("DELETE FROM assignments");
+    await client.execute("DELETE FROM submissions WHERE id <> 'sub_public'");
+    const diagnosticKey = "diagnostic-key-material-32-bytes!!";
+    const dependencies = migrationDependencies();
+    dependencies.fetchImpl.mockImplementation(async () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "audio/webm" }),
+        arrayBuffer: vi.fn().mockRejectedValue(new Error("secret body failure")),
+      }) as unknown as Response
+    );
+
+    const result = await runMediaMigration({
+      client,
+      apply: false,
+      backupConfirmed: false,
+      diagnostics: true,
+      diagnosticKey,
+      config,
+      ...dependencies,
+    });
+
+    expect(result.validation).toMatchObject({ sourcesChecked: 1, ready: 0, failed: 1 });
+    expect(dependencies.fetchImpl).toHaveBeenCalledTimes(3);
+    expect(dependencies.sleepImpl).toHaveBeenCalledTimes(2);
+    expect(result.diagnostics?.validationFailures).toEqual([
+      expect.objectContaining({
+        errorKind: "Error.SourceFetchFailed",
+        failurePhase: "body_read_failed",
+        httpStatusFamily: null,
+      }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain("secret body failure");
+  });
+
+  it("retries source reads without duplicating private writes", async () => {
+    await client.execute("DELETE FROM assignments");
+    await client.execute("DELETE FROM submissions WHERE id <> 'sub_public'");
+    const dependencies = migrationDependencies();
+    dependencies.fetchImpl
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(webm, { headers: { "content-type": "audio/webm" } })
+      );
+
+    const result = await runMediaMigration({
+      client,
+      apply: true,
+      backupConfirmed: true,
+      legacyMediaBackupConfirmed: true,
+      config,
+      ...dependencies,
+    });
+
+    expect(result.changes).toMatchObject({ audioMigrated: 1, failed: 0 });
+    expect(dependencies.fetchImpl).toHaveBeenCalledTimes(2);
+    expect(dependencies.sleepImpl).toHaveBeenCalledOnce();
+    expect(dependencies.blob.put).toHaveBeenCalledOnce();
+    const row = await client.execute(
+      "SELECT audio_blob_url as audioBlobUrl, audio_data as audioData FROM submissions WHERE id = 'sub_public'"
+    );
+    expect(String(row.rows[0]?.audioBlobUrl)).toMatch(/^submissions\/asg_1\/sub_public-migrated-/);
+    expect(row.rows[0]?.audioData).toBeNull();
+  });
+
+  it("identifies failed source groups with keyed opaque diagnostics only", async () => {
+    const diagnosticKey = "diagnostic-key-material-32-bytes!!";
+    const dependencies = migrationDependencies();
+    dependencies.fetchImpl.mockImplementation(async (source: string | URL | Request) => {
+      if (String(source) === publicAudio) return new Response(null, { status: 404 });
+      if (String(source) === publicAttachment) throw new TypeError("secret provider detail");
+      return new Response(null, { status: 404 });
+    });
+
+    const result = await runMediaMigration({
+      client,
+      apply: false,
+      backupConfirmed: false,
+      diagnostics: true,
+      diagnosticKey,
+      config,
+      ...dependencies,
+    });
+
+    expect(result.validation).toMatchObject({ sourcesChecked: 4, ready: 2, failed: 2 });
+    expect(result.errorKinds).toEqual({ "Error.SourceFetchFailed": 2 });
+    expect(result.diagnostics).toMatchObject({
+      schemaVersion: 1,
+      scope: "legacy-source-validation",
+      identifierScheme: "hmac-sha256-v1",
+    });
+    expect(result.diagnostics?.validationFailures).toHaveLength(2);
+    const audioFailure = result.diagnostics?.validationFailures.find(
+      (item) => item.objectClass === "audio"
+    );
+    const attachmentFailure = result.diagnostics?.validationFailures.find(
+      (item) => item.objectClass === "attachment"
+    );
+    expect(audioFailure).toMatchObject({
+      sourceKind: "public-url",
+      errorKind: "Error.SourceFetchFailed",
+      failurePhase: "http_status",
+      httpStatusFamily: "4xx",
+      databaseReferenceCount: 1,
+      databaseReferenceIdsTruncated: 0,
+      listedLegacyObject: true,
+      listedLegacyObjectCount: 1,
+      legacyObjectIdsTruncated: 0,
+    });
+    expect(audioFailure?.failureId).toMatch(/^failure_[a-f0-9]{24}$/);
+    expect(audioFailure?.databaseReferenceIds).toEqual([
+      expect.stringMatching(/^sub_[a-f0-9]{24}$/),
+    ]);
+    expect(audioFailure?.legacyObjectIds).toEqual([
+      expect.stringMatching(/^obj_[a-f0-9]{24}$/),
+    ]);
+    expect(attachmentFailure).toMatchObject({
+      sourceKind: "public-url",
+      errorKind: "Error.SourceFetchFailed",
+      failurePhase: "request_failed",
+      httpStatusFamily: null,
+      databaseReferenceCount: 2,
+      listedLegacyObject: true,
+      listedLegacyObjectCount: 1,
+    });
+    expect(attachmentFailure?.databaseReferenceIds).toHaveLength(2);
+
+    const serialized = JSON.stringify(result);
+    for (const secret of [
+      diagnosticKey,
+      publicAudio,
+      publicAttachment,
+      "sub_public",
+      "asg_1",
+      "worksheet.pdf",
+      "secret provider detail",
+    ]) {
+      expect(serialized).not.toContain(secret);
+    }
+
+    const sameKeyRerun = await runMediaMigration({
+      client,
+      apply: false,
+      backupConfirmed: false,
+      diagnostics: true,
+      diagnosticKey,
+      config,
+      ...dependencies,
+    });
+    expect(sameKeyRerun.diagnostics?.validationFailures).toEqual(
+      result.diagnostics?.validationFailures
+    );
+
+    const differentKeyRerun = await runMediaMigration({
+      client,
+      apply: false,
+      backupConfirmed: false,
+      diagnostics: true,
+      diagnosticKey: "different-diagnostic-key-material!!",
+      config,
+      ...dependencies,
+    });
+    expect(differentKeyRerun.diagnostics?.validationFailures.map((item) => item.failureId)).not.toEqual(
+      result.diagnostics?.validationFailures.map((item) => item.failureId)
+    );
   });
 
   it("reports only allowlisted validation categories without leaking error messages", async () => {

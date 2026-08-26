@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@libsql/client";
 import { BlobNotFoundError, del, get, head, list, put } from "@vercel/blob";
@@ -10,17 +10,41 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 const PUBLIC_BLOB_SUFFIX = ".public.blob.vercel-storage.com";
 const MEDIA_ERROR_DETAILS = Symbol("mediaErrorDetails");
+const SOURCE_FETCH_DETAILS = Symbol("sourceFetchDetails");
+const DIAGNOSTIC_KEY_MIN_BYTES = 32;
+const DIAGNOSTIC_REFERENCE_LIMIT = 100;
+const SOURCE_FETCH_MAX_ATTEMPTS = 3;
+const SOURCE_FETCH_BACKOFF_MS = [100, 250];
+
+/**
+ * @typedef {object} ValidationFailureDiagnostic
+ * @property {string} failureId
+ * @property {string} objectClass
+ * @property {string} sourceKind
+ * @property {string} errorKind
+ * @property {string} failurePhase
+ * @property {string | null} httpStatusFamily
+ * @property {number} databaseReferenceCount
+ * @property {string[]} databaseReferenceIds
+ * @property {number} databaseReferenceIdsTruncated
+ * @property {boolean} listedLegacyObject
+ * @property {number} listedLegacyObjectCount
+ * @property {string[]} legacyObjectIds
+ * @property {number} legacyObjectIdsTruncated
+ */
 const SAFE_ERROR_CODES = new Set([
   "AttachmentTypeMismatch",
   "ConflictingAttachmentTypes",
   "InvalidBase64",
   "InvalidDataUrl",
+  "InvalidEnvironment.MEDIA_MIGRATION_DIAGNOSTIC_KEY",
   "InvalidPrivateUploadResult",
   "LegacyStorePaginationLimit",
   "LegacyStorePaginationStalled",
   "MissingEnvironment.AUDIO_BLOB_STORE_ID",
   "MissingEnvironment.AUDIO_READ_WRITE_TOKEN",
   "MissingEnvironment.BLOB_READ_WRITE_TOKEN",
+  "MissingEnvironment.MEDIA_MIGRATION_DIAGNOSTIC_KEY",
   "MissingEnvironment.TURSO_AUTH_TOKEN",
   "MissingEnvironment.TURSO_DATABASE_URL",
   "MediaSignatureMismatch",
@@ -87,6 +111,12 @@ function digest(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+function opaqueDiagnosticId(key, prefix, ...values) {
+  const hmac = createHmac("sha256", key).update("tryhabla-media-diagnostic-v1\0", "utf8");
+  for (const value of values) hmac.update(stringValue(value), "utf8").update("\0", "utf8");
+  return `${prefix}_${hmac.digest("hex").slice(0, 24)}`;
+}
+
 function isBlobMissing(error) {
   return error instanceof BlobNotFoundError || (error instanceof Error && error.name === "BlobNotFoundError");
 }
@@ -122,6 +152,37 @@ function mediaValidationError(code, claimedType, detectedType = "") {
   const error = new TypeError(code);
   error[MEDIA_ERROR_DETAILS] = { claimedType, detectedType };
   return error;
+}
+
+function sourceFetchError(phase, status = 0) {
+  const error = new Error("SourceFetchFailed");
+  const numericStatus = Number(status);
+  const retryableHttpStatus =
+    numericStatus === 408 ||
+    numericStatus === 425 ||
+    numericStatus === 429 ||
+    (numericStatus >= 500 && numericStatus <= 599);
+  error[SOURCE_FETCH_DETAILS] = {
+    phase,
+    retryable:
+      phase === "request_failed" ||
+      phase === "request_timeout" ||
+      phase === "body_read_failed" ||
+      (phase === "http_status" && retryableHttpStatus),
+    httpStatusFamily:
+      Number.isInteger(numericStatus) && numericStatus >= 100 && numericStatus <= 599
+        ? `${Math.floor(numericStatus / 100)}xx`
+        : null,
+  };
+  return error;
+}
+
+function isRetryableSourceFetchError(error) {
+  return error instanceof Error && error[SOURCE_FETCH_DETAILS]?.retryable === true;
+}
+
+async function defaultSleep(milliseconds) {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function inspectMediaBuffer(buffer, claimedType, typeMap, maxBytes) {
@@ -190,17 +251,22 @@ function mediaTypeFromPathname(value, typeMap) {
   return "";
 }
 
-async function fetchLegacyMedia(source, options) {
+async function fetchLegacyMediaOnce(source, options) {
   let response;
   try {
     response = await options.fetchImpl(source, {
-      redirect: "error",
+      // Never follow a legacy source off its already-validated Blob origin. Manual
+      // mode preserves that boundary while diagnostics can classify a 3xx safely.
+      redirect: "manual",
       signal: AbortSignal.timeout(30_000),
     });
-  } catch {
-    throw new Error("SourceFetchFailed");
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    throw sourceFetchError(
+      name === "AbortError" || name === "TimeoutError" ? "request_timeout" : "request_failed"
+    );
   }
-  if (!response.ok) throw new Error("SourceFetchFailed");
+  if (!response.ok) throw sourceFetchError("http_status", response.status);
   const declaredLength = Number(response.headers.get("content-length") || "0");
   if (Number.isFinite(declaredLength) && declaredLength > options.maxBytes) {
     throw new RangeError("MediaTooLarge");
@@ -209,13 +275,27 @@ async function fetchLegacyMedia(source, options) {
   try {
     buffer = Buffer.from(await response.arrayBuffer());
   } catch {
-    throw new Error("SourceFetchFailed");
+    throw sourceFetchError("body_read_failed");
   }
   if (buffer.byteLength > options.maxBytes) throw new RangeError("MediaTooLarge");
   const headerType = normalizeMediaType(response.headers.get("content-type"));
   const pathType = mediaTypeFromPathname(source, options.typeMap);
   const claimedType = options.typeMap.has(headerType) ? headerType : pathType || headerType;
   return inspectMediaBuffer(buffer, claimedType, options.typeMap, options.maxBytes);
+}
+
+async function fetchLegacyMedia(source, options) {
+  for (let attempt = 1; attempt <= SOURCE_FETCH_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fetchLegacyMediaOnce(source, options);
+    } catch (error) {
+      if (attempt === SOURCE_FETCH_MAX_ATTEMPTS || !isRetryableSourceFetchError(error)) {
+        throw error;
+      }
+      await (options.sleepImpl ?? defaultSleep)(SOURCE_FETCH_BACKOFF_MS[attempt - 1]);
+    }
+  }
+  throw new Error("SourceFetchFailed");
 }
 
 async function readPrivateMedia(pathname, options) {
@@ -293,13 +373,14 @@ function classifyAttachmentRow(row) {
   else if (source && isPrivatePath(source, "assignment-attachments/")) kind = "private";
   else if (source) kind = "unsupported";
   return {
+    id: stringValue(row.id),
     source,
     kind,
     contentType: normalizeMediaType(row.attachmentContentType),
   };
 }
 
-function emptyResult(apply) {
+function emptyResult(apply, diagnostics = false) {
   return {
     mode: apply ? "apply" : "dry-run",
     inventory: {
@@ -348,6 +429,16 @@ function emptyResult(apply) {
     },
     remaining: null,
     errorKinds: {},
+    ...(diagnostics
+      ? {
+          diagnostics: {
+            schemaVersion: 1,
+            scope: "legacy-source-validation",
+            identifierScheme: "hmac-sha256-v1",
+            validationFailures: /** @type {ValidationFailureDiagnostic[]} */ ([]),
+          },
+        }
+      : {}),
   };
 }
 
@@ -357,6 +448,7 @@ export function parseMigrationArgs(args) {
     "--backup-confirmed",
     "--legacy-media-backup-confirmed",
     "--dry-run",
+    "--diagnostics",
     "--help",
   ]);
   const unknown = args.filter((arg) => !known.has(arg));
@@ -365,7 +457,9 @@ export function parseMigrationArgs(args) {
   const explicitDryRun = args.includes("--dry-run");
   const backupConfirmed = args.includes("--backup-confirmed");
   const legacyMediaBackupConfirmed = args.includes("--legacy-media-backup-confirmed");
+  const diagnostics = args.includes("--diagnostics");
   if (apply && explicitDryRun) throw new Error("Choose either --apply or --dry-run, not both.");
+  if (apply && diagnostics) throw new Error("--diagnostics is valid only in dry-run mode.");
   if (apply && !backupConfirmed) {
     throw new Error("Apply mode requires --backup-confirmed after verifying a current database backup.");
   }
@@ -382,6 +476,7 @@ export function parseMigrationArgs(args) {
     apply,
     backupConfirmed,
     legacyMediaBackupConfirmed,
+    diagnostics,
     help: args.includes("--help"),
   };
 }
@@ -405,6 +500,16 @@ export function readMigrationConfig(env) {
     legacyToken: requireEnv(env, "BLOB_READ_WRITE_TOKEN"),
   };
   return config;
+}
+
+export function readMigrationDiagnosticKey(env) {
+  const key = requireEnv(env, "MEDIA_MIGRATION_DIAGNOSTIC_KEY");
+  if (Buffer.byteLength(key, "utf8") < DIAGNOSTIC_KEY_MIN_BYTES) {
+    const error = new Error("InvalidEnvironment.MEDIA_MIGRATION_DIAGNOSTIC_KEY");
+    error.name = "MigrationConfigError";
+    throw error;
+  }
+  return key;
 }
 
 async function readInventory(client) {
@@ -540,6 +645,60 @@ function auditLegacyStore(objects, inventory, journal) {
   };
 }
 
+function recordValidationFailure(result, input) {
+  if (!result.diagnostics) return;
+  const databasePrefix = input.objectClass === "audio" ? "sub" : "asg";
+  const databaseReferenceIds = [
+    ...new Set(
+      input.items
+        .map((item) => stringValue(item.id))
+        .filter(Boolean)
+        .map((id) => opaqueDiagnosticId(input.diagnosticKey, databasePrefix, input.objectClass, id))
+    ),
+  ].sort();
+  const matchingLegacyObjects = input.legacyObjects.filter(
+    (object) => object.objectClass === input.objectClass && object.url === input.source
+  );
+  const legacyObjectIds = [
+    ...new Set(
+      matchingLegacyObjects.map((object) =>
+        opaqueDiagnosticId(
+          input.diagnosticKey,
+          "obj",
+          input.objectClass,
+          object.pathname,
+          object.url
+        )
+      )
+    ),
+  ].sort();
+  const fetchDetails = input.error instanceof Error ? input.error[SOURCE_FETCH_DETAILS] : null;
+  result.diagnostics.validationFailures.push({
+    failureId: opaqueDiagnosticId(
+      input.diagnosticKey,
+      "failure",
+      input.objectClass,
+      input.sourceKind,
+      input.source
+    ),
+    objectClass: input.objectClass,
+    sourceKind: input.sourceKind,
+    errorKind: safeErrorKind(input.error),
+    failurePhase: fetchDetails?.phase ?? "validation",
+    httpStatusFamily: fetchDetails?.httpStatusFamily ?? null,
+    databaseReferenceCount: input.items.length,
+    databaseReferenceIds: databaseReferenceIds.slice(0, DIAGNOSTIC_REFERENCE_LIMIT),
+    databaseReferenceIdsTruncated: Math.max(
+      0,
+      databaseReferenceIds.length - DIAGNOSTIC_REFERENCE_LIMIT
+    ),
+    listedLegacyObject: matchingLegacyObjects.length > 0,
+    listedLegacyObjectCount: matchingLegacyObjects.length,
+    legacyObjectIds: legacyObjectIds.slice(0, DIAGNOSTIC_REFERENCE_LIMIT),
+    legacyObjectIdsTruncated: Math.max(0, legacyObjectIds.length - DIAGNOSTIC_REFERENCE_LIMIT),
+  });
+}
+
 async function transactionallySwap(client, update, journal) {
   const tx = await client.transaction("write");
   try {
@@ -620,6 +779,7 @@ async function migrateAudioItem(client, item, dependencies, result) {
   if (item.kind === "public-url") {
     media = await fetchLegacyMedia(item.source, {
       fetchImpl: dependencies.fetchImpl,
+      sleepImpl: dependencies.sleepImpl,
       maxBytes: MAX_AUDIO_BYTES,
       typeMap: audioTypes,
     });
@@ -700,6 +860,7 @@ async function migrateAttachmentGroup(client, items, dependencies, result) {
   if (items[0].kind === "public-url") {
     media = await fetchLegacyMedia(source, {
       fetchImpl: dependencies.fetchImpl,
+      sleepImpl: dependencies.sleepImpl,
       maxBytes: MAX_ATTACHMENT_BYTES,
       typeMap: attachmentTypes,
     });
@@ -798,35 +959,51 @@ async function runTasksWithConcurrency(tasks, limit = 6) {
   await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, () => worker()));
 }
 
-async function validateDryRun(inventory, fetchImpl, result) {
+async function validateDryRun(inventory, dependencies, result, diagnosticContext = null) {
   const tasks = [];
-  const seenAudioSources = new Set();
+  const audioGroups = new Map();
   for (const item of inventory.audio) {
     const shouldCheck = ["public-url", "blob-data-url", "audio-data-url"].includes(item.kind);
     const redundantOnly = item.kind === "private" && item.hasRedundantData;
     if (!shouldCheck && !redundantOnly) continue;
     const source = redundantOnly ? item.audioData : item.source;
-    const key = `${item.kind}:${source}`;
-    if (seenAudioSources.has(key)) continue;
-    seenAudioSources.add(key);
+    const sourceKind = redundantOnly ? "redundant-audio-data" : item.kind;
+    const key = `${sourceKind}:${source}`;
+    const group = audioGroups.get(key) ?? { items: [], source, sourceKind };
+    group.items.push(item);
+    audioGroups.set(key, group);
+  }
+  for (const group of audioGroups.values()) {
+    const item = group.items[0];
     tasks.push(async () => {
       result.validation.sourcesChecked++;
       try {
         let media;
         if (item.kind === "public-url") {
-          media = await fetchLegacyMedia(source, {
-            fetchImpl,
+          media = await fetchLegacyMedia(group.source, {
+            fetchImpl: dependencies.fetchImpl,
+            sleepImpl: dependencies.sleepImpl,
             maxBytes: MAX_AUDIO_BYTES,
             typeMap: audioTypes,
           });
         } else {
-          media = parseBase64DataUrl(source, audioTypes, MAX_AUDIO_BYTES);
+          media = parseBase64DataUrl(group.source, audioTypes, MAX_AUDIO_BYTES);
         }
         recordMediaTypeFinding(result, media.claimedType, media.contentType);
         result.validation.ready++;
       } catch (error) {
         result.validation.failed++;
         incrementError(result, error);
+        if (diagnosticContext) {
+          recordValidationFailure(result, {
+            ...diagnosticContext,
+            objectClass: "audio",
+            sourceKind: group.sourceKind,
+            source: group.source,
+            items: group.items,
+            error,
+          });
+        }
       }
     });
   }
@@ -848,7 +1025,8 @@ async function validateDryRun(inventory, fetchImpl, result) {
         const media =
           items[0].kind === "public-url"
             ? await fetchLegacyMedia(source, {
-                fetchImpl,
+                fetchImpl: dependencies.fetchImpl,
+                sleepImpl: dependencies.sleepImpl,
                 maxBytes: MAX_ATTACHMENT_BYTES,
                 typeMap: attachmentTypes,
               })
@@ -862,6 +1040,16 @@ async function validateDryRun(inventory, fetchImpl, result) {
       } catch (error) {
         result.validation.failed++;
         incrementError(result, error);
+        if (diagnosticContext) {
+          recordValidationFailure(result, {
+            ...diagnosticContext,
+            objectClass: "attachment",
+            sourceKind: items[0].kind,
+            source: items[0].source,
+            items,
+            error,
+          });
+        }
       }
     });
   }
@@ -973,7 +1161,18 @@ async function deleteUnreferencedLegacyObjects(objects, dependencies, result) {
 }
 
 export async function runMediaMigration(options) {
-  const result = emptyResult(options.apply);
+  if (options.apply && options.diagnostics) {
+    throw new Error("--diagnostics is valid only in dry-run mode.");
+  }
+  if (
+    options.diagnostics &&
+    Buffer.byteLength(stringValue(options.diagnosticKey), "utf8") < DIAGNOSTIC_KEY_MIN_BYTES
+  ) {
+    const error = new Error("InvalidEnvironment.MEDIA_MIGRATION_DIAGNOSTIC_KEY");
+    error.name = "MigrationConfigError";
+    throw error;
+  }
+  const result = emptyResult(options.apply, options.diagnostics);
   const inventory = await readInventory(options.client);
   summarizeInventory(result, inventory);
   const privateOptions = {
@@ -983,6 +1182,7 @@ export async function runMediaMigration(options) {
   const dependencies = {
     blob: options.blob ?? { put, del, get, head, list },
     fetchImpl: options.fetchImpl ?? fetch,
+    sleepImpl: options.sleepImpl ?? defaultSleep,
     legacyToken: options.config.legacyToken,
     privateOptions,
   };
@@ -1006,7 +1206,22 @@ export async function runMediaMigration(options) {
       }
     }
     result.legacyStore.remainingInScope = initialLegacyAudit.inScope.length;
-    await validateDryRun(inventory, dependencies.fetchImpl, result);
+    await validateDryRun(
+      inventory,
+      dependencies,
+      result,
+      options.diagnostics
+        ? {
+            diagnosticKey: options.diagnosticKey,
+            legacyObjects: initialLegacyObjects,
+          }
+        : null
+    );
+    if (result.diagnostics) {
+      result.diagnostics.validationFailures.sort((left, right) =>
+        left.failureId.localeCompare(right.failureId)
+      );
+    }
     await validatePrivateReferences(inventory, dependencies, result);
     return result;
   }
@@ -1117,13 +1332,19 @@ function printHelp() {
 
 Usage:
   node scripts/migrate-public-audio-to-private.mjs
+  node scripts/migrate-public-audio-to-private.mjs --diagnostics
   node scripts/migrate-public-audio-to-private.mjs --apply --backup-confirmed --legacy-media-backup-confirmed
 
 Dry-run requires TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, AUDIO_BLOB_STORE_ID,
 AUDIO_READ_WRITE_TOKEN, and the legacy public-store BLOB_READ_WRITE_TOKEN so it
 can validate private references and inventory every in-scope public object. Apply
 writes only after a current database backup and a recoverable backup/export of
-both legacy Blob prefixes are confirmed with the two explicit safety flags.`);
+both legacy Blob prefixes are confirmed with the two explicit safety flags.
+
+--diagnostics is dry-run only and additionally requires a temporary, random
+MEDIA_MIGRATION_DIAGNOSTIC_KEY of at least 32 bytes. It prints keyed opaque IDs,
+safe source classes, and failure phases for legacy-source validation failures.
+It never prints database IDs, paths, URLs, media, or provider error messages.`);
 }
 
 async function main() {
@@ -1133,6 +1354,7 @@ async function main() {
     return;
   }
   const config = readMigrationConfig(process.env);
+  const diagnosticKey = args.diagnostics ? readMigrationDiagnosticKey(process.env) : "";
   const client = createClient({ url: config.tursoUrl, authToken: config.tursoToken });
   try {
     const result = await runMediaMigration({
@@ -1140,6 +1362,8 @@ async function main() {
       apply: args.apply,
       backupConfirmed: args.backupConfirmed,
       legacyMediaBackupConfirmed: args.legacyMediaBackupConfirmed,
+      diagnostics: args.diagnostics,
+      diagnosticKey,
       config,
     });
     console.log(JSON.stringify(result, null, 2));
