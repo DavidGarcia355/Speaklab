@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   cleanupFailedMediaRecorderStart,
   describeMicrophoneAccessFailure,
+  selectSupportedAudioMimeType,
 } from "@/lib/media-recorder-safety";
 import {
   AUDIO_RECORDING_AUTO_STOP_BYTES,
@@ -11,6 +12,38 @@ import {
   MAX_AUDIO_UPLOAD_BYTES,
   shouldAutoStopAudioRecording,
 } from "@/lib/upload-limits";
+
+describe("MediaRecorder MIME selection", () => {
+  it.each([
+    [
+      "prefers Opus WebM when every format is supported",
+      ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"],
+      "audio/webm;codecs=opus",
+    ],
+    [
+      "prefers plain WebM over MP4 and Ogg",
+      ["audio/webm", "audio/mp4", "audio/ogg;codecs=opus"],
+      "audio/webm",
+    ],
+    [
+      "prefers MP4 over Ogg when WebM is unavailable",
+      ["audio/mp4", "audio/ogg;codecs=opus"],
+      "audio/mp4",
+    ],
+    ["uses Ogg when it is the only supported format", ["audio/ogg;codecs=opus"], "audio/ogg;codecs=opus"],
+  ])("%s", (_scenario, supportedTypes, expected) => {
+    const supported = new Set(supportedTypes);
+
+    expect(selectSupportedAudioMimeType((mimeType) => supported.has(mimeType))).toBe(expected);
+  });
+
+  it("returns an empty MIME type when MediaRecorder supports none of the candidates", () => {
+    const isTypeSupported = vi.fn(() => false);
+
+    expect(selectSupportedAudioMimeType(isTypeSupported)).toBe("");
+    expect(isTypeSupported).toHaveBeenCalledTimes(4);
+  });
+});
 
 describe("MediaRecorder failure cleanup", () => {
   it("stops every acquired track and clears recorder, stream, and timer refs", () => {

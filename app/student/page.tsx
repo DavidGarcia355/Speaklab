@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { CircleCheck, Clock3, Mic2, Sparkles, Trash2 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
 import ConfirmModal from "@/app/components/ConfirmModal";
-import GoogleSignInLink from "@/app/components/GoogleSignInLink";
+import SignInLink from "@/app/components/SignInLink";
 import PageTitle from "@/app/components/PageTitle";
 import {
   studentGradeProvenance,
@@ -219,9 +219,9 @@ export default function StudentDashboardPage() {
           <h1>Sign in to view your submissions</h1>
           <p>After you sign in, you can see all your recordings, grades, and feedback in one place.</p>
           <div className="actions hero-actions">
-            <GoogleSignInLink className="btn btn-primary" callbackUrl="/student">
+            <SignInLink className="btn btn-primary" callbackUrl="/student">
               Sign in
-            </GoogleSignInLink>
+            </SignInLink>
             <Link className="btn btn-ghost" href="/">
               Back home
             </Link>

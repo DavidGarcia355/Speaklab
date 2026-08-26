@@ -7215,6 +7215,11 @@ html.dark .pricing-estimate-head {
   text-underline-offset: 0.2em;
 }
 
+.site-footer-links .site-footer-support {
+  color: #fff;
+  text-decoration: none;
+}
+
 .site-footer-links a:focus-visible,
 .legal-document a:focus-visible {
   outline: 2px solid var(--primary);

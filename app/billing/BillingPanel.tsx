@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, CreditCard, LoaderCircle, TriangleAlert } from "lucide-react";
-import GoogleSignInLink from "@/app/components/GoogleSignInLink";
+import SignInLink from "@/app/components/SignInLink";
 import {
   billingStatusConfirmsAccess,
   deriveBillingPresentation,
@@ -192,9 +192,9 @@ export default function BillingPanel() {
               : error}
           </p>
           {needsTeacherSignIn ? (
-            <GoogleSignInLink className="btn btn-primary" callbackUrl="/billing">
+            <SignInLink className="btn btn-primary" callbackUrl="/billing">
               Sign in as a teacher
-            </GoogleSignInLink>
+            </SignInLink>
           ) : (
             <button className="btn btn-ghost" type="button" onClick={() => void loadStatus()}>
               Try again

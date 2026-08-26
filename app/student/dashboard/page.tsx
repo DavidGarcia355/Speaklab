@@ -5,7 +5,7 @@ import Image from "next/image";
 import { ArrowRight, BookOpenCheck, CircleCheck, Clock3, School, Sparkles } from "lucide-react";
 import { authOptions } from "@/auth";
 import BrandBar from "@/app/components/BrandBar";
-import GoogleSignInLink from "@/app/components/GoogleSignInLink";
+import SignInLink from "@/app/components/SignInLink";
 import PageTitle from "@/app/components/PageTitle";
 import { listEnrolledClassesWithAssignmentsByEmail, type StudentEnrolledRow } from "@/lib/db";
 
@@ -68,9 +68,9 @@ export default async function StudentDashboardPage() {
             submit recordings without needing a direct link.
           </p>
           <div className="actions hero-actions">
-            <GoogleSignInLink className="btn btn-primary" callbackUrl="/student/dashboard">
+            <SignInLink className="btn btn-primary" callbackUrl="/student/dashboard">
               Sign in
-            </GoogleSignInLink>
+            </SignInLink>
             <Link className="btn btn-ghost" href="/">
               Back home
             </Link>

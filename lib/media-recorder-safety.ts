@@ -3,10 +3,23 @@ type StoppableTrack = { stop: () => void };
 type StoppableStream = { getTracks: () => StoppableTrack[] };
 
 export const RECORDER_START_FAILURE_MESSAGE =
-  "Microphone access was granted, but this browser couldn't start recording. Close other apps using the microphone, then try again in Safari or Chrome.";
+  "Microphone access was granted, but this browser couldn't start recording. Close other apps using the microphone, then try again in a current version of Chrome, Edge, Firefox, or Safari.";
 
 export const RECORDER_RUNTIME_FAILURE_MESSAGE =
-  "The browser stopped recording unexpectedly, so no recording was saved. Try again in Safari or Chrome.";
+  "The browser stopped recording unexpectedly, so no recording was saved. Try again in a current version of Chrome, Edge, Firefox, or Safari.";
+
+export const SUPPORTED_AUDIO_MIME_TYPES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+  "audio/ogg;codecs=opus",
+] as const;
+
+export function selectSupportedAudioMimeType(
+  isTypeSupported: (mimeType: string) => boolean
+) {
+  return SUPPORTED_AUDIO_MIME_TYPES.find((mimeType) => isTypeSupported(mimeType)) || "";
+}
 
 export function stopMediaStreamTracks(stream: StoppableStream | null | undefined) {
   if (!stream) return;

@@ -33,23 +33,36 @@ vi.mock("@/lib/http", () => ({
 }));
 
 describe("in-app browser detection", () => {
-  it("detects common embedded browsers that break Google OAuth", () => {
+  it("detects common embedded browsers that break OAuth", () => {
     expect(isInAppBrowser("Mozilla/5.0 Instagram 312.0.0.34.111")).toBe(true);
     expect(isInAppBrowser("Mozilla/5.0 FBAN/FBIOS FBAV/455.0.0.0.6")).toBe(true);
     expect(isInAppBrowser("Mozilla/5.0 Line/15.2.0")).toBe(true);
+    expect(
+      isInAppBrowser(
+        "Mozilla/5.0 (Linux; Android 15; Pixel 9 Build/AP4A.250205.002; wv) AppleWebKit/537.36 Version/4.0 Chrome/133.0.6943.49 Mobile Safari/537.36"
+      )
+    ).toBe(true);
   });
 
-  it("allows normal Safari and Chrome browsers", () => {
-    expect(
-      isInAppBrowser(
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.4 Safari/605.1.15"
-      )
-    ).toBe(false);
-    expect(
-      isInAppBrowser(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/134.0.0.0 Safari/537.36"
-      )
-    ).toBe(false);
+  it.each([
+    [
+      "Safari",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.4 Safari/605.1.15",
+    ],
+    [
+      "Chrome",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/134.0.0.0 Safari/537.36",
+    ],
+    [
+      "Edge",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0",
+    ],
+    [
+      "Firefox",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0",
+    ],
+  ])("allows normal %s browsers", (_browser, userAgent) => {
+    expect(isInAppBrowser(userAgent)).toBe(false);
   });
 });
 
@@ -102,12 +115,20 @@ describe("next auth sign-in guard", () => {
     expect(mocks.nextAuthHandler).not.toHaveBeenCalled();
   });
 
-  it("lets normal browser sign-in continue", async () => {
+  it.each([
+    [
+      "Edge",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0",
+    ],
+    [
+      "Firefox",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0",
+    ],
+  ])("lets normal %s sign-in continue", async (_browser, userAgent) => {
     const { GET } = await import("@/app/api/auth/[...nextauth]/route");
     const request = new Request("https://tryhabla.com/api/auth/signin/google?callbackUrl=/teacher", {
       headers: {
-        "user-agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/134.0.0.0 Safari/537.36",
+        "user-agent": userAgent,
       },
     });
 

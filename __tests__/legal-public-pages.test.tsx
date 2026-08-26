@@ -62,8 +62,11 @@ describe("pilot legal surface", () => {
     expect(markup).toContain('href="/privacy"');
     expect(markup).toContain('href="/terms"');
     expect(markup).toContain('href="/feedback"');
+    expect(markup).toContain('href="/about"');
+    expect(markup).toContain("My story &amp; donations");
     expect(markup).toContain("mailto:davidsgarcia325@gmail.com");
     expect(markup).toContain("currently offered as a teacher pilot");
+    expect(markup).not.toContain("paypal.me");
   });
 
   it("links the legal notice shown with Teacher Checkout", async () => {

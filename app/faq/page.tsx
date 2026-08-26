@@ -40,7 +40,7 @@ const FAQ_SECTIONS = [
       {
         question: "Do students need an account?",
         answer:
-          "Yes. Students sign in before submitting so TryHabla can attach the recording to the account email. Google sign-in is required in the base setup, and Microsoft sign-in is available only when the deployment is configured for it.",
+          "Yes. Students sign in before submitting so TryHabla can attach the recording to the account email. TryHabla supports Google school accounts and can also support Microsoft 365 school accounts when Microsoft sign-in is enabled. Students should use the exact school email their teacher added to the roster.",
       },
       {
         question: "How do students submit a recording?",
@@ -50,12 +50,12 @@ const FAQ_SECTIONS = [
       {
         question: "What devices and browsers work?",
         answer:
-          "Chrome and Edge on laptops and Chromebooks work best. Safari on iPhone and iPad works on modern iOS versions. Firefox works on desktop. Students should not use the built-in browser inside Google Classroom or other apps; if the mic button is grayed out, have them open the link in Chrome or Safari directly.",
+          "TryHabla supports current versions of Chrome, Edge, Firefox, and Safari on laptops, Chromebooks, phones, and tablets. Students should not use the embedded browser inside Google Classroom, social apps, or messaging apps; open the link in a standalone browser instead.",
       },
       {
         question: "What if the microphone does not work?",
         answer:
-          "First, make sure the student opened the link in Chrome or Safari, not inside another app. Second, the browser will ask for microphone permission and the student must allow it. Third, if permission was previously blocked, they need to reset it in browser site settings. On a Chromebook, check that the school has not blocked microphone access in device settings.",
+          "First, make sure the student opened the link in a current standalone version of Chrome, Edge, Firefox, or Safari, not inside another app. Second, the browser will ask for microphone permission and the student must allow it. Third, if permission was previously blocked, they need to reset it in browser site settings. On a Chromebook, check that the school has not blocked microphone access in device settings.",
       },
       {
         question: "What information does TryHabla store about students?",

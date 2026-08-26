@@ -9,6 +9,9 @@ export default function SiteFooter() {
           <strong>{APP_NAME}</strong> is currently offered as a teacher pilot.
         </p>
         <nav className="site-footer-links" aria-label="Legal and support links">
+          <Link className="btn btn-sm btn-primary site-footer-support" href="/about">
+            My story &amp; donations
+          </Link>
           <Link href="/privacy">Privacy</Link>
           <Link href="/terms">Terms</Link>
           <Link href="/feedback">Contact</Link>
