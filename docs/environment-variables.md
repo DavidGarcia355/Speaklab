@@ -80,7 +80,7 @@ blocker.
 
 | Name | Purpose | Required | Scope | Absent behavior |
 | --- | --- | --- | --- | --- |
-| `CRON_SECRET` | Authorizes cleanup cron route. | Required for production cleanup. | Server | Cleanup route denies requests. |
+| `CRON_SECRET` | Authorizes cleanup and Stripe usage-recovery cron work. | Required before Stripe usage billing or Checkout can be enabled. | Server | Stripe usage billing and Checkout fail closed; the cleanup route also denies requests. |
 
 ## School And Role Controls
 
@@ -102,7 +102,7 @@ blocker.
 | `AI_GRADING_PROVIDER` | Selects `openai`, `ollama`, or local `mock`. | Required for a reviewed launch | Server | Defaults to `openai` in production and local `ollama` otherwise; set it explicitly for deployments. |
 | `AI_TRANSCRIPTION_MODEL` | Exact transcription model ID. The repository candidate is `gpt-4o-mini-transcribe`, but it is not approved merely by appearing here. | Optional, but set explicitly for production AI | Server | Production defaults to `gpt-4o-transcribe`. The runtime honors an explicit value without silently substituting a different cost/behavior profile. |
 | `AI_GRADING_MODEL` | Legacy-compatible exact grading model setting used when `GRADING_DEFAULT_MODEL` is absent. | Optional, but set explicitly for production AI | Server | The provider-neutral setting takes precedence. The runtime does not silently replace explicit model IDs. |
-| `AI_ACCESS_MODE` | `paid` uses manual entitlements; `all` allows every authenticated teacher. | Optional | Server | Defaults to `paid`; production fails closed if `all` is combined with open teacher self-registration. |
+| `AI_ACCESS_MODE` | `paid` grants AI through either a manual pilot entitlement or an exact remotely verified active Stripe subscription; `all` allows every authenticated teacher. | Optional | Server | Defaults to `paid`; production fails closed if `all` is combined with open teacher self-registration. |
 | `AI_TEACHER_DENYLIST` | Comma-separated emergency account suspension list in either access mode. | Optional | Server | No accounts are denied. |
 | `AI_STUDENT_DATA_APPROVED` | Versioned operator attestation after student-data, disclosure, retention, school authorization, provider controls, and exact-model review. The current accepted value is `reviewed-2026-08-25`; the old boolean `true` is intentionally rejected. | Required for production AI | Server | Production provider calls fail closed and `/api/features` hides AI. Re-attest when the policy, provider, model set, or retention behavior materially changes. |
 | `AI_MONTHLY_BUDGET_USD` | App-side UTC-calendar-month reservation ceiling. | Required for production AI | Server | Defaults to `200`; zero fails configuration. |
@@ -134,6 +134,12 @@ blocker.
 | `OLLAMA_URL` | Prototype grading model endpoint. | Optional/experimental | Server | Defaults to local URL in prototype code only when AI is enabled. |
 | `OLLAMA_MODEL` | Prototype grading model name. | Optional/experimental | Server | Defaults to `llama3.2` in prototype code only when AI is enabled. |
 
+For the release that introduces the grading-attempt `delivery_status` lifecycle, keep
+`AI_GRADING_ENABLED=false` on the running production deployment before rollout and wait for all old
+instances and in-flight grading requests to drain. Deploy and verify the migration while AI remains
+off; enable AI only after every serving instance runs the new writer. This ordering prevents an old
+instance from creating an attempt that the new delivery finalizer or cleanup path could strand.
+
 The repository's low-cost candidate explicitly pins OpenAI providers,
 `AI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`, `GRADING_DEFAULT_MODEL=gpt-5-nano`,
 `GRADING_ESCALATION_MODEL=gpt-5-mini`, and `GRADING_AUDIO_STRATEGY=transcribe_then_grade` (plus the
@@ -144,10 +150,11 @@ record the exact chosen IDs before setting the versioned student-data gate.
 Provider-request limits and customer billing units are deliberately different. Transcription,
 grading, a bounded formatting retry, or escalation can create multiple provider requests for one
 logical result. The limits above bound that provider work. Stripe records at most one successful-grade
-unit for one valid, unique, non-cache, non-deterministic result; internal retries and failed provider
-requests do not create additional customer charges.
+unit for one valid, unique, non-deterministic teacher/assignment/recording identity. A first delivery
+may be billable when text grading came from cache; an exact recording retry, internal provider retry,
+or failed provider request does not create an additional customer charge.
 
-## Stripe Teacher AI Billing (v2)
+## Stripe Teacher AI Billing (price book v2, ledger v3)
 
 The active teacher price book is `habla-teacher-ai-usd-v2`: $0.05 per successful grade plus $0.01
 per processed audio minute. AI feedback is included and has no separate Stripe Price or environment
@@ -155,17 +162,35 @@ variable. Keep all Stripe values server-only; never expose them through a `NEXT_
 
 | Name | Purpose | Required | Scope | Absent behavior |
 | --- | --- | --- | --- | --- |
-| `STRIPE_BILLING_ENABLED` | Master switch for teacher AI Checkout, subscription access, and usage delivery. Enable it last. | Optional | Server | Defaults disabled; core Habla remains available and billing routes fail closed. |
-| `STRIPE_TEST_SECRET_KEY` | Test/sandbox credential used only by `scripts/stripe-setup.ts` to inspect or provision the v2 test catalog. | Required only for `npm run stripe:catalog:plan` and `npm run stripe:catalog:test:apply` | Local/server tooling | The catalog command cannot run. Live keys are rejected, and the runtime does not read this variable. |
-| `STRIPE_SECRET_KEY` | Runtime Stripe secret for Checkout, Portal, subscription lookup, meter events, and webhook support. | Required when billing is enabled | Server | Billing configuration is unavailable. Must be from the same Stripe mode/account as both configured Price IDs. |
-| `STRIPE_WEBHOOK_SECRET` | Signing secret for `/api/billing/webhook`. Local Stripe CLI listeners and deployed endpoints have different secrets. | Required when billing is enabled | Server | Billing configuration is unavailable and signed events cannot be projected. |
-| `STRIPE_AI_GRADE_PRICE_ID` | v2 monthly metered Price for `habla_ai_successful_grade` at 5 cents per unit. | Required when billing is enabled | Server | Billing configuration is unavailable. |
-| `STRIPE_AI_AUDIO_SECONDS_PRICE_ID` | v2 monthly metered Price for `habla_ai_audio_seconds` at `0.016666666667` cents per second, equivalent to 1 cent per minute. | Required when billing is enabled | Server | Billing configuration is unavailable. |
-| `STRIPE_AUTOMATIC_TAX_ENABLED` | Enables Stripe Automatic Tax on Checkout after the Stripe account is configured for it. | Optional | Server | Defaults to `false`. |
+| `STRIPE_USAGE_BILLING_ENABLED` | Enables Stripe-derived AI entitlement and usage-meter delivery after the exact v2 catalog has been verified. | Optional | Server | Defaults disabled. Manual pilot grants may still use AI, but Stripe subscriptions do not grant AI and no new billing markers are created. |
+| `STRIPE_CHECKOUT_ENABLED` | Enables creation of new teacher Checkout Sessions. Turn this on last, only while usage billing is also enabled. | Optional | Server | Defaults disabled. Existing signed webhooks and Customer Portal access remain available. |
+| `STRIPE_BILLING_ENABLED` | Removed legacy all-in-one switch. | No | Server | `true` is rejected so an old deployment setting cannot accidentally open Checkout. Use the two explicit flags above. |
+| `STRIPE_TEST_SECRET_KEY` | Test/sandbox credential used only by the catalog, Payment Method Configuration, and Customer Portal setup commands. | Required only for `stripe:catalog:*`, `stripe:payment-methods:*`, and `stripe:portal:*` setup commands | Local/server tooling | Setup cannot run. Live keys are rejected, and the runtime does not read this variable. |
+| `STRIPE_LIVE_SETUP_SECRET_KEY` | Temporary live secret or restricted key used only by the separately armed local live-provisioning tool. It must be able to retrieve the account and manage Products, Prices, Billing Meters, Payment Method Configurations, and Customer Portal configurations. Never put it in Vercel or reuse it as a browser-visible value. | Required only for an explicitly approved `stripe:live:setup` plan/apply | Local operator tooling only | The live setup tool cannot read or mutate Stripe. The runtime does not read this variable. |
+| `STRIPE_LIVE_SETUP_APPROVED` | Ephemeral operator approval gate for the live setup tool. The tool also requires production/live guards and exact command-line confirmations. | Required as `true` only during an approved live setup window | Local operator tooling only | Live setup refuses all remote reads and writes. Reset to `false` immediately after the verified post-apply plan. |
+| `STRIPE_ACCOUNT_ID` | Exact Stripe platform account ID (`acct_...`) bound to this deployment and its immutable billing contract. Setup and runtime remotely verify the credential resolves to this account before trusting Stripe resources. | Required for any Stripe billing operation or setup command | Server/tooling | Stripe-derived access, setup, Portal, usage, and Checkout fail closed. |
+| `STRIPE_TEST_PAYMENT_METHOD_CONFIGURATION_ID` | Tooling-only copy of the exact sandbox card-only Payment Method Configuration (`pmc_...`) that Portal setup is allowed to pin. | Required only for `stripe:portal:*` | Local/server tooling | Portal setup cannot run. The runtime does not read this variable. |
+| `STRIPE_SECRET_KEY` | Runtime Stripe secret or restricted key for Portal, subscription lookup, Checkout, meter events, and webhook support. | Required for any Stripe operation | Server | Stripe operations are unavailable. Test and live values must be scoped to separate deployments and must match the configured Price IDs. |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret for `/api/billing/webhook`. Local Stripe CLI listeners and deployed endpoints have different secrets. Keep it configured throughout every subscription's lifetime, even while Checkout or usage is paused. | Required for signed subscription projection | Server | Signed events cannot be projected; this is not a safe routine kill switch once subscriptions exist. |
+| `STRIPE_PAYMENT_METHOD_CONFIGURATION_ID` | Pinned, remotely verified active Payment Method Configuration (`pmc_...`) for the current Stripe mode. Its effective card preference must be `on`; every surfaced non-card method must be `off`. | Required for Customer Portal access and Checkout readiness | Server | Portal and new Checkout fail closed. |
+| `STRIPE_PORTAL_CONFIGURATION_ID` | Pinned, remotely verified Customer Portal v3 configuration ID (`bpc_...`) for the current Stripe mode. | Required for Customer Portal access | Server | Portal is unavailable, without disabling webhook processing, catalog verification, or other Stripe client operations. The v3 contract pins the card-only `pmc_...`, canonical billing return/privacy/terms URLs and headline, permits address/name/tax-ID and payment-card recovery, shows invoice history, and allows cancellation only at period end without proration. |
+| `STRIPE_AI_GRADE_PRICE_ID` | v2 monthly metered Price for `habla_ai_successful_grade` at 5 cents per unit. | Required for catalog verification, usage billing, and Checkout | Server | Stripe-derived AI access and new Checkout fail closed. |
+| `STRIPE_AI_AUDIO_SECONDS_PRICE_ID` | v2 monthly metered Price for `habla_ai_audio_seconds` at `0.016666666667` cents per second, equivalent to 1 cent per minute. | Required for catalog verification, usage billing, and Checkout | Server | Stripe-derived AI access and new Checkout fail closed. |
+| `STRIPE_AUTOMATIC_TAX_ENABLED` | Must remain `false` for this release. Automatic or manual tax requires a later reviewed billing-contract revision. | Required as `false` | Server | Any value other than `false` fails billing configuration closed. |
 | `STRIPE_ALLOW_LIVE` | Explicit live-mode safety gate. | Required as `true` only for an approved live launch | Server | Live keys are rejected. Live mode also requires `NODE_ENV=production`. |
 
-Both Price IDs must come from the same Stripe environment as `STRIPE_SECRET_KEY` and must carry the
-v2 catalog identity. The repository catalog command is intentionally test-only; live meters,
-Products, and Prices require a separately reviewed manual setup. Follow
-`docs/stripe-billing.md` before enabling billing.
+Both Price IDs, both pinned configuration IDs, the secret key, and `STRIPE_ACCOUNT_ID` must belong
+to the same Stripe environment and account. Habla derives an immutable billing-contract ID from
+that account, Stripe API version and mode, price book and catalog fingerprint, exact Price IDs,
+the false-only tax setting, and the card-only payment policy. An account, catalog, tax, or payment
+policy change therefore creates a new contract and old-contract rows cannot silently grant access
+or be auto-delivered. Only an exact `active` Stripe subscription grants paid access; `trialing` and
+all collection-problem states are non-entitled. The ordinary catalog, Payment Method Configuration,
+and Portal setup commands are intentionally test-only. The separate `stripe:live:setup` command is
+read-only by default and requires a live setup credential, `STRIPE_LIVE_SETUP_APPROVED=true`, every
+production/live safety gate, and exact account and price-book confirmations before it performs even
+a remote read; mutation additionally requires both explicit apply flags and the separate human
+approval in the live checklist. The catalog runtime verifier is
+read-only in both modes and requires an explicit live-read flag. Follow `docs/stripe-billing.md`
+before running live setup or enabling either billing flag.
 

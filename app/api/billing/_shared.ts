@@ -9,8 +9,14 @@ import {
 } from "@/lib/ai/config";
 import {
   StripeBillingConfigurationError,
-  requireStripeBillingConfig,
-  type StripeBillingConfig,
+  requireStripeCheckoutConfig,
+  requireStripeClientConfig,
+  requireStripePortalConfig,
+  requireStripeWebhookConfig,
+  type StripeCheckoutConfig,
+  type StripeClientConfig,
+  type StripePortalConfig,
+  type StripeWebhookConfig,
 } from "@/lib/billing";
 import { getEnv } from "@/lib/env";
 import {
@@ -19,15 +25,46 @@ import {
 } from "@/lib/grading/config";
 import { HttpError } from "@/lib/http";
 
-export function requireBillingConfigForApi(): StripeBillingConfig {
+function requireStripeCapabilityForApi<Config>(
+  load: () => Config,
+  unavailableMessage: string,
+): Config {
   try {
-    return requireStripeBillingConfig();
+    return load();
   } catch (error) {
     if (error instanceof StripeBillingConfigurationError) {
-      throw new HttpError(503, "Self-serve billing is not available for this deployment.");
+      throw new HttpError(503, unavailableMessage);
     }
     throw error;
   }
+}
+
+export function requireStripeCheckoutConfigForApi(): StripeCheckoutConfig {
+  return requireStripeCapabilityForApi(
+    () => requireStripeCheckoutConfig(),
+    "Self-serve billing is not available for this deployment.",
+  );
+}
+
+export function requireStripeClientConfigForApi(): StripeClientConfig {
+  return requireStripeCapabilityForApi(
+    () => requireStripeClientConfig(),
+    "Stripe billing controls are not available for this deployment.",
+  );
+}
+
+export function requireStripePortalConfigForApi(): StripePortalConfig {
+  return requireStripeCapabilityForApi(
+    () => requireStripePortalConfig(),
+    "Stripe billing controls are not available for this deployment.",
+  );
+}
+
+export function requireStripeWebhookConfigForApi(): StripeWebhookConfig {
+  return requireStripeCapabilityForApi(
+    () => requireStripeWebhookConfig(),
+    "Stripe webhook processing is not available for this deployment.",
+  );
 }
 
 export function getAiCheckoutAvailability(teacherEmail?: string) {

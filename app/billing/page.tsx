@@ -38,7 +38,12 @@ export default function BillingPage() {
           Voluntary PayPal support is completed on PayPal and does not activate AI. If this page
           explicitly offers Stripe self-service, Stripe handles checkout and card details. Habla
           stores only the identifiers and usage totals needed to provide the selected option, never
-          full card details.
+          full card details. Existing Stripe customers can use Manage billing for invoices, payment
+          methods, and cancellation, or email{" "}
+          <a href="mailto:davidsgarcia325@gmail.com?subject=Habla%20billing%20support">
+            davidsgarcia325@gmail.com
+          </a>{" "}
+          for billing support.
         </p>
       </section>
 

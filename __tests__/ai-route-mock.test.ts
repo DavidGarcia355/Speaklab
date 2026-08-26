@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { FinalizeAiGradeDeliveryResult } from "@/lib/db";
 
 const mocks = vi.hoisted(() => ({
   requireTeacherEmail: vi.fn(async () => "dev-teacher@local.test"),
@@ -28,6 +29,14 @@ const mocks = vi.hoisted(() => ({
     errorMessage: "",
     ...input,
   })),
+  finalizeAiGradeDelivery: vi.fn<
+    (_input: unknown) => Promise<FinalizeAiGradeDeliveryResult>
+  >(async () => ({
+    status: "applied",
+    billingRequired: false,
+  })),
+  markAiGradingAttemptNotApplicable: vi.fn(async () => true),
+  withholdAiGradingAttemptResult: vi.fn(async () => true),
   markAiGradingAttemptBillingRequired: vi.fn(async () => true),
   reserveAiBudget: vi.fn(async () => true),
   findValidGradingResultCache: vi.fn(async () => null),
@@ -76,6 +85,9 @@ vi.mock("@/lib/db", () => ({
   latestAiAttemptCreatedAt: mocks.latestAiAttemptCreatedAt,
   listAiGradingAttemptsForSubmission: mocks.listAiGradingAttemptsForSubmission,
   createAiGradingAttempt: mocks.createAiGradingAttempt,
+  finalizeAiGradeDelivery: mocks.finalizeAiGradeDelivery,
+  markAiGradingAttemptNotApplicable: mocks.markAiGradingAttemptNotApplicable,
+  withholdAiGradingAttemptResult: mocks.withholdAiGradingAttemptResult,
   markAiGradingAttemptBillingRequired: mocks.markAiGradingAttemptBillingRequired,
   applyAiGradeToSubmission: mocks.applyAiGradeToSubmission,
   reserveAiBudget: mocks.reserveAiBudget,
@@ -122,6 +134,15 @@ describe("AI grading mock route", () => {
     mocks.reserveAiBudget.mockReset();
     mocks.reserveAiBudget.mockResolvedValue(true);
     mocks.createAiGradingAttempt.mockClear();
+    mocks.finalizeAiGradeDelivery.mockReset();
+    mocks.finalizeAiGradeDelivery.mockResolvedValue({
+      status: "applied",
+      billingRequired: false,
+    });
+    mocks.markAiGradingAttemptNotApplicable.mockReset();
+    mocks.markAiGradingAttemptNotApplicable.mockResolvedValue(true);
+    mocks.withholdAiGradingAttemptResult.mockReset();
+    mocks.withholdAiGradingAttemptResult.mockResolvedValue(true);
     mocks.markAiGradingAttemptBillingRequired.mockClear();
     mocks.applyAiGradeToSubmission.mockClear();
     mocks.latestAiAttemptCreatedAt.mockReset();
@@ -148,11 +169,14 @@ describe("AI grading mock route", () => {
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ billingRequired: false }),
     );
-    expect(mocks.applyAiGradeToSubmission).toHaveBeenCalledWith(
-      "sub_1",
-      "dev-teacher@local.test",
-      expect.objectContaining({ grade: 8 }),
+    expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptId: "ai_1",
+        ownerEmail: "dev-teacher@local.test",
+        priceBookId: "habla-teacher-ai-usd-v2",
+      }),
     );
+    expect(mocks.applyAiGradeToSubmission).not.toHaveBeenCalled();
   }, 30_000);
 
   it("returns cooldown as a visible rate-limit state", async () => {
@@ -166,6 +190,27 @@ describe("AI grading mock route", () => {
 
     expect(response.status).toBe(429);
     expect(body.error).toContain("wait");
+  }, 30_000);
+
+  it("returns no attempt when atomic delivery is withheld", async () => {
+    mocks.finalizeAiGradeDelivery.mockResolvedValueOnce({
+      status: "not_applied",
+      billingRequired: false,
+      reason: "submission_changed",
+    });
+    const { POST } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/submissions/sub_1/ai-grade", { method: "POST" }),
+      { params: Promise.resolve({ submissionId: "sub_1" }) },
+    );
+    const body = (await response.json()) as { attempt: unknown; error: string };
+
+    expect(response.status).toBe(409);
+    expect(body.attempt).toBeNull();
+    expect(body.error).toContain("No AI result was delivered or billed");
+    expect(mocks.withholdAiGradingAttemptResult).toHaveBeenCalledOnce();
+    expect(mocks.listAiGradingAttemptsForSubmission).not.toHaveBeenCalled();
   }, 30_000);
 
   it("blocks a teacher on the emergency denylist before provider work", async () => {

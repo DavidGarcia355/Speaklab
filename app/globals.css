@@ -6995,6 +6995,26 @@ html.dark .pricing-estimate-head {
   margin-top: 1.6rem;
 }
 
+.billing-plan-terms {
+  margin-top: 1.35rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.billing-plan-terms strong {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.billing-plan-terms p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
 .billing-action-error {
   margin: 1rem 0 0;
 }
@@ -7012,6 +7032,12 @@ html.dark .pricing-estimate-head {
   color: var(--success);
   border-color: color-mix(in srgb, var(--success) 35%, var(--line));
   background: color-mix(in srgb, var(--success) 8%, var(--surface));
+}
+
+.billing-checkout-note.is-warning {
+  color: var(--status-warning-text);
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
 }
 
 .billing-availability-note {
@@ -7063,6 +7089,15 @@ html.dark .pricing-estimate-head {
 .billing-usage-card dd {
   margin: 0;
   font-weight: 800;
+}
+
+.billing-usage-caveat {
+  margin: 1rem 0 0;
+  padding-top: 0.85rem;
+  color: #b7c7d9;
+  border-top: 1px solid rgb(255 255 255 / 13%);
+  font-size: 0.82rem;
+  line-height: 1.55;
 }
 
 .billing-panel-loading,

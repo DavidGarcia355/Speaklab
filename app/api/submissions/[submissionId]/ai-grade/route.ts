@@ -162,13 +162,23 @@ export async function POST(
       );
     }
     if (outcome.status === "failed") {
-      const attempts = await listAiGradingAttemptsForSubmission(submissionId, teacherEmail, 1);
+      const resultWasWithheld = outcome.code === "result_not_delivered";
+      const attempts = resultWasWithheld
+        ? []
+        : await listAiGradingAttemptsForSubmission(submissionId, teacherEmail, 1);
       return NextResponse.json(
         {
           attempt: attempts[0] ? publicAttempt(attempts[0]) : null,
           error: outcome.message,
         },
-        { status: outcome.code === "no_speech_detected" ? 422 : 502 }
+        {
+          status:
+            outcome.code === "no_speech_detected"
+              ? 422
+              : resultWasWithheld
+                ? 409
+                : 502,
+        }
       );
     }
     return NextResponse.json({

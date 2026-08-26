@@ -16,9 +16,10 @@ const mocks = vi.hoisted(() => {
   };
 
   return {
-    applyAiGradeToSubmission: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+    finalizeAiGradeDelivery: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+    markAiGradingAttemptNotApplicable: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
+    withholdAiGradingAttemptResult: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     createAiGradingAttempt: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
-    markAiGradingAttemptBillingRequired: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     hasAudioTooLongFailure: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     fetchAuthorizedAudioBuffer: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
     toPublicAiError: vi.fn<(...args: unknown[]) => unknown>(),
@@ -35,9 +36,10 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("@/lib/db", () => ({
-  applyAiGradeToSubmission: mocks.applyAiGradeToSubmission,
+  finalizeAiGradeDelivery: mocks.finalizeAiGradeDelivery,
+  markAiGradingAttemptNotApplicable: mocks.markAiGradingAttemptNotApplicable,
+  withholdAiGradingAttemptResult: mocks.withholdAiGradingAttemptResult,
   createAiGradingAttempt: mocks.createAiGradingAttempt,
-  markAiGradingAttemptBillingRequired: mocks.markAiGradingAttemptBillingRequired,
   hasAudioTooLongFailure: mocks.hasAudioTooLongFailure,
 }));
 vi.mock("@/lib/billing", () => ({
@@ -72,7 +74,7 @@ const aiConfig: AiConfig = {
   gradingProvider: "mock",
   transcriptionModel: "whisper-1",
   gradingModel: "mock-cheap",
-  accessMode: "all",
+  accessMode: "paid",
   studentDataApproved: true,
   teacherDenylist: new Set(),
   ollamaBaseUrl: "http://127.0.0.1:11434",
@@ -250,16 +252,14 @@ const expectedRubricScores = [
 ];
 
 function expectAppliedWholePointGrade() {
-  expect(mocks.applyAiGradeToSubmission).toHaveBeenCalledOnce();
-  expect(mocks.applyAiGradeToSubmission).toHaveBeenCalledWith(
-    "submission-1",
-    "teacher@example.com",
-    {
-      grade: 8,
-      feedback: "Clear explanation; make the evidence more specific.",
-      rubricScores: expectedRubricScores,
-    },
-  );
+  expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledOnce();
+  expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledWith({
+    attemptId: "attempt-1",
+    ownerEmail: "teacher@example.com",
+    priceBookId: "habla-teacher-ai-usd-v2",
+    billingCandidate: true,
+    allowUnmeteredAccess: false,
+  });
 }
 
 describe("automatic AI grade persistence", () => {
@@ -282,8 +282,14 @@ describe("automatic AI grade persistence", () => {
       totalMicrousd: 5,
       costKnown: true,
     });
-    mocks.applyAiGradeToSubmission.mockResolvedValue({ id: "submission-1" });
-    mocks.markAiGradingAttemptBillingRequired.mockResolvedValue(true);
+    mocks.finalizeAiGradeDelivery.mockImplementation(async (input) => ({
+      status: "applied",
+      billingRequired: Boolean((input as { billingCandidate?: boolean }).billingCandidate),
+    }));
+    mocks.markAiGradingAttemptNotApplicable.mockReset();
+    mocks.markAiGradingAttemptNotApplicable.mockResolvedValue(true);
+    mocks.withholdAiGradingAttemptResult.mockReset();
+    mocks.withholdAiGradingAttemptResult.mockResolvedValue(true);
     mocks.recordDeliveredAiUsageSafely.mockResolvedValue({ status: "disabled", usage: null });
     mocks.createAiGradingAttempt.mockImplementation(async (input) => ({
       id: "attempt-1",
@@ -344,17 +350,13 @@ describe("automatic AI grade persistence", () => {
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ billingRequired: false, durationSeconds: 30 }),
     );
-    expect(mocks.markAiGradingAttemptBillingRequired).toHaveBeenCalledWith({
-      attemptId: "attempt-1",
-      ownerEmail: "teacher@example.com",
-      priceBookId: "habla-teacher-ai-usd-v2",
-    });
     expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith({
       teacherEmail: "teacher@example.com",
-      cacheKey: "direct-cache-key",
+      cacheKey: expect.stringMatching(/^[a-f0-9]{64}$/),
       attemptId: "attempt-1",
       submissionId: "submission-1",
       durationSeconds: 30,
+      occurredAt: 1,
     });
   });
 
@@ -381,14 +383,111 @@ describe("automatic AI grade persistence", () => {
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ billingRequired: false }),
     );
-    expect(mocks.markAiGradingAttemptBillingRequired).toHaveBeenCalledWith({
-      attemptId: "attempt-1",
-      ownerEmail: "teacher@example.com",
-      priceBookId: "habla-teacher-ai-usd-v2",
-    });
     expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith(
-      expect.objectContaining({ cacheKey: "text-cache-key" }),
+      expect.objectContaining({ cacheKey: expect.stringMatching(/^[a-f0-9]{64}$/) }),
     );
+  });
+
+  it("uses stable assignment and recording identity across grading-cache changes", async () => {
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "transcribe_then_grade",
+      model: gradingConfig.defaultModel,
+      upload: "transcription_provider",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.runGradingPipeline
+      .mockResolvedValueOnce(
+        textResult(undefined, { cacheHit: true, cacheKey: "shared-text-result-v1" }),
+      )
+      .mockResolvedValueOnce(
+        textResult(undefined, { cacheHit: true, cacheKey: "shared-text-result-v1" }),
+      )
+      .mockResolvedValueOnce(
+        textResult(undefined, { cacheHit: false, cacheKey: "changed-model-and-prompt-v2" }),
+      )
+      .mockResolvedValueOnce(
+        textResult(undefined, { cacheHit: true, cacheKey: "changed-model-and-prompt-v2" }),
+      );
+    mocks.fetchAuthorizedAudioBuffer
+      .mockResolvedValueOnce({
+        buffer: Buffer.from("first recording"),
+        contentType: "audio/webm",
+        storageMode: "private-blob",
+      })
+      .mockResolvedValueOnce({
+        buffer: Buffer.from("second recording"),
+        contentType: "audio/webm",
+        storageMode: "private-blob",
+      })
+      .mockResolvedValueOnce({
+        buffer: Buffer.from("first recording"),
+        contentType: "audio/webm",
+        storageMode: "private-blob",
+      })
+      .mockResolvedValueOnce({
+        buffer: Buffer.from("first recording"),
+        contentType: "audio/webm",
+        storageMode: "private-blob",
+      });
+
+    await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission({ submissionId: "submission-recording-1" }),
+    });
+    await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission({ submissionId: "submission-recording-2" }),
+    });
+    await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission({ submissionId: "submission-recording-retry" }),
+    });
+    await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission({
+        submissionId: "submission-assignment-changed",
+        instructions: "Use two pieces of evidence.",
+      }),
+    });
+
+    const deliveryKeys = mocks.createAiGradingAttempt.mock.calls.map(
+      ([input]) => (input as { cacheKey: string }).cacheKey,
+    );
+    expect(deliveryKeys).toHaveLength(4);
+    expect(deliveryKeys[0]).toMatch(/^[a-f0-9]{64}$/);
+    expect(deliveryKeys[1]).not.toBe(deliveryKeys[0]);
+    expect(deliveryKeys[2]).toBe(deliveryKeys[0]);
+    expect(deliveryKeys[3]).not.toBe(deliveryKeys[0]);
+  });
+
+  it("delivers an unmetered grade only when the atomic finalizer authorizes it", async () => {
+    mocks.finalizeAiGradeDelivery.mockResolvedValue({
+      status: "applied",
+      billingRequired: false,
+    });
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "gemini_direct",
+      model: gradingConfig.audioModel,
+      upload: "inline",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.runDirectAudioGradingPipeline.mockResolvedValue(directResult());
+
+    const outcome = await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission(),
+    });
+
+    expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
+    expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledOnce();
+    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
   });
 
   it("bills direct audio from final-call AUDIO tokens instead of model-reported duration", async () => {
@@ -444,7 +543,7 @@ describe("automatic AI grade persistence", () => {
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ billingRequired: false, durationSeconds: 0 }),
     );
-    expect(mocks.markAiGradingAttemptBillingRequired).toHaveBeenCalledOnce();
+    expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledOnce();
     expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith(
       expect.objectContaining({ durationSeconds: 0 }),
     );
@@ -473,7 +572,7 @@ describe("automatic AI grade persistence", () => {
       teacherAttention: "unable_to_grade",
       gradeApplied: false,
     });
-    expect(mocks.applyAiGradeToSubmission).not.toHaveBeenCalled();
+    expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
     expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
   });
 
@@ -511,7 +610,7 @@ describe("automatic AI grade persistence", () => {
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ autoApplicable: false }),
     );
-    expect(mocks.applyAiGradeToSubmission).not.toHaveBeenCalled();
+    expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
     expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
   });
 
@@ -547,7 +646,7 @@ describe("automatic AI grade persistence", () => {
         ]),
       }),
     );
-    expect(mocks.applyAiGradeToSubmission).not.toHaveBeenCalled();
+    expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
     expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
   });
 
@@ -586,7 +685,7 @@ describe("automatic AI grade persistence", () => {
         ]),
       }),
     );
-    expect(mocks.applyAiGradeToSubmission).not.toHaveBeenCalled();
+    expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
     expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
   });
 
@@ -619,7 +718,7 @@ describe("automatic AI grade persistence", () => {
         ]),
       }),
     );
-    expect(mocks.applyAiGradeToSubmission).not.toHaveBeenCalled();
+    expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
     expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
   });
 
@@ -639,9 +738,12 @@ describe("automatic AI grade persistence", () => {
       data: submission({ finalGrade: 6, finalFeedback: "Teacher feedback" }),
     });
 
-    expect(outcome).toMatchObject({ status: "completed", gradeApplied: false });
-    expect(mocks.applyAiGradeToSubmission).not.toHaveBeenCalled();
-    expect(mocks.markAiGradingAttemptBillingRequired).not.toHaveBeenCalled();
+    expect(outcome).toMatchObject({
+      status: "failed",
+      code: "result_not_delivered",
+    });
+    expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
+    expect(mocks.withholdAiGradingAttemptResult).toHaveBeenCalledOnce();
     expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
   });
 
@@ -654,7 +756,11 @@ describe("automatic AI grade persistence", () => {
       reasons: [],
     });
     mocks.runDirectAudioGradingPipeline.mockResolvedValue(directResult());
-    mocks.applyAiGradeToSubmission.mockResolvedValue(null);
+    mocks.finalizeAiGradeDelivery.mockResolvedValue({
+      status: "not_applied",
+      billingRequired: false,
+      reason: "submission_changed",
+    });
 
     const outcome = await gradeOneSubmission({
       config: aiConfig,
@@ -662,12 +768,71 @@ describe("automatic AI grade persistence", () => {
       data: submission(),
     });
 
-    expect(outcome).toMatchObject({ status: "completed", gradeApplied: false });
-    expect(mocks.applyAiGradeToSubmission).toHaveBeenCalledOnce();
+    expect(outcome).toMatchObject({
+      status: "failed",
+      code: "result_not_delivered",
+    });
+    expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledOnce();
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ billingRequired: false }),
     );
-    expect(mocks.markAiGradingAttemptBillingRequired).not.toHaveBeenCalled();
+    expect(mocks.withholdAiGradingAttemptResult).toHaveBeenCalledOnce();
     expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+  });
+
+  it("never marks usage billable while broad unmetered access is enabled", async () => {
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "gemini_direct",
+      model: gradingConfig.audioModel,
+      upload: "inline",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.runDirectAudioGradingPipeline.mockResolvedValue(directResult());
+
+    const outcome = await gradeOneSubmission({
+      config: { ...aiConfig, accessMode: "all" },
+      teacherEmail: "teacher@example.com",
+      data: submission(),
+    });
+
+    expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
+    expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        billingCandidate: false,
+        allowUnmeteredAccess: true,
+      }),
+    );
+    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+  });
+
+  it("bills the first delivered cache hit and retains its full audio duration", async () => {
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "gemini_direct",
+      model: gradingConfig.audioModel,
+      upload: "inline",
+      requiresTeacherReview: false,
+      reasons: [],
+    });
+    mocks.runDirectAudioGradingPipeline.mockResolvedValue({
+      ...directResult(),
+      source: "cache",
+      cacheHit: true,
+      billableAudioInputTokens: 0,
+    });
+
+    const outcome = await gradeOneSubmission({
+      config: aiConfig,
+      teacherEmail: "teacher@example.com",
+      data: submission(),
+    });
+
+    expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
+    expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ billingCandidate: true }),
+    );
+    expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith(
+      expect.objectContaining({ durationSeconds: 30 }),
+    );
   });
 });

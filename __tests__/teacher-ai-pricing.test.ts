@@ -23,10 +23,12 @@ describe("teacher AI pricing", () => {
       effectiveAt: "2026-08-21",
       baseSuccessfulGradeUsd: 0.05,
       audioMinuteUsd: 0.01,
+      successfulGradeIdentity: "teacher_assignment_recording",
       feedbackIncluded: true,
       freeCreditPolicy: {
         kind: "qualifying_classes_minus_one",
         qualifyingClass: "rostered_student_and_assignment",
+        maxQualifyingClasses: 30,
         period: "utc_month",
         covers: "entire_ai_result",
         rollover: false,
@@ -62,6 +64,9 @@ describe("teacher AI pricing", () => {
     expect(
       estimateTeacherAiPricing({ ...typicalInputs, classCount: 7 }).monthlyFreeAiGrades,
     ).toBe(6);
+    expect(
+      estimateTeacherAiPricing({ ...typicalInputs, classCount: 30 }).monthlyFreeAiGrades,
+    ).toBe(29);
 
     const canonical = estimateTeacherAiPricing({
       classCount: 7,
@@ -100,6 +105,9 @@ describe("teacher AI pricing", () => {
     ).toThrow(RangeError);
     expect(() =>
       estimateTeacherAiPricing({ ...typicalInputs, averageAudioMinutes: 10.5 }),
+    ).toThrow(RangeError);
+    expect(() =>
+      estimateTeacherAiPricing({ ...typicalInputs, classCount: 31 }),
     ).toThrow(RangeError);
   });
 });

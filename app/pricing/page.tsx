@@ -29,10 +29,10 @@ const CORE_FEATURES = [
 ] as const;
 
 const AI_RULES = [
-  "If offered, the monthly allowance is one fewer AI grade than your qualifying active classes",
-  "The published model counts only a successful, unique AI grade",
+  "If offered, the monthly allowance is one fewer AI grade than your first 30 qualifying active classes (29 maximum)",
+  "Each distinct recording is a separate result; exact retries for the same assignment are deduplicated",
   "The published AI grade rate includes feedback",
-  "Failed attempts and duplicate delivery are excluded from the estimate",
+  "Failed attempts and exact duplicate delivery are excluded from the estimate",
   "Each estimated allowance covers one whole result and does not roll over",
 ] as const;
 
@@ -210,7 +210,10 @@ export default function PricingPage() {
           </article>
           <article>
             <strong>Clear estimate units</strong>
-            <p>The published model measures audio to the second and includes feedback with a successful grade.</p>
+            <p>
+              The published model rounds each result&apos;s audio up to the next whole second and
+              includes feedback with a successful grade.
+            </p>
           </article>
         </div>
       </section>
@@ -236,8 +239,8 @@ export default function PricingPage() {
       <p className="pricing-rollout-note">
         Rates are in USD and the calculator estimates what a teacher would pay Habla; it is not a quote
         or invoice. PayPal support does not buy AI access. Stripe self-service is available only when
-        the signed-in billing page explicitly offers it. Taxes may apply. District terms remain
-        separate.
+        the signed-in billing page explicitly offers it. Habla does not add or collect tax through
+        this plan in the current release. District terms remain separate.
       </p>
     </main>
   );

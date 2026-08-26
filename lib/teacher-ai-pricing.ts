@@ -14,10 +14,12 @@ export type TeacherAiPriceBook = {
   readonly effectiveAt: string | null;
   readonly baseSuccessfulGradeUsd: number;
   readonly audioMinuteUsd: number;
+  readonly successfulGradeIdentity: "teacher_assignment_recording";
   readonly feedbackIncluded: true;
   readonly freeCreditPolicy: {
     readonly kind: "qualifying_classes_minus_one";
     readonly qualifyingClass: "rostered_student_and_assignment";
+    readonly maxQualifyingClasses: 30;
     readonly period: "utc_month";
     readonly covers: "entire_ai_result";
     readonly rollover: false;
@@ -32,10 +34,12 @@ export const TEACHER_AI_PRICE_BOOK: TeacherAiPriceBook = Object.freeze({
   effectiveAt: "2026-08-21",
   baseSuccessfulGradeUsd: 0.05,
   audioMinuteUsd: 0.01,
+  successfulGradeIdentity: "teacher_assignment_recording",
   feedbackIncluded: true,
   freeCreditPolicy: Object.freeze({
     kind: "qualifying_classes_minus_one",
     qualifyingClass: "rostered_student_and_assignment",
+    maxQualifyingClasses: 30,
     period: "utc_month",
     covers: "entire_ai_result",
     rollover: false,
@@ -52,11 +56,14 @@ export const TEACHER_AI_PRICE_BOOK_META = Object.freeze({
 });
 
 export const TEACHER_AI_PRICING_LIMITS = Object.freeze({
-  classCount: { min: 0, max: 30 },
+  classCount: {
+    min: 0,
+    max: TEACHER_AI_PRICE_BOOK.freeCreditPolicy.maxQualifyingClasses,
+  },
   studentsPerClass: { min: 0, max: 100 },
   aiAssignmentsPerClass: { min: 0, max: 30 },
   submissionsPerStudent: { min: 0, max: 3 },
-  averageAudioMinutes: { min: 0, max: 10 },
+  averageAudioMinutes: { min: 0, max: 5 },
 });
 
 const MICRO_USD_PER_USD = 1_000_000;
@@ -106,6 +113,12 @@ function validatePriceBook(priceBook: TeacherAiPriceBook) {
       throw new RangeError(`${name} must be a non-negative number.`);
     }
   }
+  if (
+    !Number.isSafeInteger(priceBook.freeCreditPolicy.maxQualifyingClasses) ||
+    priceBook.freeCreditPolicy.maxQualifyingClasses < 1
+  ) {
+    throw new RangeError("maxQualifyingClasses must be a positive safe integer.");
+  }
 }
 
 function dollarsToMicros(amount: number) {
@@ -126,7 +139,13 @@ export function estimateTeacherAiPricing(
   const totalStudents = input.classCount * input.studentsPerClass;
   const projectedAiGrades =
     totalStudents * input.aiAssignmentsPerClass * input.submissionsPerStudent;
-  const monthlyFreeAiGrades = Math.max(0, input.classCount - 1);
+  const monthlyFreeAiGrades = Math.max(
+    0,
+    Math.min(
+      input.classCount,
+      priceBook.freeCreditPolicy.maxQualifyingClasses,
+    ) - 1,
+  );
   const appliedFreeAiGrades = Math.min(projectedAiGrades, monthlyFreeAiGrades);
   const billableAiGrades = Math.max(0, projectedAiGrades - appliedFreeAiGrades);
   const billableAudioMinutes = billableAiGrades * input.averageAudioMinutes;

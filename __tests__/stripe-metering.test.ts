@@ -2,42 +2,55 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AiBillingUsageDimension,
   AiBillingUsageRow,
-  StripeBillingAccountRow,
 } from "@/lib/db";
-import type { StripeBillingConfig } from "@/lib/billing/config";
+import { STRIPE_CATALOG_MANIFEST } from "@/lib/billing/catalog-manifest";
+import type { StripeUsageBillingConfig } from "@/lib/billing/config";
+import { getStripeBillingContractId } from "@/lib/billing/contract";
 
 const moduleMocks = vi.hoisted(() => ({
-  getAccount: vi.fn(),
   createUsage: vi.fn(),
   listPending: vi.fn(),
   listUnqueued: vi.fn(),
+  getReconciliationHealth: vi.fn(),
+  getStorageHealth: vi.fn(),
+  isStorageReady: vi.fn(),
   claimDelivery: vi.fn(),
   markReported: vi.fn(),
   markFailed: vi.fn(),
   getStripeClient: vi.fn(),
-  getAvailability: vi.fn(),
-  requireConfig: vi.fn(),
+  getUsageAvailability: vi.fn(),
+  requireUsageConfig: vi.fn(),
+  isRuntimeReady: vi.fn(),
+  assertCatalog: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
-  getStripeBillingAccountByTeacherEmail: moduleMocks.getAccount,
   createAiBillingUsage: moduleMocks.createUsage,
   listPendingAiBillingUsage: moduleMocks.listPending,
   listUnqueuedAiBillingAttempts: moduleMocks.listUnqueued,
+  getAiBillingReconciliationHealth: moduleMocks.getReconciliationHealth,
+  getStripeBillingStorageHealth: moduleMocks.getStorageHealth,
+  isStripeBillingStorageReady: moduleMocks.isStorageReady,
   claimAiBillingUsageDimensionForDelivery: moduleMocks.claimDelivery,
   markAiBillingUsageDimensionReported: moduleMocks.markReported,
   markAiBillingUsageDimensionFailed: moduleMocks.markFailed,
 }));
 vi.mock("@/lib/billing/client", () => ({ getStripeClient: moduleMocks.getStripeClient }));
-vi.mock("@/lib/billing/config", () => ({
-  getStripeBillingAvailability: moduleMocks.getAvailability,
-  requireStripeBillingConfig: moduleMocks.requireConfig,
+vi.mock("@/lib/billing/config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/billing/config")>()),
+  getStripeUsageBillingAvailability: moduleMocks.getUsageAvailability,
+  requireStripeUsageBillingConfig: moduleMocks.requireUsageConfig,
+}));
+vi.mock("@/lib/billing/catalog-validation", () => ({
+  isStripeUsageRuntimeReady: moduleMocks.isRuntimeReady,
+  assertConfiguredStripeCatalog: moduleMocks.assertCatalog,
 }));
 
 import {
   STRIPE_AI_METER_EVENTS,
   buildStripeMeterEvent,
   calculateAiRetailMicrousd,
+  flushPendingAiBillingUsage,
   recordDeliveredAiUsage,
   reportAiBillingUsage,
 } from "@/lib/billing/metering";
@@ -46,20 +59,24 @@ import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 type RecordOptions = NonNullable<Parameters<typeof recordDeliveredAiUsage>[1]>;
 type MeteringDependencies = NonNullable<RecordOptions["dependencies"]>;
 
-const TEST_NOW = 1_700_000_000_123;
+const TEST_NOW = Date.now();
 
-const config: StripeBillingConfig = {
+const config: StripeUsageBillingConfig = {
   enabled: true,
+  usageBillingEnabled: true,
   apiVersion: "2026-07-29.dahlia",
   secretKey: "sk_test_metering",
   webhookSecret: "whsec_metering",
   keyMode: "test",
+  accountId: "acct_habla_test",
   priceIds: {
     aiGrade: "price_ai_grade",
     audioMinute: "price_audio_seconds",
   },
   automaticTaxEnabled: false,
 };
+
+const billingContractId = getStripeBillingContractId(config);
 
 const deliveredInput = {
   teacherEmail: "teacher@example.com",
@@ -68,22 +85,6 @@ const deliveredInput = {
   submissionId: "submission-1",
   durationSeconds: 12.01,
 };
-
-function account(
-  overrides: Partial<StripeBillingAccountRow> = {},
-): StripeBillingAccountRow {
-  return {
-    teacherEmail: "teacher@example.com",
-    stripeCustomerId: "cus_teacher",
-    stripeSubscriptionId: "sub_teacher",
-    subscriptionStatus: "active",
-    priceBookId: TEACHER_AI_PRICE_BOOK.id,
-    stripeEventCreated: 1_700_000_000,
-    createdAt: TEST_NOW,
-    updatedAt: TEST_NOW,
-    ...overrides,
-  };
-}
 
 function usage(overrides: Partial<AiBillingUsageRow> = {}): AiBillingUsageRow {
   return {
@@ -94,6 +95,11 @@ function usage(overrides: Partial<AiBillingUsageRow> = {}): AiBillingUsageRow {
     priceBookId: TEACHER_AI_PRICE_BOOK.id,
     attemptId: "attempt-1",
     submissionId: "submission-1",
+    stripeCustomerId: "cus_teacher",
+    stripeSubscriptionId: "sub_teacher",
+    catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+    billingContractId,
+    livemode: false,
     freeCreditApplied: false,
     baseUnits: 1,
     durationSeconds: 13,
@@ -117,34 +123,38 @@ function usage(overrides: Partial<AiBillingUsageRow> = {}): AiBillingUsageRow {
 function allDimensionsReported(row: AiBillingUsageRow) {
   return (
     (row.baseUnits === 0 || row.baseReportedAt !== null) &&
-    (row.durationSeconds === 0 || row.audioReportedAt !== null) &&
-    (row.outputTokens === 0 || row.outputReportedAt !== null)
+    (row.durationSeconds === 0 || row.audioReportedAt !== null)
   );
 }
 
 function statefulDependencies(input?: {
-  account?: StripeBillingAccountRow | null;
   usage?: AiBillingUsageRow | null;
   failOnce?: AiBillingUsageDimension[];
 }) {
   let current = input?.usage === undefined ? usage() : input.usage;
   const failures = new Set(input?.failOnce ?? []);
 
-  const getAccount = vi.fn<MeteringDependencies["getAccount"]>(async () =>
-    input?.account === undefined ? account() : input.account,
-  );
   const createUsage = vi.fn<MeteringDependencies["createUsage"]>(async () => current);
   const listPending = vi.fn<MeteringDependencies["listPending"]>(async () => []);
   const listUnqueued = vi.fn<MeteringDependencies["listUnqueued"]>(async () => []);
+  const getReconciliationHealth = vi.fn<MeteringDependencies["getReconciliationHealth"]>(
+    async () => ({
+      pendingUnattempted: 0,
+      expiredPendingUnattempted: 0,
+      invalidPendingUnattempted: 0,
+      attemptedUnreported: 0,
+      recoverableUnqueued: 0,
+      invalidUnqueued: 0,
+      expiredUnqueued: 0,
+    }),
+  );
   const claimDelivery = vi.fn<MeteringDependencies["claimDelivery"]>(
     async ({ dimension }) => {
       if (!current) return { usage: null, claimed: false };
       const attemptedKey =
         dimension === "base"
           ? "baseAttemptedAt"
-          : dimension === "audio"
-            ? "audioAttemptedAt"
-            : "outputAttemptedAt";
+          : "audioAttemptedAt";
       if (current[attemptedKey] !== null) return { usage: current, claimed: false };
       current = { ...current, [attemptedKey]: TEST_NOW + 1 };
       return { usage: current, claimed: true };
@@ -154,7 +164,6 @@ function statefulDependencies(input?: {
     if (!current) return null;
     if (dimension === "base") current = { ...current, baseReportedAt: TEST_NOW + 1 };
     if (dimension === "audio") current = { ...current, audioReportedAt: TEST_NOW + 1 };
-    if (dimension === "output") current = { ...current, outputReportedAt: TEST_NOW + 1 };
     if (current.lastErrorDimension === dimension) {
       current = {
         ...current,
@@ -200,10 +209,10 @@ function statefulDependencies(input?: {
 
   return {
     dependencies: {
-      getAccount,
       createUsage,
       listPending,
       listUnqueued,
+      getReconciliationHealth,
       claimDelivery,
       markReported,
       markFailed,
@@ -213,10 +222,10 @@ function statefulDependencies(input?: {
       return current;
     },
     spies: {
-      getAccount,
       createUsage,
       listPending,
       listUnqueued,
+      getReconciliationHealth,
       claimDelivery,
       markReported,
       markFailed,
@@ -227,20 +236,41 @@ function statefulDependencies(input?: {
 
 describe("Stripe AI usage metering", () => {
   beforeEach(() => {
-    moduleMocks.getAvailability.mockReset();
-    moduleMocks.getAvailability.mockReturnValue({
+    moduleMocks.getUsageAvailability.mockReset();
+    moduleMocks.getUsageAvailability.mockReturnValue({
       enabled: false,
       available: false,
       reason: "disabled",
       issues: [],
     });
-    moduleMocks.requireConfig.mockReset();
-    moduleMocks.requireConfig.mockReturnValue(config);
+    moduleMocks.requireUsageConfig.mockReset();
+    moduleMocks.requireUsageConfig.mockReturnValue(config);
+    moduleMocks.isRuntimeReady.mockReset();
+    moduleMocks.isRuntimeReady.mockResolvedValue(true);
+    moduleMocks.assertCatalog.mockReset();
+    moduleMocks.assertCatalog.mockResolvedValue({ valid: true });
     moduleMocks.getStripeClient.mockReset();
-    moduleMocks.getAccount.mockReset();
     moduleMocks.createUsage.mockReset();
     moduleMocks.listPending.mockReset();
     moduleMocks.listUnqueued.mockReset();
+    moduleMocks.getReconciliationHealth.mockReset();
+    moduleMocks.getStorageHealth.mockReset();
+    moduleMocks.getStorageHealth.mockResolvedValue({
+      ready: true,
+      legacyCreditPeriods: 0,
+      legacyUsageRows: 0,
+    });
+    moduleMocks.isStorageReady.mockReset();
+    moduleMocks.isStorageReady.mockResolvedValue(true);
+    moduleMocks.getReconciliationHealth.mockResolvedValue({
+      pendingUnattempted: 0,
+      expiredPendingUnattempted: 0,
+      invalidPendingUnattempted: 0,
+      attemptedUnreported: 0,
+      recoverableUnqueued: 0,
+      invalidUnqueued: 0,
+      expiredUnqueued: 0,
+    });
     moduleMocks.claimDelivery.mockReset();
     moduleMocks.markReported.mockReset();
     moduleMocks.markFailed.mockReset();
@@ -277,14 +307,49 @@ describe("Stripe AI usage metering", () => {
         }),
       ).toEqual({
         event_name: STRIPE_AI_METER_EVENTS[dimension],
-        identifier: `aiu-stable-id:${dimension}:${TEACHER_AI_PRICE_BOOK.id}`,
-        timestamp: 1_700_000_000,
+        identifier: expect.stringMatching(/^habla_[a-f0-9]{64}$/),
+        timestamp: Math.floor(TEST_NOW / 1_000),
         payload: {
           stripe_customer_id: "cus_teacher",
           value: String(quantity),
         },
       });
     }
+
+    const semanticBase = buildStripeMeterEvent({
+      usage: usage(),
+      customerId: "cus_teacher",
+      dimension: "base",
+      quantity: 1,
+    });
+    const restoredBase = buildStripeMeterEvent({
+      usage: usage({ id: "aiu-created-after-restore" }),
+      customerId: "cus_teacher",
+      dimension: "base",
+      quantity: 1,
+    });
+    const semanticAudio = buildStripeMeterEvent({
+      usage: usage(),
+      customerId: "cus_teacher",
+      dimension: "audio",
+      quantity: 13,
+    });
+    const differentCatalog = buildStripeMeterEvent({
+      usage: usage({ catalogFingerprint: "f".repeat(64) }),
+      customerId: "cus_teacher",
+      dimension: "base",
+      quantity: 1,
+    });
+    const liveMode = buildStripeMeterEvent({
+      usage: usage({ livemode: true }),
+      customerId: "cus_teacher",
+      dimension: "base",
+      quantity: 1,
+    });
+    expect(restoredBase.identifier).toBe(semanticBase.identifier);
+    expect(semanticAudio.identifier).not.toBe(semanticBase.identifier);
+    expect(differentCatalog.identifier).not.toBe(semanticBase.identifier);
+    expect(liveMode.identifier).not.toBe(semanticBase.identifier);
 
     expect(() =>
       buildStripeMeterEvent({
@@ -308,13 +373,44 @@ describe("Stripe AI usage metering", () => {
     const result = await recordDeliveredAiUsage(deliveredInput);
 
     expect(result).toEqual({ status: "disabled", usage: null });
-    expect(moduleMocks.getAccount).not.toHaveBeenCalled();
     expect(moduleMocks.createUsage).not.toHaveBeenCalled();
     expect(moduleMocks.getStripeClient).not.toHaveBeenCalled();
   });
 
-  it("does not create a ledger row or Stripe event without an active subscription", async () => {
-    const context = statefulDependencies({ account: null });
+  it("does not create usage when local configuration exists but runtime validation is off", async () => {
+    moduleMocks.getUsageAvailability.mockReturnValue({
+      enabled: true,
+      available: true,
+      keyMode: "test",
+      automaticTaxEnabled: false,
+      usageBillingEnabled: true,
+      issues: [],
+    });
+    moduleMocks.isRuntimeReady.mockResolvedValue(false);
+
+    await expect(recordDeliveredAiUsage(deliveredInput)).resolves.toEqual({
+      status: "disabled",
+      usage: null,
+    });
+    expect(moduleMocks.requireUsageConfig).not.toHaveBeenCalled();
+    expect(moduleMocks.createUsage).not.toHaveBeenCalled();
+  });
+
+  it("validates an injected catalog before creating usage", async () => {
+    moduleMocks.assertCatalog.mockRejectedValue(new Error("catalog mismatch"));
+    const context = statefulDependencies();
+
+    await expect(
+      recordDeliveredAiUsage(deliveredInput, {
+        config,
+        dependencies: context.dependencies,
+      }),
+    ).rejects.toThrow("catalog mismatch");
+    expect(context.spies.createUsage).not.toHaveBeenCalled();
+  });
+
+  it("does not emit a Stripe event when no durable billing marker can create usage", async () => {
+    const context = statefulDependencies({ usage: null });
 
     const result = await recordDeliveredAiUsage(deliveredInput, {
       config,
@@ -322,9 +418,109 @@ describe("Stripe AI usage metering", () => {
     });
 
     expect(result).toEqual({ status: "not_subscribed", usage: null });
-    expect(context.spies.getAccount).toHaveBeenCalledOnce();
-    expect(context.spies.createUsage).not.toHaveBeenCalled();
+    expect(context.spies.createUsage).toHaveBeenCalledOnce();
     expect(context.spies.createMeterEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["wrong price book", usage({ priceBookId: "habla-teacher-ai-usd-v1" })],
+    ["wrong catalog fingerprint", usage({ catalogFingerprint: "wrong-fingerprint" })],
+    ["missing customer snapshot", usage({ stripeCustomerId: "" })],
+  ])("rejects a usage row with %s", async (_label, invalidUsage) => {
+    const context = statefulDependencies({ usage: invalidUsage });
+
+    await expect(
+      reportAiBillingUsage(invalidUsage, {
+        config,
+        dependencies: context.dependencies,
+      }),
+    ).rejects.toThrow("immutable entitlement snapshot");
+    expect(context.spies.createMeterEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a usage row captured in the other Stripe mode before claiming delivery", async () => {
+    const liveUsage = usage({ livemode: true });
+    const context = statefulDependencies({ usage: liveUsage });
+
+    await expect(
+      reportAiBillingUsage(liveUsage, { config, dependencies: context.dependencies }),
+    ).rejects.toThrow("mode does not match");
+    expect(context.spies.claimDelivery).not.toHaveBeenCalled();
+  });
+
+  it("rejects usage outside the safe automatic replay window before claiming delivery", async () => {
+    const oldUsage = usage({ createdAt: TEST_NOW - 35 * 24 * 60 * 60 * 1000 });
+    const context = statefulDependencies({ usage: oldUsage });
+
+    await expect(
+      reportAiBillingUsage(oldUsage, {
+        config,
+        dependencies: context.dependencies,
+        now: TEST_NOW,
+      }),
+    ).rejects.toThrow("outside the safe automatic meter-event replay window");
+    expect(context.spies.claimDelivery).not.toHaveBeenCalled();
+    expect(context.spies.createMeterEvent).not.toHaveBeenCalled();
+  });
+
+  it("accepts an unattempted delivery after a delayed daily cron", async () => {
+    const delayedUsage = usage({ createdAt: TEST_NOW - 26 * 60 * 60 * 1000 });
+    const context = statefulDependencies({ usage: delayedUsage });
+
+    await expect(
+      reportAiBillingUsage(delayedUsage, {
+        config,
+        dependencies: context.dependencies,
+        now: TEST_NOW,
+      }),
+    ).resolves.toMatchObject({ status: "reported" });
+    expect(context.spies.createMeterEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns reconciliation counts even while usage billing is disabled", async () => {
+    moduleMocks.getReconciliationHealth.mockResolvedValue({
+      pendingUnattempted: 4,
+      expiredPendingUnattempted: 6,
+      invalidPendingUnattempted: 7,
+      attemptedUnreported: 2,
+      recoverableUnqueued: 5,
+      invalidUnqueued: 1,
+      expiredUnqueued: 3,
+    });
+
+    await expect(flushPendingAiBillingUsage()).resolves.toEqual({
+      attempted: 0,
+      queued: 0,
+      reported: 0,
+      failed: 0,
+      pendingUnattempted: 4,
+      expiredPendingUnattempted: 6,
+      invalidPendingUnattempted: 7,
+      attemptedUnreported: 2,
+      recoverableUnqueued: 5,
+      invalidUnqueued: 1,
+      expiredUnqueued: 3,
+      legacyCreditPeriods: 0,
+      legacyUsageRows: 0,
+      needsReconciliation: true,
+      blocksSourceCleanup: true,
+    });
+    expect(moduleMocks.getStripeClient).not.toHaveBeenCalled();
+  });
+
+  it("blocks cleanup when ambiguous legacy billing storage exists", async () => {
+    moduleMocks.getStorageHealth.mockResolvedValue({
+      ready: false,
+      legacyCreditPeriods: 1,
+      legacyUsageRows: 2,
+    });
+
+    await expect(flushPendingAiBillingUsage()).resolves.toMatchObject({
+      legacyCreditPeriods: 1,
+      legacyUsageRows: 2,
+      needsReconciliation: true,
+      blocksSourceCleanup: true,
+    });
   });
 
   it("creates one usage row and reports both customer billing dimensions", async () => {
@@ -345,6 +541,7 @@ describe("Stripe AI usage metering", () => {
       baseUnits: 1,
       durationSeconds: 13,
       outputTokens: 0,
+      livemode: false,
     });
     expect(context.spies.createMeterEvent).toHaveBeenCalledTimes(2);
     expect(context.spies.claimDelivery).toHaveBeenCalledTimes(2);
@@ -364,10 +561,9 @@ describe("Stripe AI usage metering", () => {
     ]);
     expect(
       context.spies.createMeterEvent.mock.calls.map(([, options]) => options.idempotencyKey),
-    ).toEqual([
-      `aiu-stable-id:base:${TEACHER_AI_PRICE_BOOK.id}`,
-      `aiu-stable-id:audio:${TEACHER_AI_PRICE_BOOK.id}`,
-    ]);
+    ).toEqual(
+      context.spies.createMeterEvent.mock.calls.map(([event]) => event.identifier),
+    );
     expect(context.spies.markReported.mock.calls.map(([call]) => call.dimension)).toEqual([
       "base",
       "audio",

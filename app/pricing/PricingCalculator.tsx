@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   estimateTeacherAiPricing,
+  TEACHER_AI_PRICING_LIMITS,
   type TeacherAiPricingInputs,
 } from "@/lib/teacher-ai-pricing";
 
@@ -32,7 +33,7 @@ const CONTROLS: readonly PricingControl[] = [
     label: "Active classes",
     hint: "Classes with a roster and at least one real assignment.",
     min: 1,
-    max: 30,
+    max: TEACHER_AI_PRICING_LIMITS.classCount.max,
     step: 1,
   },
   {
@@ -40,7 +41,7 @@ const CONTROLS: readonly PricingControl[] = [
     label: "Average roster size",
     hint: "Use the average number of students in each class.",
     min: 1,
-    max: 100,
+    max: TEACHER_AI_PRICING_LIMITS.studentsPerClass.max,
     step: 1,
     suffix: "students",
   },
@@ -49,7 +50,7 @@ const CONTROLS: readonly PricingControl[] = [
     label: "AI-graded assignments",
     hint: "How many assignments per class will use AI each month?",
     min: 0,
-    max: 30,
+    max: TEACHER_AI_PRICING_LIMITS.aiAssignmentsPerClass.max,
     step: 1,
     suffix: "/ month",
   },
@@ -58,15 +59,15 @@ const CONTROLS: readonly PricingControl[] = [
     label: "Submissions per assignment",
     hint: "Use more than one only when AI should review resubmissions.",
     min: 1,
-    max: 3,
+    max: TEACHER_AI_PRICING_LIMITS.submissionsPerStudent.max,
     step: 1,
   },
   {
     key: "averageAudioMinutes",
     label: "Average recording length",
-    hint: "Audio is metered by duration, never by file size.",
+    hint: "Current recordings are capped at five minutes; audio is metered by duration.",
     min: 0.5,
-    max: 10,
+    max: TEACHER_AI_PRICING_LIMITS.averageAudioMinutes.max,
     step: 0.5,
     suffix: "minutes",
   },

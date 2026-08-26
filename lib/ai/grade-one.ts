@@ -1,10 +1,11 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import {
-  applyAiGradeToSubmission,
   createAiGradingAttempt,
+  finalizeAiGradeDelivery,
   hasAudioTooLongFailure,
-  markAiGradingAttemptBillingRequired,
+  markAiGradingAttemptNotApplicable,
+  withholdAiGradingAttemptResult,
   type AiGradingAttemptRow,
   type SubmissionForAiGradeRow,
 } from "@/lib/db";
@@ -14,6 +15,8 @@ import { toPublicAiError } from "@/lib/ai/errors";
 import { transcribeAudio } from "@/lib/ai/providers";
 import { runDirectAudioGradingPipeline } from "@/lib/grading/audio-pipeline";
 import { getGradingConfig } from "@/lib/grading/config";
+import type { GradingAssignment } from "@/lib/grading/contracts";
+import { canonicalStringify } from "@/lib/grading/hash";
 import {
   gradingResultToLegacySuggestion,
   legacyAssignmentToGradingAssignment,
@@ -56,6 +59,29 @@ function transcriptCacheKey(buffer: Buffer, contentType: string, provider: strin
     .update(provider, "utf8")
     .update("\0", "utf8")
     .update(model, "utf8")
+    .update("\0", "utf8")
+    .update(buffer)
+    .digest("hex");
+}
+
+function billingResultKey(
+  buffer: Buffer,
+  contentType: string,
+  assignment: GradingAssignment,
+) {
+  const assignmentId = assignment.id?.trim() ?? "";
+  const assignmentVersion = assignment.version.trim();
+  if (!assignmentId || !assignmentVersion) return "";
+  const assignmentIdentity = canonicalStringify({
+    assignmentId,
+    assignmentVersion,
+    rubricVersion: assignment.rubric?.version.trim() || null,
+  });
+  return createHash("sha256")
+    .update("ai-billing-result-v2\0", "utf8")
+    .update(contentType.trim().toLowerCase(), "utf8")
+    .update("\0", "utf8")
+    .update(assignmentIdentity, "utf8")
     .update("\0", "utf8")
     .update(buffer)
     .digest("hex");
@@ -112,9 +138,12 @@ async function saveTooLongAttempt(input: {
   });
 }
 
-async function applyCompletedAiGrade(input: {
+async function finalizeCompletedAiGrade(input: {
+  attemptId: string;
   data: SubmissionForAiGradeRow;
   teacherEmail: string;
+  billingCandidate: boolean;
+  allowUnmeteredAccess: boolean;
   suggestion: {
     suggestedScore: number | null;
     rubricScores: AiGradingAttemptRow["rubricScores"];
@@ -123,13 +152,42 @@ async function applyCompletedAiGrade(input: {
     autoApplicable: boolean;
   };
 }) {
+  const withholdResult = async (reason: string) => {
+    try {
+      await withholdAiGradingAttemptResult({
+        attemptId: input.attemptId,
+        ownerEmail: input.teacherEmail,
+        reason,
+      });
+    } catch (error) {
+      console.error("AI result visibility could not be finalized; it remains pending", error);
+    }
+    return {
+      gradeApplied: false,
+      billingMarked: false,
+      resultVisible: false,
+    };
+  };
+
   if (
-    input.data.finalGrade !== null ||
     input.suggestion.suggestedScore === null ||
     input.suggestion.teacherAttention === "unable_to_grade" ||
     !input.suggestion.autoApplicable
   ) {
-    return false;
+    const marked = await markAiGradingAttemptNotApplicable({
+      attemptId: input.attemptId,
+      ownerEmail: input.teacherEmail,
+    });
+    if (!marked) return withholdResult("AI result disposition could not be persisted.");
+    return {
+      gradeApplied: false,
+      billingMarked: false,
+      resultVisible: true,
+    };
+  }
+
+  if (input.data.finalGrade !== null) {
+    return withholdResult("The submission was already graded before AI delivery.");
   }
 
   const rubricScores = input.data.rubric ? input.suggestion.rubricScores : null;
@@ -137,38 +195,37 @@ async function applyCompletedAiGrade(input: {
     input.data.rubric &&
     rubricScores?.length !== input.data.rubric.criteria.length
   ) {
-    return false;
+    return withholdResult("The AI result did not match the assignment rubric.");
   }
 
   try {
-    const updated = await applyAiGradeToSubmission(input.data.submissionId, input.teacherEmail, {
-      grade: input.suggestion.suggestedScore,
-      feedback: input.suggestion.feedback,
-      rubricScores,
+    const result = await finalizeAiGradeDelivery({
+      attemptId: input.attemptId,
+      ownerEmail: input.teacherEmail,
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      billingCandidate: input.billingCandidate,
+      allowUnmeteredAccess: input.allowUnmeteredAccess,
     });
-    return Boolean(updated);
+    if (result.status !== "applied") {
+      return withholdResult(`AI delivery was rejected: ${result.reason}.`);
+    }
+    return {
+      gradeApplied: true,
+      billingMarked: result.billingRequired,
+      resultVisible: true,
+    };
   } catch (error) {
-    console.error("AI result was created but could not be applied to the submission", error);
-    return false;
+    console.error(
+      "AI result was created but its grade and billing marker could not be finalized",
+      error,
+    );
+    return withholdResult("AI grade and billing finalization failed.");
   }
 }
 
 function geminiAudioDurationSeconds(audioInputTokens: number) {
   if (!Number.isSafeInteger(audioInputTokens) || audioInputTokens <= 0) return 0;
   return audioInputTokens / GEMINI_AUDIO_TOKENS_PER_SECOND;
-}
-
-async function markAttemptBillableAfterApply(attemptId: string, teacherEmail: string) {
-  try {
-    return await markAiGradingAttemptBillingRequired({
-      attemptId,
-      ownerEmail: teacherEmail,
-      priceBookId: TEACHER_AI_PRICE_BOOK.id,
-    });
-  } catch (error) {
-    console.error("AI grade was applied but its billing marker could not be saved", error);
-    return false;
-  }
 }
 
 /**
@@ -268,15 +325,22 @@ export async function gradeOneSubmission(input: {
           data,
           source: direct.source === "direct_audio" ? "direct_audio" : direct.source,
         });
+        const deliveryCacheKey = billingResultKey(
+          audio.buffer,
+          audio.contentType,
+          assignment,
+        );
         const billingRequired =
-          !direct.cacheHit &&
-          direct.source !== "cache" &&
           suggestion.autoApplicable &&
           suggestion.suggestedScore !== null &&
           suggestion.teacherAttention !== "unable_to_grade" &&
-          Boolean(direct.cacheKey);
+          Boolean(deliveryCacheKey);
         const attemptDurationSeconds = billingRequired
-          ? providerMeasuredDurationSeconds
+          ? providerMeasuredDurationSeconds > 0
+            ? providerMeasuredDurationSeconds
+            : direct.cacheHit || direct.source === "cache"
+              ? durationForLimit
+              : 0
           : durationForLimit;
         const attempt = await createAiGradingAttempt({
           submissionId,
@@ -291,7 +355,7 @@ export async function gradeOneSubmission(input: {
           gradingProvider: direct.provider,
           transcriptionModel: direct.model,
           gradingModel: direct.model,
-          cacheKey: direct.cacheKey,
+          cacheKey: deliveryCacheKey,
           cacheHit: direct.cacheHit,
           inputTokens: direct.usage.inputTokens,
           cachedInputTokens: direct.usage.cachedInputTokens,
@@ -307,19 +371,32 @@ export async function gradeOneSubmission(input: {
           billingPriceBookId: TEACHER_AI_PRICE_BOOK.id,
           billableOutputTokens: 0,
         });
-        const gradeApplied = await applyCompletedAiGrade({ data, teacherEmail, suggestion });
-        const billingMarked =
-          billingRequired && gradeApplied && direct.cacheKey
-            ? await markAttemptBillableAfterApply(attempt.id, teacherEmail)
-            : false;
+        const { gradeApplied, billingMarked, resultVisible } = await finalizeCompletedAiGrade({
+          attemptId: attempt.id,
+          data,
+          teacherEmail,
+          suggestion,
+          billingCandidate:
+            config.accessMode === "paid" && billingRequired && Boolean(deliveryCacheKey),
+          allowUnmeteredAccess: config.accessMode === "all",
+        });
         if (billingMarked) {
           await recordDeliveredAiUsageSafely({
             teacherEmail,
-            cacheKey: direct.cacheKey,
+            cacheKey: deliveryCacheKey,
             attemptId: attempt.id,
             submissionId,
-            durationSeconds: providerMeasuredDurationSeconds,
+            durationSeconds: attemptDurationSeconds,
+            occurredAt: attempt.completedAt ?? attempt.createdAt,
           });
+        }
+        if (!resultVisible) {
+          return {
+            status: "failed",
+            code: "result_not_delivered",
+            message:
+              "The submission or billing state changed before the AI result could be finalized. No AI result was delivered or billed.",
+          };
         }
         return {
           status: "completed",
@@ -437,15 +514,18 @@ export async function gradeOneSubmission(input: {
       failureCode: pipeline.failureCode,
       forceTeacherReviewReason: reviewReasons.join(" ") || undefined,
     });
+    const deliveryCacheKey = billingResultKey(
+      audio.buffer,
+      audio.contentType,
+      assignment,
+    );
     const billingRequired =
-      !pipeline.cacheHit &&
-      pipeline.source !== "cache" &&
       pipeline.source !== "deterministic" &&
       !pipeline.failureCode &&
       suggestion.autoApplicable &&
       suggestion.suggestedScore !== null &&
       suggestion.teacherAttention !== "unable_to_grade" &&
-      Boolean(pipeline.cacheKey);
+      Boolean(deliveryCacheKey);
     const attempt = await createAiGradingAttempt({
       submissionId,
       teacherEmail,
@@ -460,7 +540,7 @@ export async function gradeOneSubmission(input: {
       gradingProvider: pipeline.provider,
       transcriptionModel: config.transcriptionModel,
       gradingModel: pipeline.model,
-      cacheKey: pipeline.cacheKey,
+      cacheKey: deliveryCacheKey,
       cacheHit: pipeline.cacheHit && transcriptCacheHit,
       inputTokens: pipeline.usage.inputTokens,
       cachedInputTokens: pipeline.usage.cachedInputTokens,
@@ -476,19 +556,33 @@ export async function gradeOneSubmission(input: {
       billingPriceBookId: TEACHER_AI_PRICE_BOOK.id,
       billableOutputTokens: 0,
     });
-    const gradeApplied = await applyCompletedAiGrade({ data, teacherEmail, suggestion });
-    const billingMarked =
-      billingRequired && gradeApplied && pipeline.cacheKey
-        ? await markAttemptBillableAfterApply(attempt.id, teacherEmail)
-        : false;
+    const { gradeApplied, billingMarked, resultVisible } = await finalizeCompletedAiGrade({
+      attemptId: attempt.id,
+      data,
+      teacherEmail,
+      suggestion,
+      billingCandidate:
+        config.accessMode === "paid" && billingRequired && Boolean(deliveryCacheKey),
+      allowUnmeteredAccess: config.accessMode === "all",
+    });
     if (billingMarked) {
       await recordDeliveredAiUsageSafely({
         teacherEmail,
-        cacheKey: pipeline.cacheKey,
+        cacheKey: deliveryCacheKey,
         attemptId: attempt.id,
         submissionId,
         durationSeconds: transcript.durationSeconds,
+        occurredAt: attempt.completedAt ?? attempt.createdAt,
       });
+    }
+
+    if (!resultVisible) {
+      return {
+        status: "failed",
+        code: "result_not_delivered",
+        message:
+          "The submission or billing state changed before the AI result could be finalized. No AI result was delivered or billed.",
+      };
     }
 
     return {

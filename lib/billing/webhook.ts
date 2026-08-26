@@ -1,8 +1,8 @@
 import type Stripe from "stripe";
 import { getStripeClient } from "@/lib/billing/client";
 import {
-  requireStripeBillingConfig,
-  type StripeBillingConfig,
+  requireStripeWebhookConfig,
+  type StripeWebhookConfig,
 } from "@/lib/billing/config";
 
 export type StripeWebhookPayload = string | Uint8Array;
@@ -11,7 +11,7 @@ export type StripeWebhookPayload = string | Uint8Array;
 export function constructWebhookEvent(
   rawBody: StripeWebhookPayload,
   signature: string | string[] | Uint8Array,
-  config: StripeBillingConfig = requireStripeBillingConfig(),
+  config: StripeWebhookConfig = requireStripeWebhookConfig(),
 ): Stripe.Event {
   if (typeof rawBody === "string" && rawBody.length === 0) {
     throw new TypeError("Stripe webhook raw body is required.");

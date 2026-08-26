@@ -166,7 +166,7 @@ have different response-format contracts and need adapter tests with synthetic a
 
 Layered protections, in the order a request hits them:
 
-1. **Access gate** — `AI_ACCESS_MODE=paid` uses manual entitlements; `all` enables every authenticated teacher. `AI_TEACHER_DENYLIST` remains an emergency block.
+1. **Access gate** — `AI_ACCESS_MODE=paid` accepts a manual pilot grant or an exact verified active Stripe subscription; `all` enables every authenticated teacher. `AI_TEACHER_DENYLIST` remains an emergency block.
 2. **Cooldown** — `AI_GENERATION_COOLDOWN_SECONDS` (default 3s) blocks rapid re-clicks.
 3. **Per-submission cap** — `AI_MAX_GENERATIONS_PER_SUBMISSION` (default 10) bounds regeneration on one recording.
 4. **Per-teacher daily cap** — `AI_DAILY_TEACHER_LIMIT` (default 20/day).
