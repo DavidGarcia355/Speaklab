@@ -1,6 +1,6 @@
-# Habla
+# TryHabla
 
-Habla is a Next.js app for language teachers to run speaking assignments:
+TryHabla is a Next.js app for language teachers to run speaking assignments:
 - create classes
 - publish student recording links
 - review submissions with inline grades and feedback

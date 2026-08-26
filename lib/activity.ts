@@ -45,7 +45,7 @@ export function notifyDiscordActivity(
 ) {
   void email;
   if (!DISCORD_NOTIFIED_EVENTS.has(eventType)) return;
-  sendDiscordMessage("Habla activity: a teacher account was enabled. Review the admin dashboard for details.");
+  sendDiscordMessage("TryHabla activity: a teacher account was enabled. Review the admin dashboard for details.");
 }
 
 export function notifyDiscordFeedback(input: {
@@ -55,7 +55,7 @@ export function notifyDiscordFeedback(input: {
   role: string;
 }) {
   void input;
-  sendDiscordMessage("Habla activity: a new contact message arrived. Review it in the admin dashboard.");
+  sendDiscordMessage("TryHabla activity: a new contact message arrived. Review it in the admin dashboard.");
 }
 
 export async function trackActivity(

@@ -159,7 +159,7 @@ export default async function AdminPage() {
       <section className="admin-header">
         <div className="admin-header-copy">
           <h1 className="admin-headline">Dashboard</h1>
-          <p className="meta">Founder analytics for Habla. Real-time teacher funnel, activity, and platform health.</p>
+          <p className="meta">Founder analytics for TryHabla. Real-time teacher funnel, activity, and platform health.</p>
         </div>
         <div className="actions">
           <Link className="btn btn-ghost" href="/">Back home</Link>

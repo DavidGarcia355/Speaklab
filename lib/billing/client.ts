@@ -19,7 +19,7 @@ export function getStripeClient(config: StripeClientConfig = requireStripeClient
     apiVersion: config.apiVersion,
     typescript: true,
     appInfo: {
-      name: "Habla",
+      name: "TryHabla",
       version: "1",
     },
     maxNetworkRetries: 2,

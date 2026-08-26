@@ -28,7 +28,11 @@ describe("pricing page", () => {
     expect(markup).toContain("Read my story");
     expect(markup).toContain("View Teacher billing");
     expect(markup).toContain("/billing");
-    expect(markup).toContain("It does not purchase or activate AI access");
+    expect(markup).toContain("PayPal is for voluntary, non-tax-deductible donations only");
+    expect(markup).toContain("TryHabla product billing is handled only through Stripe");
+    expect(markup).toContain("Donate via PayPal");
+    expect(markup).not.toContain("Support with PayPal");
+    expect(markup).not.toMatch(/\bHabla\b/);
     expect(markup).toContain("not a usage charge or invoice");
     expect(markup).toContain("School Pilot - Contact us");
     expect(markup).toContain("A founder-managed, manually provisioned teacher cohort.");
@@ -69,11 +73,14 @@ describe("billing page", () => {
     expect(markup).toContain("Keep the classroom free");
     expect(markup).toContain("Core stays $0");
     expect(markup).toContain("Checking your billing access");
-    expect(markup).toContain("Voluntary PayPal support is completed on PayPal");
+    expect(markup).toContain("Stripe is TryHabla&#x27;s only product-payment method");
+    expect(markup).toContain("voluntary, non-tax-deductible donations only");
     expect(markup).toContain("30 successful AI reviews per teacher account");
     expect(markup).toContain("$20 per month for 300 successful reviews");
     expect(markup).toContain("no automatic overages");
-    expect(markup).toContain("If this page explicitly offers Teacher through Stripe");
+    expect(markup).toContain("never purchase access, start or extend a subscription, or add AI reviews");
+    expect(markup).not.toContain("paypal.me");
+    expect(markup).not.toMatch(/\bHabla\b/);
     expect(markup).toContain("/pricing");
     expect(markup).not.toContain("recorded retail usage");
     expect(markup).not.toContain("$99");
@@ -103,6 +110,7 @@ describe("public audience paths", () => {
     expect(markup).toContain("founder-managed School Pilot");
     expect(markup).not.toContain("Habla points");
     expect(markup).not.toContain("badges");
+    expect(markup).not.toMatch(/\bHabla\b/);
   });
 
   it("keeps teacher, student, and district claims aligned with implemented behavior", async () => {
@@ -126,6 +134,7 @@ describe("public audience paths", () => {
     expect(studentMarkup).not.toContain("Submit securely");
     expect(districtMarkup).toContain("controlled teacher pilot");
     expect(districtMarkup).toContain("private audio storage");
+    expect(`${teacherMarkup}${studentMarkup}${districtMarkup}`).not.toMatch(/\bHabla\b/);
   });
 });
 
@@ -140,16 +149,18 @@ describe("about page", () => {
     const homeMarkup = renderToStaticMarkup(await HomePage());
 
     expect(markup).toContain("Hi, I&#x27;m David.");
-    expect(markup).toContain("college student who built Habla for my mom");
-    expect(markup).toContain("My mom is why Habla exists.");
+    expect(markup).toContain("college student who built TryHabla for my mom");
+    expect(markup).toContain("My mom is why TryHabla exists.");
     expect(markup).toContain("She is a Spanish teacher fighting recurrent endometrial cancer.");
     expect(markup).not.toContain("storm");
     expect(markup).not.toContain("Portage");
     expect(markup).not.toContain("our home");
     expect(markup).not.toContain("air conditioning");
-    expect(markup).toContain("Help my mom&#x27;s fight against endometrial cancer");
+    expect(markup).toContain("Donate to support my mom via PayPal");
+    expect(markup).toContain("PayPal is for voluntary, non-tax-deductible donations only");
     expect(markup).toContain('data-awareness-ribbon="peach"');
     expect(markup).toContain("https://paypal.me/DavidGarcia355");
+    expect(markup).not.toMatch(/\bHabla\b/);
     expect(homeMarkup).toContain("href=\"/about\"");
     expect(homeMarkup).toContain("About me");
     expect(homeMarkup).toContain("Built for my mom. Supporting her fight.");
@@ -191,5 +202,6 @@ describe("faq pricing copy", () => {
     expect(markup.toLowerCase()).not.toContain("per successful grade");
     expect(markup.toLowerCase()).not.toContain("per audio minute");
     expect(markup.toLowerCase()).not.toContain("token");
+    expect(markup).not.toMatch(/\bHabla\b/);
   });
 });

@@ -303,7 +303,7 @@ export default function StudentDashboardPage() {
         <section className="student-empty-quest section-gap">
           <Image
             src="/mascot/habla-man.webp"
-            alt="HablaMan waiting for your first recording"
+            alt="TryHabla mascot waiting for your first recording"
             width={190}
             height={188}
           />

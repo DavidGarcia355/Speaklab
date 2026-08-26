@@ -97,7 +97,7 @@ export default function TeacherRegisterPage() {
               ? "Checking whether your signed-in account is approved for the current pilot."
               : registrationState === "signed-out"
                 ? "Sign in to check whether your account is already approved, or request a place in the current pilot."
-                : "Habla is adding teachers through a reviewed pilot while privacy and district materials are finalized."}
+                : "TryHabla is adding teachers through a reviewed pilot while privacy and district materials are finalized."}
         </p>
         {errorMsg ? <p className="notice danger">{errorMsg}</p> : null}
         <div className="actions form-actions">

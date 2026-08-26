@@ -263,7 +263,7 @@ class OpenRouterGradingProvider implements GradingProvider {
       headers: {
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY?.trim() || ""}`,
         "Content-Type": "application/json",
-        "X-Title": "Habla grading",
+        "X-Title": "TryHabla grading",
         ...(process.env.NEXTAUTH_URL?.trim()
           ? { "HTTP-Referer": process.env.NEXTAUTH_URL.trim() }
           : {}),

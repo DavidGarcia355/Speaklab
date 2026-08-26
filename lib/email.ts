@@ -1,10 +1,10 @@
 import "server-only";
 import { Resend } from "resend";
 
-const TEACHER_UPGRADE_SUBJECT = "You're all set on Habla";
+const TEACHER_UPGRADE_SUBJECT = "You're all set on TryHabla";
 const TEACHER_UPGRADE_TEXT = `Hi,
 
-You're set up as a teacher on Habla. Here's how to get started:
+You're set up as a teacher on TryHabla. Here's how to get started:
 
 1. Create your first class at tryhabla.com/teacher
 2. Create a speaking assignment
@@ -14,7 +14,7 @@ You're set up as a teacher on Habla. Here's how to get started:
 
 Questions? Reply to this email or visit tryhabla.com/faq
 
-- The Habla team`;
+- The TryHabla team`;
 
 function getResendApiKey() {
   return process.env.RESEND_API_KEY?.trim() || "";
@@ -26,7 +26,7 @@ async function sendTeacherUpgradeConfirmationEmailNow(email: string) {
 
   const resend = new Resend(apiKey);
   await resend.emails.send({
-    from: "Habla <onboarding@resend.dev>",
+    from: "TryHabla <onboarding@resend.dev>",
     to: email,
     subject: TEACHER_UPGRADE_SUBJECT,
     text: TEACHER_UPGRADE_TEXT,
@@ -54,7 +54,7 @@ export async function sendFeedbackNotification(input: {
 
   const resend = new Resend(apiKey);
   await resend.emails.send({
-    from: "Habla <onboarding@resend.dev>",
+    from: "TryHabla <onboarding@resend.dev>",
     to: "davidsgarcia325@gmail.com",
     subject: `New contact message from ${input.name || input.email}`,
     text: [

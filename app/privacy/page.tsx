@@ -6,7 +6,7 @@ import { createPublicMetadata } from "@/lib/public-metadata";
 export const metadata = createPublicMetadata({
   title: "Pilot Privacy Notice",
   description:
-    "How Habla collects, uses, shares, retains, and handles information during its teacher pilot.",
+    "How TryHabla collects, uses, shares, retains, and handles information during its teacher pilot.",
   path: "/privacy",
 });
 
@@ -17,28 +17,28 @@ export default function PrivacyPage() {
 
       <header className="hero legal-hero">
         <p className="pill">Pilot notice</p>
-        <h1>Privacy at Habla</h1>
+        <h1>Privacy at TryHabla</h1>
         <p>
-          This plain-language notice describes the current Habla teacher pilot. It is not a claim
-          that a school or district has approved Habla, and a signed school or district agreement
+          This plain-language notice describes the current TryHabla teacher pilot. It is not a claim
+          that a school or district has approved TryHabla, and a signed school or district agreement
           may add different instructions.
         </p>
-        <p className="meta">Last updated: August 25, 2026</p>
+        <p className="meta">Last updated: August 26, 2026</p>
       </header>
 
       <article className="card legal-document">
         <section className="legal-section" aria-labelledby="privacy-scope">
           <h2 id="privacy-scope">Who this notice covers</h2>
           <p>
-            This notice applies to teachers, students, and other people who use Habla or contact us.
-            Habla is designed for teacher-directed speaking assignments. It is not offered to
+            This notice applies to teachers, students, and other people who use TryHabla or contact us.
+            TryHabla is designed for teacher-directed speaking assignments. It is not offered to
             children for independent personal use.
           </p>
-          <p>Habla is operated by {OPERATOR_NAME}.</p>
+          <p>TryHabla is operated by {OPERATOR_NAME}.</p>
         </section>
 
         <section className="legal-section" aria-labelledby="privacy-data">
-          <h2 id="privacy-data">Information Habla handles</h2>
+          <h2 id="privacy-data">Information TryHabla handles</h2>
           <p>The information depends on how the pilot is used and can include:</p>
           <ul>
             <li>
@@ -59,9 +59,14 @@ export default function PrivacyPage() {
               browser settings such as theme or dismissed notices.
             </li>
             <li>
-              <strong>Billing information, only when paid features are used:</strong> billing
-              status, AI review allowance totals, and identifiers returned by the configured payment provider.
-              Payment providers handle payment credentials on their own sites or checkout pages.
+              <strong>Product billing information, only when paid features are used:</strong> Stripe
+              billing status, AI review allowance totals, and identifiers returned by Stripe.
+              Stripe handles product-payment credentials on its own checkout and portal pages.
+            </li>
+            <li>
+              <strong>Donation information:</strong> PayPal handles a voluntary donation on its own
+              site if a person chooses a donation link. TryHabla does not use a PayPal donation to
+              activate product access, subscriptions, or AI credits.
             </li>
           </ul>
         </section>
@@ -72,28 +77,28 @@ export default function PrivacyPage() {
             AI grading is optional and controlled by deployment settings and teacher actions. When it is
             enabled for an assignment, a student&apos;s recorded answer, transcript, assignment
             instructions, and rubric may be processed by the AI service provider or providers
-            configured for that Habla deployment. Habla may store the transcript, AI-generated
+            configured for that TryHabla deployment. TryHabla may store the transcript, AI-generated
             score, rubric details, feedback, evidence excerpts, provider and model identifiers,
             usage details, and attempt status with the submission.
           </p>
           <p>
             AI-generated results are labeled and may be shown to the student before a teacher
-            reviews them. Teachers can review, edit, or replace a result. Habla does not promise
+            reviews them. Teachers can review, edit, or replace a result. TryHabla does not promise
             that an AI result is accurate, and teachers remain responsible for classroom grading
             decisions. The teacher or school is responsible for deciding whether AI is authorized
-            for the activity. That decision does not remove Habla&apos;s responsibility for its own
+            for the activity. That decision does not remove TryHabla&apos;s responsibility for its own
             processing and notices.
           </p>
           <p>
             As of this notice&apos;s update date, the production pilot identifies OpenAI as its
             transcription and grading provider, with requests potentially routed through Vercel AI
-            Gateway. Habla does not promise a particular provider retention mode; schools can ask
+            Gateway. TryHabla does not promise a particular provider retention mode; schools can ask
             for the current configuration and provider-control status before authorizing AI use.
           </p>
         </section>
 
         <section className="legal-section" aria-labelledby="privacy-use">
-          <h2 id="privacy-use">Why Habla uses information</h2>
+          <h2 id="privacy-use">Why TryHabla uses information</h2>
           <ul>
             <li>Authenticate users and provide the teacher and student classroom workflows.</li>
             <li>Store, play back, grade, and display speaking submissions.</li>
@@ -109,14 +114,15 @@ export default function PrivacyPage() {
             The application uses service providers to operate. Depending on deployment settings,
             these can include Google or Microsoft for sign-in; Vercel for hosting and file storage;
             Turso for the application database; Upstash for rate limiting; Resend or an operational
-            notification service for messages; Stripe or PayPal for optional payments; and
+            notification service for messages; Stripe for optional product billing; PayPal only
+            when a person chooses to make a separate voluntary donation; and
             configured AI infrastructure and model providers when AI is enabled.
           </p>
           <p>
             Classroom information is made available in the application to the student who owns a
-            submission and the teacher who owns the class, as appropriate. The Habla operator and
+            submission and the teacher who owns the class, as appropriate. The TryHabla operator and
             service providers may also handle information where needed to operate, secure, support,
-            or comply with valid legal requirements. Habla does not provide a student-to-student
+            or comply with valid legal requirements. TryHabla does not provide a student-to-student
             recording-sharing feature.
           </p>
           <p>
@@ -132,7 +138,7 @@ export default function PrivacyPage() {
           <p>
             Active classes, assignments, submissions, recordings, grades, and feedback remain while
             they are needed for the classroom workflow. When an authorized user deletes a class,
-            assignment, or submission, Habla currently keeps the soft-deleted record for a 30-day
+            assignment, or submission, TryHabla currently keeps the soft-deleted record for a 30-day
             recovery period. After that, the scheduled cleanup hard-deletes the database record and
             attempts to delete associated media.
           </p>
@@ -159,11 +165,11 @@ export default function PrivacyPage() {
         <section className="legal-section" aria-labelledby="privacy-minors">
           <h2 id="privacy-minors">Students and school authorization</h2>
           <p>
-            Students, including minors, should use Habla only for a teacher- or school-directed
+            Students, including minors, should use TryHabla only for a teacher- or school-directed
             activity. The teacher or school must decide whether the service and any optional AI use
             are appropriate and obtain any authorization or consent its policies and applicable law
-            require. Habla remains responsible for its own legal obligations and for responding to
-            verified requests it is required to handle. A public Habla page does not establish
+            require. TryHabla remains responsible for its own legal obligations and for responding to
+            verified requests it is required to handle. A public TryHabla page does not establish
             district approval.
           </p>
         </section>
@@ -171,7 +177,7 @@ export default function PrivacyPage() {
         <section className="legal-section" aria-labelledby="privacy-security">
           <h2 id="privacy-security">Security and updates</h2>
           <p>
-            Habla uses measures such as authenticated sessions, role and class-ownership checks,
+            TryHabla uses measures such as authenticated sessions, role and class-ownership checks,
             input validation, access-controlled media routes, rate limiting when configured, and
             scheduled deletion. No online service can guarantee absolute security. Pilot controls,
             providers, and this notice may change; material updates will be posted here with a new
@@ -185,7 +191,7 @@ export default function PrivacyPage() {
             Questions about this notice or a data request can be sent to{" "}
             {OPERATOR_NAME} at{" "}
             <a href={CONTACT_LINKS.email}>davidsgarcia325@gmail.com</a> or through the{" "}
-            <Link href="/feedback">Habla contact form</Link>.
+            <Link href="/feedback">TryHabla contact form</Link>.
           </p>
         </section>
       </article>

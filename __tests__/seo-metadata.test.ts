@@ -17,7 +17,7 @@ describe("public discovery metadata", () => {
     expect(String(metadata.alternates?.canonical)).toBe(`${SITE_URL}/pricing`);
     expect(metadata.openGraph).toMatchObject({
       url: new URL(`${SITE_URL}/pricing`),
-      title: "Pricing | Habla",
+      title: "Pricing | TryHabla",
       description: "Pricing details",
       images: [
         {
@@ -29,7 +29,7 @@ describe("public discovery metadata", () => {
     });
     expect(metadata.twitter).toMatchObject({
       card: "summary_large_image",
-      title: "Pricing | Habla",
+      title: "Pricing | TryHabla",
       images: [{ url: new URL(`${SITE_URL}/twitter-image`) }],
     });
   });
@@ -49,7 +49,7 @@ describe("public discovery metadata", () => {
 
   it("exposes a minimal install manifest", () => {
     expect(manifest()).toMatchObject({
-      name: "Habla",
+      name: "TryHabla",
       start_url: "/",
       display: "standalone",
     });

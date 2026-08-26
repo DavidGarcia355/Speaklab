@@ -361,7 +361,7 @@ async function main() {
   const stripe = new Stripe(authorization.secretKey, {
     apiVersion: STRIPE_API_VERSION,
     typescript: true,
-    appInfo: { name: "Habla Explicit Live Setup", version: "1" },
+    appInfo: { name: "TryHabla Explicit Live Setup", version: "1" },
     maxNetworkRetries: 2,
     telemetry: false,
     timeout: 30_000,

@@ -2,7 +2,7 @@ import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
   title: "Contact and Feedback",
-  description: "Contact Habla with a question, pilot request, or product feedback.",
+  description: "Contact TryHabla with a question, pilot request, or product feedback.",
   path: "/feedback",
 });
 

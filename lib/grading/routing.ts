@@ -44,7 +44,7 @@ export function assignmentNeedsAudioEvidence(assignment: GradingAssignment) {
 }
 
 /**
- * Text length changes risk and latency much more than price at Habla's scale.
+ * Text length changes risk and latency much more than price at TryHabla's scale.
  * Short/ordinary work stays on the cheapest configured model; high-risk work
  * starts on the verification model instead of paying for two predictable calls.
  */

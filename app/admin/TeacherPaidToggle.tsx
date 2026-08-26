@@ -35,7 +35,7 @@ export default function TeacherPaidToggle({
       disabled={pending}
       aria-label={isPaid ? `Revoke AI grading access for ${email}` : `Grant AI grading access to ${email}`}
     >
-      {pending ? "..." : isPaid ? "Paid" : "Free"}
+      {pending ? "..." : isPaid ? "Pilot grant" : "No grant"}
     </button>
   );
 }

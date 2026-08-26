@@ -14,7 +14,7 @@ import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
   title: "For Teachers",
-  description: "Teacher benefits and classroom workflow for Habla.",
+  description: "Teacher benefits and classroom workflow for TryHabla.",
   path: "/teachers",
 });
 
@@ -60,7 +60,7 @@ export default function TeachersPage() {
         <p className="pill">Teacher pathway</p>
         <h1>More student speaking. Less grading drag.</h1>
         <p>
-          Habla helps language teachers assign prompts, collect recordings, grade responses, and keep
+          TryHabla helps language teachers assign prompts, collect recordings, grade responses, and keep
           every class organized. Optional AI can save rubric-aligned scores and feedback automatically,
           while the teacher can review and edit every result.
         </p>
@@ -92,7 +92,7 @@ export default function TeachersPage() {
         <div>
           <h2>Speaking practice already moving through real classrooms.</h2>
           <p className="meta">
-            Habla is already supporting real classroom activity. Start with one class, learn what saves
+            TryHabla is already supporting real classroom activity. Start with one class, learn what saves
             time, and expand only when the workflow earns it.
           </p>
         </div>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, ArrowUpRight, Ribbon, X } from "lucide-react";
+import { PAYPAL_DONATION_DISCLOSURE, PAYPAL_DONATION_URL } from "@/app/constants";
 
 const STORAGE_KEY = "habla-home-cause-dismissed";
 
@@ -45,14 +46,15 @@ export default function DismissibleCauseBand() {
         <Ribbon className="cancer-ribbon-icon" data-awareness-ribbon="peach" size={34} />
       </div>
       <div>
-        <p className="pill pill-subtle">Why Habla matters to me</p>
+        <p className="pill pill-subtle">Why TryHabla matters to me</p>
         <h2 id="home-cause-heading">Built for my mom. Supporting her fight.</h2>
         <p>
           My mom is a Spanish teacher fighting recurrent endometrial cancer. She is the reason
-          Habla exists. I built it to make her classroom easier, and now I&apos;m building it into
+          TryHabla exists. I built it to make her classroom easier, and now I&apos;m building it into
           something that can help me support her as much as possible. The core classroom is free,
-          and revenue from Teacher helps me operate Habla and support my family through her fight.
+          and revenue from Teacher helps me operate TryHabla and support my family through her fight.
         </p>
+        <p className="meta">{PAYPAL_DONATION_DISCLOSURE}</p>
       </div>
       <div className="actions home-cause-actions">
         <Link className="btn btn-primary" href="/about">
@@ -61,11 +63,11 @@ export default function DismissibleCauseBand() {
         </Link>
         <a
           className="btn btn-ghost"
-          href="https://paypal.me/DavidGarcia355"
+          href={PAYPAL_DONATION_URL}
           target="_blank"
           rel="noreferrer"
         >
-          Support my mom
+          Donate to support my mom via PayPal
           <ArrowUpRight size={17} aria-hidden="true" />
         </a>
       </div>

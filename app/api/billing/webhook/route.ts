@@ -46,10 +46,10 @@ function isHablaMetadata(metadata: Stripe.Metadata | null | undefined) {
 
 function assertHablaCatalogMetadata(metadata: Stripe.Metadata | null | undefined) {
   if (!isHablaMetadata(metadata)) {
-    throw new Error("Stripe resource is missing the Habla application marker.");
+    throw new Error("Stripe resource is missing the TryHabla application marker.");
   }
   if (metadataValue(metadata, "price_book_id") !== STRIPE_CATALOG_MANIFEST.priceBookId) {
-    throw new Error("Stripe resource does not match Habla's active price book.");
+    throw new Error("Stripe resource does not match TryHabla's active price book.");
   }
   if (
     metadataValue(metadata, "catalog_fingerprint") !==
@@ -61,7 +61,7 @@ function assertHablaCatalogMetadata(metadata: Stripe.Metadata | null | undefined
     metadataValue(metadata, "payment_method_policy") !==
     STRIPE_CHECKOUT_PAYMENT_METHOD_POLICY
   ) {
-    throw new Error("Stripe resource does not match Habla's card-only payment policy.");
+    throw new Error("Stripe resource does not match TryHabla's card-only payment policy.");
   }
 }
 
@@ -110,7 +110,7 @@ function assertCollectibleSubscription(
     throw new Error("Stripe subscription mode does not match this deployment.");
   }
   if (subscription.currency !== STRIPE_CATALOG_MANIFEST.currency) {
-    throw new Error("Stripe subscription currency does not match Habla's USD catalog.");
+    throw new Error("Stripe subscription currency does not match TryHabla's USD catalog.");
   }
   if (subscription.collection_method !== "charge_automatically") {
     throw new Error("Stripe subscription is not configured for automatic collection.");
@@ -152,7 +152,7 @@ async function assertSingleNonterminalHablaSubscription(input: {
     }
   }
   if (nonterminalHablaIds.size !== 1) {
-    throw new Error("Multiple nonterminal Habla subscriptions require reconciliation.");
+    throw new Error("Multiple nonterminal TryHabla subscriptions require reconciliation.");
   }
   assertCollectibleSubscription(listedRetrievedSubscription, input.config);
   assertHablaEntitlementMetadata(listedRetrievedSubscription, input.account);
@@ -259,7 +259,7 @@ function assertHablaEntitlementMetadata(
     metadataValue(subscription.metadata, "teacher_email")?.toLowerCase() !==
     account.teacherEmail.trim().toLowerCase()
   ) {
-    throw new Error("Stripe subscription teacher identity does not match its Habla account.");
+    throw new Error("Stripe subscription teacher identity does not match its TryHabla account.");
   }
   if (
     metadataValue(subscription.metadata, "stripe_account_id") !==
@@ -267,7 +267,7 @@ function assertHablaEntitlementMetadata(
     metadataValue(subscription.metadata, "billing_contract_id") !==
       account.billingContractId
   ) {
-    throw new Error("Stripe subscription billing scope does not match its Habla account.");
+    throw new Error("Stripe subscription billing scope does not match its TryHabla account.");
   }
 }
 
@@ -431,7 +431,7 @@ async function projectSubscription(input: {
 }) {
   const customerId = stripeObjectId(input.subscription.customer, "cus_");
   if (!customerId || customerId !== input.account.stripeCustomerId) {
-    throw new Error("Stripe subscription Customer does not match the Habla account mapping.");
+    throw new Error("Stripe subscription Customer does not match the TryHabla account mapping.");
   }
   const status = input.subscription.status.trim().toLowerCase();
   const mappedSubscriptionDiffers = Boolean(
@@ -525,19 +525,19 @@ async function processCheckoutCompleted(
     metadataValue(session.metadata, "stripe_account_id") !== config.accountId ||
     metadataValue(session.metadata, "billing_contract_id") !== billingContractId
   ) {
-    throw new Error("Completed Habla Checkout does not match this billing scope.");
+    throw new Error("Completed TryHabla Checkout does not match this billing scope.");
   }
   if (
     session.payment_method_types.length !== 1 ||
     session.payment_method_types[0] !== "card"
   ) {
-    throw new Error("Completed Habla Checkout did not use the card-only payment policy.");
+    throw new Error("Completed TryHabla Checkout did not use the card-only payment policy.");
   }
   const teacherEmail = checkoutTeacherEmail(session);
   const customerId = stripeObjectId(session.customer, "cus_");
   const subscriptionId = stripeObjectId(session.subscription, "sub_");
   if (!customerId || !subscriptionId) {
-    throw new Error("Completed Habla Checkout is missing billing resource IDs.");
+    throw new Error("Completed TryHabla Checkout is missing billing resource IDs.");
   }
   const expectedLivemode = config.keyMode === "live";
   // Checkout payload expansions are immutable snapshots. Retrieve and bind the
@@ -545,20 +545,20 @@ async function processCheckoutCompleted(
   const subscription = await getStripeClient(config).subscriptions.retrieve(subscriptionId);
   const subscriptionCustomerId = stripeObjectId(subscription.customer, "cus_");
   if (subscriptionCustomerId !== customerId) {
-    throw new Error("Completed Habla Checkout Subscription has a different Customer.");
+    throw new Error("Completed TryHabla Checkout Subscription has a different Customer.");
   }
   assertHablaCatalogMetadata(subscription.metadata);
   if (
     metadataValue(subscription.metadata, "teacher_email")?.toLowerCase() !==
     teacherEmail
   ) {
-    throw new Error("Completed Habla Checkout Subscription has a different teacher.");
+    throw new Error("Completed TryHabla Checkout Subscription has a different teacher.");
   }
   if (
     metadataValue(subscription.metadata, "stripe_account_id") !== config.accountId ||
     metadataValue(subscription.metadata, "billing_contract_id") !== billingContractId
   ) {
-    throw new Error("Completed Habla Checkout Subscription has a different billing scope.");
+    throw new Error("Completed TryHabla Checkout Subscription has a different billing scope.");
   }
   assertCollectibleSubscription(subscription, config);
   const existingAccount = await getStripeBillingAccountByTeacherEmail(teacherEmail);
@@ -570,7 +570,7 @@ async function processCheckoutCompleted(
       existingAccount.livemode !== expectedLivemode)
   ) {
     throw new Error(
-      "Completed Habla Checkout conflicts with the teacher's existing Stripe Customer mapping.",
+      "Completed TryHabla Checkout conflicts with the teacher's existing Stripe Customer mapping.",
     );
   }
   const account =
@@ -600,7 +600,7 @@ async function processSubscriptionEvent(
   const subscriptionId = stripeObjectId(eventSubscription.id, "sub_");
   if (!subscriptionId) {
     if (isHablaMetadata(eventSubscription.metadata)) {
-      throw new Error("Habla subscription event is missing a Subscription ID.");
+      throw new Error("TryHabla subscription event is missing a Subscription ID.");
     }
     return;
   }
@@ -608,7 +608,7 @@ async function processSubscriptionEvent(
   const customerId = stripeObjectId(eventSubscription.customer, "cus_");
   if (!customerId) {
     if (isHablaMetadata(eventSubscription.metadata)) {
-      throw new Error("Habla subscription event is missing a Customer ID.");
+      throw new Error("TryHabla subscription event is missing a Customer ID.");
     }
     return;
   }
@@ -623,7 +623,7 @@ async function processSubscriptionEvent(
   if (!account) {
     if (isHablaMetadata(eventSubscription.metadata)) {
       // Leave the event unrecorded so Stripe retries after mapping is restored.
-      throw new Error("Habla subscription Customer is not mapped to a teacher.");
+      throw new Error("TryHabla subscription Customer is not mapped to a teacher.");
     }
     return;
   }

@@ -49,9 +49,9 @@ describe("billing presentation", () => {
       heading: "Start with 30 free AI reviews",
       showCheckout: true,
       showPortal: false,
-      showPayPal: false,
       showRefresh: false,
     });
+    expect(presentation).not.toHaveProperty("showPayPal");
   });
 
   it("never treats a return query as proof of completion", () => {
@@ -62,12 +62,12 @@ describe("billing presentation", () => {
     });
     expect(returned.notice?.text).not.toMatch(/checkout completed/i);
     expect(returned.showCheckout).toBe(false);
-    expect(returned.showPayPal).toBe(false);
+    expect(returned).not.toHaveProperty("showPayPal");
 
     const timedOut = deriveBillingPresentation(status(), "timed_out");
     expect(timedOut.notice).toMatchObject({
       tone: "warning",
-      text: expect.stringContaining("has not reached Habla"),
+      text: expect.stringContaining("has not reached TryHabla"),
     });
     expect(timedOut).toMatchObject({
       showCheckout: false,
@@ -125,7 +125,6 @@ describe("billing presentation", () => {
       showCheckout: false,
       showPortal: true,
       portalIsPrimary: true,
-      showPayPal: false,
       showSupport: true,
     });
   });
@@ -217,7 +216,7 @@ describe("billing presentation", () => {
     },
   );
 
-  it("shows voluntary support only when no Stripe account action is available", () => {
+  it("never substitutes a donation link for unavailable Stripe product billing", () => {
     const presentation = deriveBillingPresentation(
       status({
         clientConfigured: false,
@@ -230,9 +229,9 @@ describe("billing presentation", () => {
     expect(presentation).toMatchObject({
       showCheckout: false,
       showPortal: false,
-      showPayPal: true,
       availabilityNote: "AI grading is temporarily unavailable.",
     });
+    expect(presentation).not.toHaveProperty("showPayPal");
   });
 
   it("does not replace an unknown subscription state with a new Checkout", () => {
