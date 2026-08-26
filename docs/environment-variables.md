@@ -122,7 +122,7 @@ blocker.
 | Name | Purpose | Required | Scope | Absent behavior |
 | --- | --- | --- | --- | --- |
 | `AI_GRADING_ENABLED` | Enables teacher-requested AI transcription and optional grading routes/UI when `true`. | Optional | Server | Defaults disabled; APIs return unavailable before audio/model calls. |
-| `AI_BULK_GRADING_ENABLED` | Enables synchronous grade-all separately from single grading. | Optional | Server | Defaults disabled; keep off until bulk work runs as a durable resumable job. |
+| `AI_BULK_GRADING_ENABLED` | Enables assignment-wide grade-all separately from single grading. The browser preflights the run, then processes each submission through the independently retry-safe single-grade API with visible progress; rerunning resumes from the still-ungraded rows. | Optional rollout flag | Server | Defaults disabled. |
 | `AI_TRANSCRIPTION_PROVIDER` | Selects `openai` or local `mock`. | Required for a reviewed launch | Server | Defaults to `openai`. |
 | `AI_GRADING_PROVIDER` | Selects `openai`, `ollama`, or local `mock`. | Required for a reviewed launch | Server | Defaults to `openai` in production and local `ollama` otherwise; set it explicitly for deployments. |
 | `AI_TRANSCRIPTION_MODEL` | Exact transcription model ID. The repository candidate is `gpt-4o-mini-transcribe`, but it is not approved merely by appearing here. | Optional, but set explicitly for production AI | Server | Production defaults to `gpt-4o-transcribe`. The runtime honors an explicit value without silently substituting a different cost/behavior profile. |

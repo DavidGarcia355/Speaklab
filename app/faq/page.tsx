@@ -145,7 +145,7 @@ const FAQ_SECTIONS = [
       {
         question: "How does optional AI pricing work?",
         answer:
-          "Teacher is $20 per month and includes 300 AI-assisted recordings in each Stripe billing period. One unit delivers a transcript, and optional grading for that same recording and assignment is included. Recordings can be up to five minutes. Provider failures, empty or unusable transcripts, and exact retries do not use another unit. Unused units do not roll over, and there are no automatic overages; reaching the limit pauses AI while recording, playback, downloads, and manual grading remain available.",
+          "Teacher is $20 per month and includes 300 AI-assisted recordings in each Stripe billing period. One unit delivers a transcript, and optional grading for that same recording and assignment is included. Copying or downloading a saved transcript never uses another unit. Recordings can be up to five minutes. Provider failures, empty or unusable transcripts, and exact retries do not use another unit. Unused units do not roll over, and there are no automatic overages; reaching the limit pauses AI while recording, playback, downloads, and manual grading remain available.",
       },
       {
         question: "Does AI save the grade automatically?",

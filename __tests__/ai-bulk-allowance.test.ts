@@ -155,6 +155,29 @@ beforeEach(() => {
 });
 
 describe("bulk AI allowance preflight", () => {
+  it("fails once before auth or item work when provider configuration is incomplete", async () => {
+    mocks.assertAiProviderConfig.mockImplementationOnce(() => {
+      throw new Error("missing provider");
+    });
+    const { GET } = await import("@/app/api/assignments/[assignmentId]/ai-grade-all/route");
+
+    const response = await GET(request(), context);
+
+    expect(response.status).toBe(503);
+    expect(mocks.requireTeacherEmail).not.toHaveBeenCalled();
+    expect(mocks.listUngradedSubmissionsForAiGrade).not.toHaveBeenCalled();
+  });
+
+  it("rejects a denied teacher before returning a runnable item list", async () => {
+    mocks.isAiTeacherDenied.mockReturnValueOnce(true);
+    const { GET } = await import("@/app/api/assignments/[assignmentId]/ai-grade-all/route");
+
+    const response = await GET(request(), context);
+
+    expect(response.status).toBe(403);
+    expect(mocks.listUngradedSubmissionsForAiGrade).not.toHaveBeenCalled();
+  });
+
   it("marks a batch as not fitting when the Teacher-period allowance is exhausted", async () => {
     const { GET } = await import("@/app/api/assignments/[assignmentId]/ai-grade-all/route");
 
@@ -163,9 +186,12 @@ describe("bulk AI allowance preflight", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       ungradedCount: 2,
+      assignmentId: "asg_1",
+      submissionIds: ["sub_1", "sub_2"],
       newUnitsRequired: 2,
       remaining: 100,
       fits: false,
+      cooldownSeconds: 0,
       allowance: teacherAllowance,
     });
   });
@@ -234,6 +260,27 @@ describe("bulk AI allowance preflight", () => {
     await expect(response.json()).resolves.toMatchObject({
       ungradedCount: 2,
       newUnitsRequired: 2,
+      fits: false,
+    });
+  });
+
+  it("does not bulk-regenerate a completed review-only result for the same assignment", async () => {
+    mocks.listUngradedSubmissionsForAiGrade.mockResolvedValue([
+      {
+        ...pending[0],
+        completedAttemptFingerprints: [currentAssignmentFingerprint],
+      },
+    ]);
+    const { GET } = await import("@/app/api/assignments/[assignmentId]/ai-grade-all/route");
+
+    const response = await GET(request(), context);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      assignmentId: "asg_1",
+      ungradedCount: 0,
+      submissionIds: [],
+      newUnitsRequired: 0,
       fits: false,
     });
   });

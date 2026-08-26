@@ -20,6 +20,12 @@ import RubricBuilder, { type RubricCriterionDraft } from "@/app/components/Rubri
 import SubmissionTranscript from "@/app/components/SubmissionTranscript";
 import StudentOralPortfolio from "@/app/components/StudentOralPortfolio";
 import UndoToast from "@/app/components/UndoToast";
+import {
+  runBulkAiGradeRequests,
+  type BulkAiAttempt,
+  type BulkAiGradeRunSummary,
+} from "@/app/components/bulk-ai-grade-runner";
+import { prepareBulkTranscriptDownload } from "@/app/components/bulk-transcript-download";
 import { buildSubmissionDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 
 type AssignmentSummary = {
@@ -79,22 +85,7 @@ type DraftState = {
   saving: boolean;
   rubricScoreInputs: Record<string, string>;
 };
-type AiAttempt = {
-  id: string;
-  status: "completed" | "failed";
-  transcript: string;
-  suggestedScore: number | null;
-  rubricScores: NonNullable<SubmissionItem["rubricScores"]>;
-  feedback: string;
-  strengths: string[];
-  improvements: string[];
-  evidence: string[];
-  confidence: "high" | "medium" | "low";
-  warnings: string[];
-  teacherAttention: string;
-  errorMessage: string;
-  gradeApplied?: boolean;
-};
+type AiAttempt = BulkAiAttempt;
 type AiReviewAllowance = {
   status:
     | "free_lifetime"
@@ -110,19 +101,24 @@ type AiReviewAllowance = {
   periodEnd: number | null;
 };
 type BulkAiPreflight = {
+  assignmentId: string;
   ungradedCount: number;
+  submissionIds: string[];
   newUnitsRequired: number;
   remaining: number;
   fits: boolean;
   estimatedSeconds: number;
+  cooldownSeconds: number;
   allowance: AiReviewAllowance | null;
 };
-type BulkAiResult = {
+type BulkAiResult = BulkAiGradeRunSummary;
+type BulkTranscriptResult = {
   total: number;
-  completed: number;
-  graded: number;
-  skipped: number;
-  failed: number;
+  included: number;
+  unavailable: number;
+  needsReview: number;
+  downloadUrl: string | null;
+  archiveFilename: string | null;
 };
 type Tone = "warning" | "success" | "neutral";
 type AssignmentView = AssignmentSummary & {
@@ -351,7 +347,11 @@ export default function ClassDetailPage() {
   const [bulkAiChecking, setBulkAiChecking] = useState(false);
   const [bulkAiRunning, setBulkAiRunning] = useState(false);
   const [bulkAiResult, setBulkAiResult] = useState<BulkAiResult | null>(null);
+  const [bulkAiProgress, setBulkAiProgress] = useState<{ processed: number; total: number } | null>(null);
   const [bulkAiError, setBulkAiError] = useState("");
+  const [bulkTranscriptDownloading, setBulkTranscriptDownloading] = useState(false);
+  const [bulkTranscriptResult, setBulkTranscriptResult] = useState<BulkTranscriptResult | null>(null);
+  const [bulkTranscriptError, setBulkTranscriptError] = useState("");
 
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
@@ -367,6 +367,11 @@ export default function ClassDetailPage() {
   const [csvUploading, setCsvUploading] = useState(false);
   const [csvResult, setCsvResult] = useState<{ added: number; skipped: number } | null>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const bulkAiRunRef = useRef(false);
+  const bulkAiAbortRef = useRef<AbortController | null>(null);
+  const selectedAssignmentIdRef = useRef("");
+  const bulkTranscriptUrlRef = useRef<string | null>(null);
+  const bulkTranscriptAbortRef = useRef<AbortController | null>(null);
   const pendingDeleteRef = useRef<{
     key: string;
     rollback: () => void;
@@ -630,8 +635,29 @@ export default function ClassDetailPage() {
   useEffect(() => {
     return () => {
       if (pendingDeleteRef.current) window.clearTimeout(pendingDeleteRef.current.timerId);
+      bulkAiAbortRef.current?.abort();
+      bulkTranscriptAbortRef.current?.abort();
+      if (bulkTranscriptUrlRef.current) URL.revokeObjectURL(bulkTranscriptUrlRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    selectedAssignmentIdRef.current = selectedAssignmentId;
+    setBulkAiPreflight(null);
+    if (!bulkAiRunRef.current) {
+      setBulkAiResult(null);
+      setBulkAiError("");
+    }
+    bulkTranscriptAbortRef.current?.abort();
+    bulkTranscriptAbortRef.current = null;
+    if (bulkTranscriptUrlRef.current) {
+      URL.revokeObjectURL(bulkTranscriptUrlRef.current);
+      bulkTranscriptUrlRef.current = null;
+    }
+    setBulkTranscriptDownloading(false);
+    setBulkTranscriptResult(null);
+    setBulkTranscriptError("");
+  }, [selectedAssignmentId]);
 
   const submissionsByAssignment = useMemo(() => {
     const grouped: Record<string, SubmissionItem[]> = {};
@@ -685,6 +711,7 @@ export default function ClassDetailPage() {
   const activeAssignment = assignmentViews.find((assignment) => assignment.id === selectedAssignmentId) ?? assignmentViews[0] ?? null;
   const activeAllSubmissions = activeAssignment ? submissionsByAssignment[activeAssignment.id] ?? [] : [];
   const activeFilteredSubmissions = activeAssignment ? filteredByAssignment[activeAssignment.id] ?? [] : [];
+  const bulkAiWorkflowActive = bulkAiChecking || bulkAiRunning || bulkAiPreflight !== null;
 
   function updatePayloadSubmissions(updater: (items: SubmissionItem[]) => SubmissionItem[]) {
     setPayload((prev) => (prev ? { ...prev, submissions: updater(prev.submissions) } : prev));
@@ -705,6 +732,41 @@ export default function ClassDetailPage() {
         ...update,
       },
     }));
+  }
+
+  function isSubmissionDraftDirty(
+    submission: SubmissionItem,
+    assignment: AssignmentSummary | AssignmentView,
+  ) {
+    const draft = drafts[submission.id];
+    if (!draft) return false;
+    if (draft.saving || draft.feedback !== (submission.feedback ?? "")) return true;
+
+    if (assignment.rubric) {
+      return assignment.rubric.criteria.some((criterion) => {
+        const saved = submission.rubricScores?.find(
+          (score) => score.criterionId === criterion.id,
+        );
+        return (draft.rubricScoreInputs[criterion.id]?.trim() ?? "") !==
+          (saved ? String(saved.awarded) : "");
+      });
+    }
+
+    const value = draft.gradeInput.trim();
+    if (submission.grade === null) return value !== "";
+    return value === "" || !Number.isFinite(Number(value)) || Number(value) !== submission.grade;
+  }
+
+  function dirtyDraftCountForAssignment(assignmentId: string) {
+    const assignment = assignmentViews.find((item) => item.id === assignmentId);
+    if (!assignment) return 0;
+    return (submissionsByAssignment[assignmentId] ?? []).filter(
+      (submission) =>
+        submission.grade === null &&
+        !(submission.feedback ?? "").trim() &&
+        submission.rubricScores === null &&
+        isSubmissionDraftDirty(submission, assignment),
+    ).length;
   }
 
   async function saveSubmission(submissionId: string) {
@@ -848,6 +910,33 @@ export default function ClassDetailPage() {
     }
   }
 
+  function applySavedAiAttempt(submissionId: string, attempt: AiAttempt) {
+    setAiSuggestions((prev) => ({ ...prev, [submissionId]: attempt }));
+    if (!attempt.gradeApplied || attempt.suggestedScore === null) return;
+
+    const rubricScoreInputs = Object.fromEntries(
+      attempt.rubricScores.map((score) => [score.criterionId, String(score.awarded)]),
+    );
+    updatePayloadSubmissions((items) =>
+      items.map((row) =>
+        row.id === submissionId
+          ? {
+              ...row,
+              grade: attempt.suggestedScore,
+              feedback: attempt.feedback,
+              gradeSource: "ai",
+              rubricScores: attempt.rubricScores.length > 0 ? attempt.rubricScores : null,
+            }
+          : row,
+      ),
+    );
+    setDraft(submissionId, {
+      gradeInput: String(attempt.suggestedScore),
+      feedback: attempt.feedback,
+      rubricScoreInputs,
+    });
+  }
+
   async function aiGradeSubmission(submissionId: string) {
     setAiGrading((prev) => ({ ...prev, [submissionId]: true }));
     setAiGradeErrors((prev) => ({ ...prev, [submissionId]: "" }));
@@ -866,32 +955,12 @@ export default function ClassDetailPage() {
       const attempt = data.attempt
         ? { ...data.attempt, gradeApplied: data.gradeApplied === true }
         : null;
-      setAiSuggestions((prev) => ({ ...prev, [submissionId]: attempt }));
-      if (attempt?.gradeApplied && attempt.suggestedScore !== null) {
-        const rubricScoreInputs = Object.fromEntries(
-          attempt.rubricScores.map((score) => [score.criterionId, String(score.awarded)]),
-        );
-        updatePayloadSubmissions((items) =>
-          items.map((row) =>
-            row.id === submissionId
-              ? {
-                  ...row,
-                  grade: attempt.suggestedScore,
-                  feedback: attempt.feedback,
-                  gradeSource: "ai",
-                  rubricScores: attempt.rubricScores.length > 0 ? attempt.rubricScores : null,
-                }
-              : row,
-          ),
-        );
-        setDraft(submissionId, {
-          gradeInput: String(attempt.suggestedScore),
-          feedback: attempt.feedback,
-          rubricScoreInputs,
-        });
+      if (attempt) applySavedAiAttempt(submissionId, attempt);
+      else setAiSuggestions((prev) => ({ ...prev, [submissionId]: null }));
+      if (attempt?.gradeApplied) {
         setAiGradeErrors((prev) => ({
           ...prev,
-          [submissionId]: "AI grade saved automatically. You can review or edit it anytime.",
+          [submissionId]: "AI score entered and saved automatically. Review or edit it anytime.",
         }));
       }
       if (data.attempt?.status === "failed") {
@@ -910,6 +979,18 @@ export default function ClassDetailPage() {
   // Ask the server what a bulk run would involve before showing the confirm
   // dialog, so the teacher sees real counts rather than an optimistic guess.
   async function openBulkAiConfirm(assignmentId: string) {
+    if (bulkAiRunRef.current) return;
+    if (Object.values(aiGrading).some(Boolean)) {
+      setBulkAiError("Wait for the current AI grade to finish before grading the assignment.");
+      return;
+    }
+    const dirtyBeforeCheck = dirtyDraftCountForAssignment(assignmentId);
+    if (dirtyBeforeCheck > 0) {
+      setBulkAiError(
+        `Save or clear unsaved grading changes for ${pluralize(dirtyBeforeCheck, "submission")} before starting AI grading.`,
+      );
+      return;
+    }
     setBulkAiChecking(true);
     setBulkAiError("");
     setBulkAiResult(null);
@@ -917,6 +998,18 @@ export default function ClassDetailPage() {
       const response = await fetch(`/api/assignments/${assignmentId}/ai-grade-all`, { cache: "no-store" });
       const data = (await response.json()) as BulkAiPreflight & { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Could not check AI grading.");
+      const dirtyAfterCheck = dirtyDraftCountForAssignment(assignmentId);
+      if (dirtyAfterCheck > 0) {
+        throw new Error(
+          `Save or clear unsaved grading changes for ${pluralize(dirtyAfterCheck, "submission")} before starting AI grading.`,
+        );
+      }
+      if (data.assignmentId !== assignmentId) {
+        throw new Error("The assignment changed while AI grading was being checked. Try again.");
+      }
+      if (selectedAssignmentIdRef.current !== assignmentId) {
+        throw new Error("The selected assignment changed. Check AI grading again.");
+      }
       setBulkAiPreflight(data);
     } catch (error) {
       setBulkAiError(error instanceof Error ? error.message : "Could not check AI grading.");
@@ -925,69 +1018,149 @@ export default function ClassDetailPage() {
     }
   }
 
-  async function runBulkAiGrade(assignmentId: string) {
+  async function runBulkAiGrade(preflight: BulkAiPreflight) {
+    if (bulkAiRunRef.current) return;
     setBulkAiPreflight(null);
+    if (activeAssignment?.id !== preflight.assignmentId) {
+      setBulkAiError("The selected assignment changed. Check the AI grading run again.");
+      return;
+    }
+    if (Object.values(aiGrading).some(Boolean)) {
+      setBulkAiError("Wait for the current AI grade to finish before grading the assignment.");
+      return;
+    }
+    const dirtyCount = dirtyDraftCountForAssignment(preflight.assignmentId);
+    if (dirtyCount > 0) {
+      setBulkAiError(
+        `Save or clear unsaved grading changes for ${pluralize(dirtyCount, "submission")} before starting AI grading.`,
+      );
+      return;
+    }
+
+    const controller = new AbortController();
+    bulkAiAbortRef.current?.abort();
+    bulkAiAbortRef.current = controller;
+    bulkAiRunRef.current = true;
     setBulkAiRunning(true);
+    setBulkAiProgress({
+      processed: 0,
+      total: new Set(preflight.submissionIds).size,
+    });
+    setBulkAiResult(null);
     setBulkAiError("");
     try {
-      const response = await fetch(`/api/assignments/${assignmentId}/ai-grade-all`, { method: "POST" });
-      const data = (await response.json()) as BulkAiResult & {
-        results?: Array<{ submissionId: string; gradeApplied?: boolean }>;
-        error?: string;
-      };
-      if (!response.ok) throw new Error(data.error ?? "Bulk AI grading failed.");
-      setBulkAiResult({
-        total: data.total,
-        completed: data.completed,
-        graded: data.graded,
-        skipped: data.skipped,
-        failed: data.failed,
+      const result = await runBulkAiGradeRequests({
+        submissionIds: preflight.submissionIds,
+        cooldownSeconds: preflight.cooldownSeconds,
+        signal: controller.signal,
+        onItem: (item) => {
+          if (item.attempt) applySavedAiAttempt(item.submissionId, item.attempt);
+          if (item.outcome === "graded") {
+            setAiGradeErrors((prev) => ({
+              ...prev,
+              [item.submissionId]:
+                "AI score entered and saved automatically. Review or edit it anytime.",
+            }));
+          } else if (item.outcome === "review_only") {
+            setAiGradeErrors((prev) => ({
+              ...prev,
+              [item.submissionId]:
+                "AI produced a review-only suggestion; no score was entered.",
+            }));
+          } else {
+            setAiGradeErrors((prev) => ({
+              ...prev,
+              [item.submissionId]: item.message,
+            }));
+          }
+        },
+        onProgress: (summary, processed) => {
+          setBulkAiResult(summary);
+          setBulkAiProgress({ processed, total: summary.total });
+        },
+      });
+      setBulkAiResult(result);
+      if (result.terminalError) {
+        setBulkAiError(
+          `AI grading paused: ${result.terminalError}${
+            result.notProcessed > 0
+              ? ` ${pluralize(result.notProcessed, "submission")} can be retried later.`
+              : ""
+          }`,
+        );
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setBulkAiError(error instanceof Error ? error.message : "Bulk AI grading failed.");
+      }
+    } finally {
+      if (bulkAiAbortRef.current === controller) bulkAiAbortRef.current = null;
+      bulkAiRunRef.current = false;
+      if (!controller.signal.aborted) {
+        setBulkAiRunning(false);
+        setBulkAiProgress(null);
+      }
+    }
+  }
+
+  async function downloadAllSavedTranscripts() {
+    if (!activeAssignment || activeAllSubmissions.length === 0) return;
+    const assignmentTitle = activeAssignment.title;
+    const submissions = activeAllSubmissions.map((submission) => ({
+      id: submission.id,
+      studentName: submission.studentName,
+      submittedAt: submission.submittedAt,
+    }));
+
+    bulkTranscriptAbortRef.current?.abort();
+    if (bulkTranscriptUrlRef.current) {
+      URL.revokeObjectURL(bulkTranscriptUrlRef.current);
+      bulkTranscriptUrlRef.current = null;
+    }
+    const controller = new AbortController();
+    bulkTranscriptAbortRef.current = controller;
+    setBulkTranscriptDownloading(true);
+    setBulkTranscriptResult(null);
+    setBulkTranscriptError("");
+    try {
+      const result = await prepareBulkTranscriptDownload({
+        assignmentTitle,
+        submissions,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+
+      const downloadUrl = result.archive ? URL.createObjectURL(result.archive) : null;
+      bulkTranscriptUrlRef.current = downloadUrl;
+      setBulkTranscriptResult({
+        total: result.total,
+        included: result.included,
+        unavailable: result.unavailable,
+        needsReview: result.needsReview,
+        downloadUrl,
+        archiveFilename: result.archiveFilename,
       });
 
-      // Pull each new suggestion in so the review panels and badges populate
-      // without a page refresh.
-      await Promise.all(
-        (data.results ?? []).map(async (item) => {
-          try {
-            const latest = await fetch(`/api/submissions/${item.submissionId}/ai-grade`, { cache: "no-store" });
-            if (!latest.ok) return;
-            const payload = (await latest.json()) as { latest?: AiAttempt | null };
-            if (payload.latest) {
-              const attempt = { ...payload.latest, gradeApplied: item.gradeApplied === true };
-              setAiSuggestions((prev) => ({ ...prev, [item.submissionId]: attempt }));
-              if (attempt.gradeApplied && attempt.suggestedScore !== null) {
-                const rubricScoreInputs = Object.fromEntries(
-                  attempt.rubricScores.map((score) => [score.criterionId, String(score.awarded)]),
-                );
-                updatePayloadSubmissions((items) =>
-                  items.map((row) =>
-                    row.id === item.submissionId
-                      ? {
-                          ...row,
-                          grade: attempt.suggestedScore,
-                          feedback: attempt.feedback,
-                          gradeSource: "ai",
-                          rubricScores: attempt.rubricScores.length > 0 ? attempt.rubricScores : null,
-                        }
-                      : row,
-                  ),
-                );
-                setDraft(item.submissionId, {
-                  gradeInput: String(attempt.suggestedScore),
-                  feedback: attempt.feedback,
-                  rubricScoreInputs,
-                });
-              }
-            }
-          } catch {
-            // A suggestion that fails to load here is still saved server-side.
-          }
-        })
-      );
+      if (downloadUrl && result.archiveFilename) {
+        const anchor = document.createElement("a");
+        anchor.href = downloadUrl;
+        anchor.download = result.archiveFilename;
+        anchor.rel = "noopener";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+      }
     } catch (error) {
-      setBulkAiError(error instanceof Error ? error.message : "Bulk AI grading failed.");
+      if (!controller.signal.aborted) {
+        setBulkTranscriptError(
+          error instanceof Error ? error.message : "Could not prepare transcript downloads.",
+        );
+      }
     } finally {
-      setBulkAiRunning(false);
+      if (bulkTranscriptAbortRef.current === controller) {
+        bulkTranscriptAbortRef.current = null;
+      }
+      if (!controller.signal.aborted) setBulkTranscriptDownloading(false);
     }
   }
 
@@ -1434,7 +1607,7 @@ export default function ClassDetailPage() {
             <p className="meta">Switch between assignments and see what needs grading.</p>
             <div className="assignment-list">
               {assignmentViews.map((assignment) => (
-                <button key={assignment.id} type="button" className={`assignment-nav-item ${assignment.id === activeAssignment?.id ? "is-selected" : ""}`} onClick={() => setSelectedAssignmentId(assignment.id)}>
+                <button key={assignment.id} type="button" className={`assignment-nav-item ${assignment.id === activeAssignment?.id ? "is-selected" : ""}`} onClick={() => setSelectedAssignmentId(assignment.id)} disabled={bulkAiWorkflowActive}>
                   <div className="assignment-nav-head"><p className="assignment-nav-title">{assignment.title}</p><span className={`status-badge status-${assignment.tone}`}>{assignment.label}</span></div>
                   <div className="assignment-nav-counts"><span className="pill pill-subtle">{pluralize(assignment.totalSubmissions, "submission")}</span>{assignment.totalSubmissions === 0 ? <span className="pill pill-neutral">No activity</span> : assignment.ungradedCount > 0 ? <span className="pill pill-warning">{pluralize(assignment.ungradedCount, "ungraded")}</span> : <span className="pill pill-success">All graded</span>}</div>
                 </button>
@@ -1453,6 +1626,7 @@ export default function ClassDetailPage() {
                       type="button"
                       className="icon-btn"
                       onClick={openAssignmentEditModal}
+                      disabled={bulkAiWorkflowActive}
                       aria-label={`Edit assignment ${activeAssignment.title}`}
                       title="Edit assignment"
                     >
@@ -1462,6 +1636,7 @@ export default function ClassDetailPage() {
                       type="button"
                       className="icon-btn icon-btn-danger"
                       onClick={() => setDeleteTarget({ type: "assignment", assignment: activeAssignment })}
+                      disabled={bulkAiWorkflowActive}
                       aria-label={`Delete assignment ${activeAssignment.title}`}
                       title="Delete assignment"
                     >
@@ -1506,33 +1681,84 @@ export default function ClassDetailPage() {
                       type="button"
                       className="btn btn-ghost"
                       onClick={() => void openBulkAiConfirm(activeAssignment.id)}
-                      disabled={bulkAiChecking || bulkAiRunning}
+                      disabled={bulkAiChecking || bulkAiRunning || Object.values(aiGrading).some(Boolean)}
                     >
                       {bulkAiRunning
-                        ? "AI grading..."
+                        ? bulkAiProgress
+                          ? `AI grading ${bulkAiProgress.processed}/${bulkAiProgress.total}...`
+                          : "AI grading..."
                         : bulkAiChecking
                           ? "Checking..."
-                          : `AI grade all ungraded (${activeAssignment.ungradedCount})`}
+                          : "AI grade & enter eligible scores"}
+                    </button>
+                  ) : null}
+                  {activeAllSubmissions.length > 0 ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => void downloadAllSavedTranscripts()}
+                      disabled={bulkTranscriptDownloading || bulkAiRunning}
+                    >
+                      {bulkTranscriptDownloading
+                        ? "Preparing transcript ZIP..."
+                        : "Download saved transcripts"}
                     </button>
                   ) : null}
                   <span className="status-badge status-warning">{pluralize(activeAssignment.ungradedCount, "ungraded")}</span>
                 </div>
 
                 {bulkAiError ? <p className="card-inline-error">{bulkAiError}</p> : null}
+                {bulkTranscriptError ? <p className="card-inline-error">{bulkTranscriptError}</p> : null}
                 {bulkAiRunning ? (
                   <div className="notice info">
-                    Generating AI grades. Grades that pass safeguards will be saved and marked for teacher review. Leave this page open until the run finishes.
+                    Generating AI grades one submission at a time. Scores that pass safeguards are entered automatically and marked for teacher review. You can safely rerun this action later if the page closes.
                   </div>
                 ) : null}
                 {bulkAiResult ? (
                   <div className="notice info">
                     <strong>
-                      {bulkAiResult.graded} of {bulkAiResult.total} eligible AI grade
-                      {bulkAiResult.graded === 1 ? "" : "s"} saved and marked Needs teacher review.
+                      {bulkAiResult.graded} of {bulkAiResult.total} eligible submissions had an AI score entered and saved.
                     </strong>{" "}
+                    {bulkAiResult.reviewOnly > 0
+                      ? `${bulkAiResult.reviewOnly} produced review-only suggestions with no score entered. `
+                      : ""}
                     {bulkAiResult.skipped > 0 ? `${bulkAiResult.skipped} skipped. ` : ""}
                     {bulkAiResult.failed > 0 ? `${bulkAiResult.failed} failed. ` : ""}
-                    Students can see saved results immediately; review or edit every AI grade below.
+                    {bulkAiResult.uncertain > 0
+                      ? `${bulkAiResult.uncertain} could not be confirmed; reload before retrying. `
+                      : ""}
+                    {bulkAiResult.notProcessed > 0
+                      ? `${bulkAiResult.notProcessed} not processed and safe to retry. `
+                      : ""}
+                    {bulkAiResult.graded > 0
+                      ? "Students can see entered scores immediately; review or edit every AI grade below."
+                      : "No student-visible score was entered by this run."}
+                  </div>
+                ) : null}
+                {bulkTranscriptResult ? (
+                  <div className="notice info" role="status" aria-live="polite">
+                    <strong>
+                      {bulkTranscriptResult.included} of {bulkTranscriptResult.total} submissions had a saved transcript included
+                      {bulkTranscriptResult.downloadUrl ? "; ZIP download started." : "."}
+                    </strong>{" "}
+                    {bulkTranscriptResult.unavailable > 0
+                      ? `${bulkTranscriptResult.unavailable} unavailable. `
+                      : ""}
+                    {bulkTranscriptResult.needsReview > 0
+                      ? `${bulkTranscriptResult.needsReview} included but marked for teacher review. `
+                      : ""}
+                    {bulkTranscriptResult.downloadUrl && bulkTranscriptResult.archiveFilename ? (
+                      <a
+                        className="text-link"
+                        href={bulkTranscriptResult.downloadUrl}
+                        download={bulkTranscriptResult.archiveFilename}
+                      >
+                        Download ZIP again
+                      </a>
+                    ) : (
+                      "No saved transcripts were available. Generate transcripts first or use AI grading."
+                    )}
+                    <span className="meta"> Downloading saved transcripts does not use credits.</span>
                   </div>
                 ) : null}
 
@@ -1573,6 +1799,7 @@ export default function ClassDetailPage() {
                                     className="input inline-edit-input"
                                     value={editingSubmissionName}
                                     onChange={(event) => setEditingSubmissionName(event.target.value)}
+                                    disabled={bulkAiWorkflowActive}
                                     maxLength={80}
                                     autoFocus
                                   />
@@ -1580,7 +1807,7 @@ export default function ClassDetailPage() {
                                     type="button"
                                     className="icon-btn icon-btn-confirm"
                                     onClick={() => void saveSubmissionName(submission)}
-                                    disabled={nameSaving}
+                                    disabled={nameSaving || bulkAiWorkflowActive}
                                     aria-label={`Save student name for ${submission.studentName}`}
                                     title="Save student name"
                                   >
@@ -1590,6 +1817,7 @@ export default function ClassDetailPage() {
                                     type="button"
                                     className="icon-btn"
                                     onClick={() => { setEditingSubmissionId(""); setEditingSubmissionName(""); }}
+                                    disabled={bulkAiWorkflowActive}
                                     aria-label={`Cancel editing student name for ${submission.studentName}`}
                                     title="Cancel editing"
                                   >
@@ -1603,6 +1831,7 @@ export default function ClassDetailPage() {
                                     type="button"
                                     className="icon-btn"
                                     onClick={() => { setEditingSubmissionId(submission.id); setEditingSubmissionName(submission.studentName); }}
+                                    disabled={bulkAiWorkflowActive}
                                     aria-label={`Edit student name for ${submission.studentName}`}
                                     title="Edit student name"
                                   >
@@ -1612,6 +1841,7 @@ export default function ClassDetailPage() {
                                     type="button"
                                     className="icon-btn icon-btn-danger"
                                     onClick={() => setDeleteTarget({ type: "submission", submission })}
+                                    disabled={bulkAiWorkflowActive}
                                     aria-label={`Delete submission from ${submission.studentName}`}
                                     title="Delete submission"
                                   >
@@ -1632,7 +1862,7 @@ export default function ClassDetailPage() {
                                 </div>
                               </div>
                             ) : (
-                              <div className="score-control"><label className="meta score-label" htmlFor={`grade-${submission.id}`}>Score</label><div className="score-field"><input id={`grade-${submission.id}`} className="input score-input" type="number" min={0} max={activeAssignment.maxPoints} step={1} inputMode="numeric" placeholder="0" value={draft.gradeInput} onChange={(event) => setDraft(submission.id, { gradeInput: event.target.value })} /><span className="score-suffix">/{activeAssignment.maxPoints}</span></div></div>
+                              <div className="score-control"><label className="meta score-label" htmlFor={`grade-${submission.id}`}>Score</label><div className="score-field"><input id={`grade-${submission.id}`} className="input score-input" type="number" min={0} max={activeAssignment.maxPoints} step={1} inputMode="numeric" placeholder="0" value={draft.gradeInput} onChange={(event) => setDraft(submission.id, { gradeInput: event.target.value })} disabled={bulkAiWorkflowActive} /><span className="score-suffix">/{activeAssignment.maxPoints}</span></div></div>
                             )}
                           </div>
                           <AiGradeReviewBadge
@@ -1683,6 +1913,7 @@ export default function ClassDetailPage() {
                                         inputMode="numeric"
                                         placeholder="0"
                                         value={draft.rubricScoreInputs[criterion.id] ?? ""}
+                                        disabled={bulkAiWorkflowActive}
                                         onChange={(event) =>
                                           setDraft(submission.id, {
                                             rubricScoreInputs: {
@@ -1700,7 +1931,7 @@ export default function ClassDetailPage() {
                             </div>
                           ) : null}
                           <label className="label feedback-label" htmlFor={`feedback-${submission.id}`}>Feedback (optional)</label>
-                          <textarea id={`feedback-${submission.id}`} className="textarea feedback-area" value={draft.feedback} onChange={(event) => setDraft(submission.id, { feedback: event.target.value })} onInput={(event) => autoResizeTextarea(event.currentTarget)} onFocus={(event) => autoResizeTextarea(event.currentTarget)} placeholder="Optional student feedback..." rows={2} />
+                          <textarea id={`feedback-${submission.id}`} className="textarea feedback-area" value={draft.feedback} onChange={(event) => setDraft(submission.id, { feedback: event.target.value })} onInput={(event) => autoResizeTextarea(event.currentTarget)} onFocus={(event) => autoResizeTextarea(event.currentTarget)} placeholder="Optional student feedback..." rows={2} disabled={bulkAiWorkflowActive} />
                           {aiSuggestion ? (
                             <div className="notice info">
                               <p className="meta" style={{ marginBottom: "0.35rem" }}>
@@ -1745,7 +1976,7 @@ export default function ClassDetailPage() {
                                 {!aiSuggestion.gradeApplied &&
                                 aiSuggestion.suggestedScore !== null &&
                                 aiSuggestion.teacherAttention !== "unable_to_grade" ? (
-                                  <button type="button" className="btn btn-ghost" onClick={() => applyAiSuggestion(submission.id, aiSuggestion)}>
+                                  <button type="button" className="btn btn-ghost" onClick={() => applyAiSuggestion(submission.id, aiSuggestion)} disabled={bulkAiWorkflowActive}>
                                     Use this grade
                                   </button>
                                 ) : null}
@@ -1757,9 +1988,9 @@ export default function ClassDetailPage() {
                           ) : null}
                           <div className="actions submission-actions">
                             {aiGradingEnabled ? (
-                              <button type="button" className="btn btn-ghost" onClick={() => void aiGradeSubmission(submission.id)} disabled={aiGrading[submission.id] || draft.saving}>{aiGrading[submission.id] ? "Grading & saving..." : "Optional: AI grade & save"}</button>
+                              <button type="button" className="btn btn-ghost" onClick={() => void aiGradeSubmission(submission.id)} disabled={aiGrading[submission.id] || bulkAiWorkflowActive || draft.saving}>{aiGrading[submission.id] ? "Grading & saving..." : "Optional: AI grade & enter score"}</button>
                             ) : null}
-                            <button type="button" className="btn btn-primary" onClick={() => void saveSubmission(submission.id)} disabled={draft.saving}>{draft.saving ? "Saving..." : "Save grade"}</button>
+                            <button type="button" className="btn btn-primary" onClick={() => void saveSubmission(submission.id)} disabled={draft.saving || bulkAiWorkflowActive}>{draft.saving ? "Saving..." : "Save grade"}</button>
                           </div>
                           {aiGradeErrors[submission.id] ? <p className="card-inline-error">{aiGradeErrors[submission.id]}</p> : null}
                           {submissionErrors[submission.id] ? <p className="card-inline-error">{submissionErrors[submission.id]}</p> : null}
@@ -1957,10 +2188,10 @@ export default function ClassDetailPage() {
         cancelLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "Close" : BULK_AI_CANCEL_LABEL}
         onCancel={() => setBulkAiPreflight(null)}
         onConfirm={() => {
-          const canRun = bulkAiPreflight?.fits === true;
-          const assignmentId = activeAssignment?.id;
+          const preflight = bulkAiPreflight;
+          const canRun = preflight?.fits === true;
           setBulkAiPreflight(null);
-          if (canRun && assignmentId) void runBulkAiGrade(assignmentId);
+          if (canRun && preflight) void runBulkAiGrade(preflight);
         }}
       />
 

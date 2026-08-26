@@ -344,6 +344,9 @@ describe("atomic AI review allowance", () => {
         consumedTranscriptFingerprints: [
           fixture.assignmentFingerprint,
         ],
+        completedAttemptFingerprints: [
+          fixture.assignmentFingerprint,
+        ],
       }),
     ]);
 
@@ -368,6 +371,44 @@ describe("atomic AI review allowance", () => {
       assignmentFingerprint: fixture.assignmentFingerprint,
       transcript: "Hola.",
     });
+  });
+
+  it.each([
+    {
+      label: "teacher feedback",
+      feedback: "Teacher draft feedback",
+      rubricScores: null,
+    },
+    {
+      label: "teacher rubric work",
+      feedback: "",
+      rubricScores: [
+        {
+          criterionId: "draft",
+          criterionName: "Draft criterion",
+          maxPoints: 10,
+          awarded: 7,
+        },
+      ],
+    },
+  ])("excludes an ungraded submission with $label from a bulk AI run", async ({
+    label,
+    feedback,
+    rubricScores,
+  }) => {
+    const teacherEmail = `bulk-preserves-${label.replaceAll(" ", "-")}@example.com`;
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedAttempt(db, teacherEmail, `bulk-preserves-${label}`);
+    await db.updateSubmission(fixture.submission.id, teacherEmail, {
+      studentName: fixture.submission.studentName,
+      grade: null,
+      feedback,
+      rubricScores,
+    });
+
+    await expect(
+      db.listUngradedSubmissionsForAiGrade(fixture.assignment.id, teacherEmail),
+    ).resolves.toEqual([]);
   });
 
   it("retrieves the exact consumed attempt after more than twenty retries", async () => {

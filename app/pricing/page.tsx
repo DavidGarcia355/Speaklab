@@ -212,7 +212,8 @@ export default function PricingPage() {
             <strong>One recording, one unit</strong>
             <p>
               A delivered transcript uses one unit. Optional grading for that same recording and
-              assignment is included; failures and exact retries do not use another unit.
+              assignment is included; failures and exact retries do not use another unit. Copying
+              or downloading a saved transcript is always free.
             </p>
           </article>
           <article>

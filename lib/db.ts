@@ -6586,6 +6586,7 @@ export async function listUngradedSubmissionsForAiGrade(
       studentName: string;
       hasPersistedTranscript: boolean;
       consumedTranscriptFingerprints: string[];
+      completedAttemptFingerprints: string[];
     }
   >
 > {
@@ -6621,19 +6622,30 @@ export async function listUngradedSubmissionsForAiGrade(
           AND LOWER(st.teacher_email) = LOWER(?)
           AND TRIM(st.transcript) <> ''
           AND TRIM(st.assignment_fingerprint) <> ''
-      ), '') as consumedTranscriptFingerprints
+      ), '') as consumedTranscriptFingerprints,
+      COALESCE((
+        SELECT GROUP_CONCAT(DISTINCT ag.assignment_fingerprint)
+        FROM ai_grading_attempts ag
+        WHERE ag.submission_id = s.id
+          AND LOWER(ag.teacher_email) = LOWER(?)
+          AND ag.status = 'completed'
+          AND ag.delivery_status IN ('delivered', 'not_applicable')
+          AND TRIM(ag.assignment_fingerprint) <> ''
+      ), '') as completedAttemptFingerprints
     FROM submissions s
     JOIN assignments a ON a.id = s.assignment_id
     JOIN classes c ON c.id = a.class_id
     WHERE a.id = ?
       AND s.grade IS NULL
+      AND TRIM(COALESCE(s.feedback, '')) = ''
+      AND s.rubric_scores IS NULL
       AND COALESCE(s.audio_blob_url, s.audio_data, '') <> ''
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
       AND LOWER(c.owner_email) = LOWER(?)
     ORDER BY s.submitted_at ASC`,
-    [ownerEmail, ownerEmail, assignmentId, ownerEmail]
+    [ownerEmail, ownerEmail, ownerEmail, assignmentId, ownerEmail]
   );
   return result.rows.map((row) => ({
     submissionId: toStringValue(row.submissionId),
@@ -6650,6 +6662,10 @@ export async function listUngradedSubmissionsForAiGrade(
     finalFeedback: toStringValue(row.finalFeedback),
     hasPersistedTranscript: toNumber(row.hasPersistedTranscript) === 1,
     consumedTranscriptFingerprints: toStringValue(row.consumedTranscriptFingerprints)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+    completedAttemptFingerprints: toStringValue(row.completedAttemptFingerprints)
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean),

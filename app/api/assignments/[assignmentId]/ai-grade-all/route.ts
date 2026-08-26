@@ -29,6 +29,18 @@ function requiresNewProcessedRecordingUnit(
   );
 }
 
+function hasCompletedAttemptForCurrentAssignment(
+  submission: Awaited<ReturnType<typeof listUngradedSubmissionsForAiGrade>>[number],
+) {
+  const currentFingerprint = processedAssignmentFingerprint(
+    legacyAssignmentToGradingAssignment(submission),
+  );
+  return Boolean(
+    currentFingerprint &&
+      submission.completedAttemptFingerprints?.includes(currentFingerprint),
+  );
+}
+
 async function remainingQuota(teacherEmail: string, dailyTeacherLimit: number, dailyGlobalLimit: number) {
   const since = Date.now() - DAY_MS;
   const [teacherUsed, globalUsed] = await Promise.all([
@@ -51,10 +63,20 @@ export async function GET(
     const config = getAiConfig();
     if (!config.enabled) throw new HttpError(404, "AI grading is not available.");
     if (!config.bulkEnabled) throw new HttpError(404, "Bulk AI grading is not available.");
+    try {
+      assertAiProviderConfig(config);
+      assertGradingProviderConfiguration(getGradingConfig());
+    } catch {
+      throw new HttpError(503, "AI grading is not fully configured.");
+    }
     const teacherEmail = await requireTeacherEmail();
+    if (isAiTeacherDenied(teacherEmail, config)) {
+      throw new HttpError(403, "AI grading is not available for this account.");
+    }
     const { assignmentId } = await context.params;
 
-    const pending = await listUngradedSubmissionsForAiGrade(assignmentId, teacherEmail);
+    const pending = (await listUngradedSubmissionsForAiGrade(assignmentId, teacherEmail))
+      .filter((submission) => !hasCompletedAttemptForCurrentAssignment(submission));
     const newUnitsRequired = pending.filter(requiresNewProcessedRecordingUnit).length;
     const [quota, allowance] = await Promise.all([
       remainingQuota(teacherEmail, config.dailyTeacherLimit, config.dailyGlobalLimit),
@@ -66,7 +88,9 @@ export async function GET(
     const allowanceRemaining = allowance?.remaining ?? Number.POSITIVE_INFINITY;
 
     return NextResponse.json({
+      assignmentId,
       ungradedCount: pending.length,
+      submissionIds: pending.map((item) => item.submissionId),
       newUnitsRequired,
       remaining: quota.remaining,
       fits:
@@ -75,6 +99,7 @@ export async function GET(
         allowanceReady &&
         newUnitsRequired <= allowanceRemaining,
       estimatedSeconds: pending.length * config.cooldownSeconds,
+      cooldownSeconds: config.cooldownSeconds,
       allowance,
     });
   });
@@ -104,7 +129,8 @@ export async function POST(
       ? ((await request.json().catch(() => null)) as { enhanced?: unknown } | null)
       : null;
     const enhanced = requestBody?.enhanced === true;
-    const pending = await listUngradedSubmissionsForAiGrade(assignmentId, teacherEmail);
+    const pending = (await listUngradedSubmissionsForAiGrade(assignmentId, teacherEmail))
+      .filter((submission) => !hasCompletedAttemptForCurrentAssignment(submission));
     if (pending.length === 0) {
       throw new HttpError(400, "There are no ungraded submissions with audio in this assignment.");
     }
