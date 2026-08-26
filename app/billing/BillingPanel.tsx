@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ArrowRight, CheckCircle2, CreditCard, LoaderCircle, TriangleAlert } from "lucide-react";
 import GoogleSignInLink from "@/app/components/GoogleSignInLink";
 import {
@@ -41,6 +42,16 @@ async function responseBody<T extends { error?: string }>(response: Response) {
   } catch {
     return {} as T;
   }
+}
+
+export function CheckoutAgreementNotice() {
+  return (
+    <p className="billing-availability-note">
+      By choosing Teacher and continuing to Stripe, you agree to the{" "}
+      <Link href="/terms">Terms of Use</Link> and acknowledge the{" "}
+      <Link href="/privacy">Privacy Notice</Link>.
+    </p>
+  );
 }
 
 export default function BillingPanel() {
@@ -303,6 +314,8 @@ export default function BillingPanel() {
             </a>
           ) : null}
         </div>
+
+        {presentation.showCheckout ? <CheckoutAgreementNotice /> : null}
 
         {presentation.availabilityNote ? (
           <p className="billing-availability-note">

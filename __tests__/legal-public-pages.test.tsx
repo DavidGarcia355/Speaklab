@@ -59,4 +59,16 @@ describe("pilot legal surface", () => {
     expect(markup).toContain("mailto:davidsgarcia325@gmail.com");
     expect(markup).toContain("currently offered as a teacher pilot");
   });
+
+  it("links the legal notice shown with Teacher Checkout", async () => {
+    const { CheckoutAgreementNotice } = await import("@/app/billing/BillingPanel");
+
+    const markup = renderToStaticMarkup(<CheckoutAgreementNotice />);
+
+    expect(markup).toContain("By choosing Teacher and continuing to Stripe");
+    expect(markup).toContain('href="/terms"');
+    expect(markup).toContain("Terms of Use");
+    expect(markup).toContain('href="/privacy"');
+    expect(markup).toContain("Privacy Notice");
+  });
 });
