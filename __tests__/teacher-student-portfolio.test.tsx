@@ -15,6 +15,12 @@ vi.mock("@/app/components/AudioPlayer", () => ({
   ),
 }));
 
+vi.mock("@/app/components/SubmissionTranscript", () => ({
+  default: ({ submissionId }: { submissionId: string }) => (
+    <div data-transcript-submission-id={submissionId}>Transcript tools</div>
+  ),
+}));
+
 import StudentOralPortfolio from "@/app/components/StudentOralPortfolio";
 
 describe("teacher student oral portfolio", () => {
@@ -52,6 +58,9 @@ describe("teacher student oral portfolio", () => {
     expect(markup).toContain("/api/submissions/sub_abcdef12-1111/audio");
     expect(markup).toContain("/api/submissions/sub_98765432-2222/audio");
     expect(markup.match(/Download recording/g)).toHaveLength(2);
+    expect(markup.match(/Transcript tools/g)).toHaveLength(2);
+    expect(markup).toContain('data-transcript-submission-id="sub_abcdef12-1111"');
+    expect(markup).toContain('data-transcript-submission-id="sub_98765432-2222"');
     expect(markup).toContain("sub-abcdef121111");
     expect(markup).toContain("sub-987654322222");
   });
@@ -87,5 +96,27 @@ describe("teacher student oral portfolio", () => {
 
     expect(markup).toContain("sub-first000000");
     expect(markup).toContain("sub-second00000");
+  });
+
+  it("does not expose a broken transcript action while AI processing is disabled", () => {
+    const markup = renderToStaticMarkup(
+      <StudentOralPortfolio
+        studentName="Student"
+        transcriptionEnabled={false}
+        items={[{
+          assignmentId: "asg_1",
+          assignmentTitle: "Speaking",
+          maxPoints: 10,
+          submissionId: "sub_1",
+          audioData: "/api/submissions/sub_1/audio",
+          submittedAt: Date.UTC(2026, 7, 26),
+          grade: null,
+          feedback: "",
+        }]}
+      />
+    );
+
+    expect(markup).not.toContain("Transcript tools");
+    expect(markup).toContain("Download recording");
   });
 });

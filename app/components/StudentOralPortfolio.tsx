@@ -1,5 +1,6 @@
 import AudioPlayer from "@/app/components/AudioPlayer";
 import GoogleDriveExportButton from "@/app/components/GoogleDriveExportButton";
+import SubmissionTranscript from "@/app/components/SubmissionTranscript";
 import { buildSubmissionDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 
 export type StudentOralPortfolioItem = {
@@ -26,9 +27,11 @@ function formatDateTime(timestamp: number) {
 export default function StudentOralPortfolio({
   studentName,
   items,
+  transcriptionEnabled = true,
 }: {
   studentName: string;
   items: StudentOralPortfolioItem[];
+  transcriptionEnabled?: boolean;
 }) {
   const recordingCount = items.filter((item) => item.submissionId !== null).length;
 
@@ -75,6 +78,13 @@ export default function StudentOralPortfolio({
                 filenameBase={downloadFilename}
                 includeTranscript={false}
               />
+              {transcriptionEnabled ? (
+                <SubmissionTranscript
+                  submissionId={item.submissionId}
+                  studentName={studentName}
+                  downloadFilenameBase={downloadFilename}
+                />
+              ) : null}
               <div className="meta">
                 Score: {item.grade !== null ? `${item.grade} / ${item.maxPoints}` : "Not graded"}
               </div>

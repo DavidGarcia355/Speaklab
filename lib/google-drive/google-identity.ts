@@ -38,6 +38,7 @@ declare global {
 }
 
 let scriptPromise: Promise<void> | null = null;
+const GOOGLE_IDENTITY_LOAD_TIMEOUT_MS = 10_000;
 
 export function loadGoogleIdentityServices(): Promise<void> {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -53,23 +54,47 @@ export function loadGoogleIdentityServices(): Promise<void> {
       `script[src="${GOOGLE_IDENTITY_SCRIPT_URL}"]`,
     );
     const script = existing ?? document.createElement("script");
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      script.removeEventListener("load", onLoad);
+      script.removeEventListener("error", onError);
+      callback();
+    };
     const onLoad = () => {
       if (window.google?.accounts?.oauth2) {
-        resolve();
+        finish(resolve);
       } else {
-        scriptPromise = null;
-        reject(new GoogleDriveExportError("configuration", "Google sign-in did not finish loading."));
+        finish(() => {
+          scriptPromise = null;
+          reject(new GoogleDriveExportError("configuration", "Google sign-in did not finish loading."));
+        });
       }
     };
     const onError = () => {
-      scriptPromise = null;
-      reject(
-        new GoogleDriveExportError(
-          "network",
-          "Could not load Google Drive sign-in. Check your connection and try again.",
-        ),
-      );
+      finish(() => {
+        scriptPromise = null;
+        reject(
+          new GoogleDriveExportError(
+            "network",
+            "Could not load Google Drive sign-in. Check your connection and try again.",
+          ),
+        );
+      });
     };
+    const timeoutId = window.setTimeout(() => {
+      finish(() => {
+        scriptPromise = null;
+        reject(
+          new GoogleDriveExportError(
+            "network",
+            "Google Drive sign-in took too long to load. Check your connection and try again.",
+          ),
+        );
+      });
+    }, GOOGLE_IDENTITY_LOAD_TIMEOUT_MS);
     script.addEventListener("load", onLoad, { once: true });
     script.addEventListener("error", onError, { once: true });
     if (!existing) {
@@ -102,7 +127,9 @@ export async function requestGoogleDriveAccessToken(clientId: string): Promise<s
     const client = oauth2.initTokenClient({
       client_id: cleanedClientId,
       scope: GOOGLE_DRIVE_FILE_SCOPE,
-      include_granted_scopes: true,
+      // Keep the export token limited to the scope requested by this action,
+      // even if this OAuth client has other grants from a separate flow.
+      include_granted_scopes: false,
       callback(response) {
         if (response.error) {
           reject(

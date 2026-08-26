@@ -85,6 +85,7 @@ export async function POST(
     let created: Awaited<ReturnType<typeof createSubmission>>;
     try {
       created = await createSubmission({
+        id: submissionId,
         assignmentId,
         studentName,
         studentEmail,

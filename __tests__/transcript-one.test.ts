@@ -174,6 +174,48 @@ beforeEach(() => {
 });
 
 describe("standalone transcript processing", () => {
+  it("does no audio, allowance, or provider work after automatic processing is cancelled", async () => {
+    const processingStillAuthorized = vi.fn().mockResolvedValue(false);
+
+    await expect(
+      transcribeOneSubmission({
+        config,
+        teacherEmail: allowance.teacherEmail,
+        data,
+        processingStillAuthorized,
+      }),
+    ).resolves.toMatchObject({ status: "failed", code: "processing_cancelled" });
+
+    expect(processingStillAuthorized).toHaveBeenCalledOnce();
+    expect(mocks.fetchAudio).not.toHaveBeenCalled();
+    expect(mocks.reserveAllowance).not.toHaveBeenCalled();
+    expect(mocks.transcribeAudio).not.toHaveBeenCalled();
+  });
+
+  it("discards a provider result and releases the reservation if automation is turned off mid-flight", async () => {
+    const processingStillAuthorized = vi.fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    await expect(
+      transcribeOneSubmission({
+        config,
+        teacherEmail: allowance.teacherEmail,
+        data,
+        processingStillAuthorized,
+      }),
+    ).resolves.toMatchObject({ status: "failed", code: "processing_cancelled" });
+
+    expect(mocks.transcribeAudio).toHaveBeenCalledOnce();
+    expect(mocks.finalizeTranscript).not.toHaveBeenCalled();
+    expect(mocks.releaseAllowance).toHaveBeenCalledWith({
+      reservationId: "air_1",
+      teacherEmail: allowance.teacherEmail,
+    });
+  });
+
   it("persists a transcript after manual grading and consumes one recording unit", async () => {
     await expect(
       transcribeOneSubmission({ config, teacherEmail: allowance.teacherEmail, data }),

@@ -24,6 +24,14 @@ const RELEASES = [
         type: "new" as const,
         text: "Students can replay their own past submissions from their private TryHabla history.",
       },
+      {
+        type: "new" as const,
+        text: "Generate every missing transcript for an assignment in one confirmed batch, then download a ZIP with a success and review report.",
+      },
+      {
+        type: "new" as const,
+        text: "Optionally turn on automatic transcription for future submissions to an assignment. AI grading remains separate and optional.",
+      },
     ],
   },
   {

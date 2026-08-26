@@ -37,6 +37,7 @@ type AssignmentDetail = {
   maxPoints: number;
   maxSubmissions: number;
   maxRecordingSeconds: number;
+  autoTranscribe: boolean;
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
@@ -707,6 +708,13 @@ export default function StudentAssignmentClient({
               <p className="notice info">
                 {STUDENT_AI_GRADING_DISCLOSURE}
               </p>
+              {assignment.autoTranscribe ? (
+                <p className="notice warning">
+                  Automatic transcription is on for this assignment. After you submit, TryHabla will
+                  send your recording to its configured AI transcription provider and save the transcript
+                  for your teacher. This does not automatically grade your work.
+                </p>
+              ) : null}
               {maxSubs > 0 ? (
                 <p className={`notice ${atSubmissionLimit ? "danger" : "info"}`}>
                   {atSubmissionLimit

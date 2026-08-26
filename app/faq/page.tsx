@@ -150,7 +150,7 @@ const FAQ_SECTIONS = [
       {
         question: "Does AI save the grade automatically?",
         answer:
-          "A teacher can generate, copy, or download a transcript without requesting an AI grade. If the teacher chooses grading, a successful run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, TryHabla saves no score.",
+          "A teacher can generate, copy, or download a transcript without requesting an AI grade, generate missing transcripts in a confirmed batch, or opt a specific assignment into automatic transcription for future submissions. Students see when automatic transcription is on. If the teacher chooses grading, a successful run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, TryHabla saves no score.",
       },
       {
         question: "What does the current workflow include?",

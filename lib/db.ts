@@ -62,7 +62,18 @@ export type AssignmentRow = {
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
+  autoTranscribe: boolean;
   createdAt: number;
+};
+
+export type AutomaticTranscriptionJobRow = {
+  id: string;
+  submissionId: string;
+  assignmentId: string;
+  teacherEmail: string;
+  status: "processing";
+  attemptCount: number;
+  leaseToken: string;
 };
 
 export type AssignmentSummaryRow = AssignmentRow & {
@@ -963,6 +974,24 @@ async function ensureInitialized() {
           UNIQUE(submission_id, semantic_key),
           FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE
         )`,
+        `CREATE TABLE IF NOT EXISTS automatic_transcription_jobs (
+          id TEXT PRIMARY KEY,
+          submission_id TEXT NOT NULL UNIQUE,
+          assignment_id TEXT NOT NULL,
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          status TEXT NOT NULL DEFAULT 'queued'
+            CHECK (status IN ('queued', 'processing', 'retry', 'paused', 'completed', 'failed', 'cancelled')),
+          attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+          next_attempt_at INTEGER NOT NULL CHECK (next_attempt_at >= 0),
+          lease_token TEXT NOT NULL DEFAULT '',
+          lease_expires_at INTEGER NOT NULL DEFAULT 0 CHECK (lease_expires_at >= 0),
+          last_error_code TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          completed_at INTEGER,
+          FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE,
+          FOREIGN KEY(assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+        )`,
         `CREATE TABLE IF NOT EXISTS grading_result_cache (
           cache_key TEXT NOT NULL,
           submission_id TEXT NOT NULL,
@@ -1264,6 +1293,7 @@ async function ensureInitialized() {
       await ensureColumn("assignments", "max_submissions", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("assignments", "max_recording_seconds", "INTEGER NOT NULL DEFAULT 180");
       await ensureColumn("assignments", "target_language", "TEXT NOT NULL DEFAULT 'Spanish'");
+      await ensureColumn("assignments", "auto_transcribe", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("submissions", "student_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
       await ensureColumn("submissions", "rubric_scores", "TEXT");
@@ -1380,6 +1410,9 @@ async function ensureInitialized() {
       await ensureColumn("ai_grading_attempts", "billable_output_tokens", "INTEGER NOT NULL DEFAULT 0");
       await rawExecute(
         "CREATE INDEX IF NOT EXISTS idx_ai_grading_attempts_cache ON ai_grading_attempts(cache_key)"
+      );
+      await rawExecute(
+        "CREATE INDEX IF NOT EXISTS idx_automatic_transcription_jobs_due ON automatic_transcription_jobs(status, next_attempt_at, lease_expires_at, created_at)"
       );
     })();
     initPromise = initialization.catch((error) => {
@@ -2655,6 +2688,7 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
       COALESCE(a.attachment_name, '') as attachmentName,
       COALESCE(a.attachment_url, '') as attachmentUrl,
       COALESCE(a.attachment_content_type, '') as attachmentContentType,
+      COALESCE(a.auto_transcribe, 0) as autoTranscribe,
       a.created_at as createdAt,
       COUNT(s.id) as submissionCount
     FROM assignments a
@@ -2682,6 +2716,7 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
     attachmentName: toStringValue(row.attachmentName),
     attachmentUrl: toStringValue(row.attachmentUrl),
     attachmentContentType: toStringValue(row.attachmentContentType),
+    autoTranscribe: toNumber(row.autoTranscribe) === 1,
     createdAt: toNumber(row.createdAt),
     submissionCount: toNumber(row.submissionCount),
   }));
@@ -2702,6 +2737,7 @@ export async function createAssignment(input: {
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
+  autoTranscribe?: boolean;
 }): Promise<AssignmentRow> {
   await assertUniqueAssignmentTitle(input.classId, input.ownerEmail, input.title);
 
@@ -2719,13 +2755,14 @@ export async function createAssignment(input: {
     attachmentName: input.attachmentName,
     attachmentUrl: input.attachmentUrl,
     attachmentContentType: input.attachmentContentType,
+    autoTranscribe: input.autoTranscribe === true,
     createdAt: Date.now(),
   };
   await query(
     `INSERT INTO assignments (
-      id, class_id, title, description, instructions, target_language, max_points, max_submissions, max_recording_seconds, rubric, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at
+      id, class_id, title, description, instructions, target_language, max_points, max_submissions, max_recording_seconds, rubric, attachment_name, attachment_url, attachment_content_type, auto_transcribe, created_at, deleted_at
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
     WHERE EXISTS (
       SELECT 1 FROM classes c
       WHERE c.id = ?
@@ -2746,6 +2783,7 @@ export async function createAssignment(input: {
       item.attachmentName,
       item.attachmentUrl,
       item.attachmentContentType,
+      item.autoTranscribe ? 1 : 0,
       item.createdAt,
       input.classId,
       input.ownerEmail,
@@ -2772,6 +2810,7 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
       COALESCE(a.attachment_name, '') as attachmentName,
       COALESCE(a.attachment_url, '') as attachmentUrl,
       COALESCE(a.attachment_content_type, '') as attachmentContentType,
+      COALESCE(a.auto_transcribe, 0) as autoTranscribe,
       a.created_at as createdAt
     FROM assignments a
     JOIN classes c ON c.id = a.class_id
@@ -2800,6 +2839,7 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
     attachmentName: toStringValue(row.attachmentName),
     attachmentUrl: toStringValue(row.attachmentUrl),
     attachmentContentType: toStringValue(row.attachmentContentType),
+    autoTranscribe: toNumber(row.autoTranscribe) === 1,
     createdAt: toNumber(row.createdAt),
   };
 }
@@ -2819,44 +2859,71 @@ export async function updateAssignment(
     attachmentName: string;
     attachmentUrl: string;
     attachmentContentType: string;
+    autoTranscribe?: boolean;
   }
 ): Promise<AssignmentDetailRow | null> {
   const current = await findAssignmentById(assignmentId, ownerEmail);
   if (!current) return null;
 
   await assertUniqueAssignmentTitle(current.classId, ownerEmail, input.title, assignmentId);
-
-  const result = await query(
-    `UPDATE assignments
-    SET title = ?, description = ?, instructions = ?, target_language = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?
-    WHERE id = ?
-      AND deleted_at IS NULL
-      AND id IN (
-        SELECT a.id
-        FROM assignments a
-        JOIN classes c ON c.id = a.class_id
-        WHERE a.id = ?
-          AND c.deleted_at IS NULL
-          AND LOWER(c.owner_email) = LOWER(?)
-      )`,
-    [
-      input.title,
-      input.description,
-      input.instructions,
-      input.targetLanguage?.trim() || current.targetLanguage,
-      input.maxPoints,
-      input.maxSubmissions,
-      input.maxRecordingSeconds,
-      stringifyJsonValue(input.rubric),
-      input.attachmentName,
-      input.attachmentUrl,
-      input.attachmentContentType,
-      assignmentId,
-      assignmentId,
-      ownerEmail,
-    ]
-  );
-  if (toNumber(result.rowsAffected) === 0) return null;
+  const nextAutoTranscribe = input.autoTranscribe ?? current.autoTranscribe;
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  try {
+    const result = await transaction.execute({
+      sql: `UPDATE assignments
+        SET title = ?, description = ?, instructions = ?, target_language = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?, auto_transcribe = ?
+        WHERE id = ?
+          AND deleted_at IS NULL
+          AND id IN (
+            SELECT a.id
+            FROM assignments a
+            JOIN classes c ON c.id = a.class_id
+            WHERE a.id = ?
+              AND c.deleted_at IS NULL
+              AND LOWER(c.owner_email) = LOWER(?)
+          )`,
+      args: [
+        input.title,
+        input.description,
+        input.instructions,
+        input.targetLanguage?.trim() || current.targetLanguage,
+        input.maxPoints,
+        input.maxSubmissions,
+        input.maxRecordingSeconds,
+        stringifyJsonValue(input.rubric),
+        input.attachmentName,
+        input.attachmentUrl,
+        input.attachmentContentType,
+        nextAutoTranscribe ? 1 : 0,
+        assignmentId,
+        assignmentId,
+        ownerEmail,
+      ],
+    });
+    if (toNumber(result.rowsAffected) === 0) {
+      await transaction.rollback();
+      return null;
+    }
+    if (!nextAutoTranscribe) {
+      const now = Date.now();
+      await transaction.execute({
+        sql: `UPDATE automatic_transcription_jobs
+          SET status = 'cancelled', lease_token = '', lease_expires_at = 0,
+            next_attempt_at = ?, last_error_code = 'automatic_transcription_disabled',
+            updated_at = ?
+          WHERE assignment_id = ?
+            AND status IN ('queued', 'retry', 'paused', 'processing')`,
+        args: [now, now, assignmentId],
+      });
+    }
+    await transaction.commit();
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
   return findAssignmentById(assignmentId, ownerEmail);
 }
 
@@ -2896,6 +2963,7 @@ export async function deleteAssignmentCascade(assignmentId: string, ownerEmail: 
 }
 
 export async function createSubmission(input: {
+  id?: string;
   assignmentId: string;
   studentName: string;
   studentEmail: string;
@@ -2908,7 +2976,10 @@ export async function createSubmission(input: {
   audioBlobUrl: string;
   submittedAt: number;
 }> {
-  const duplicate = await query(
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  try {
+  const duplicate = await transaction.execute({ sql:
     `SELECT id, submitted_at as submittedAt
     FROM submissions
     WHERE assignment_id = ?
@@ -2916,28 +2987,163 @@ export async function createSubmission(input: {
       AND deleted_at IS NULL
     ORDER BY submitted_at DESC
     LIMIT 1`,
-    [input.assignmentId, input.studentEmail]
-  );
+    args: [input.assignmentId, input.studentEmail] });
   const recent = duplicate.rows[0];
   if (recent && Date.now() - toNumber(recent.submittedAt) < 60_000) {
     throw new Error("Looks like this recording was already submitted. Please wait before submitting again.");
   }
 
   const item = {
-    id: makeId("sub"),
+    id: input.id ?? makeId("sub"),
     assignmentId: input.assignmentId,
     studentName: input.studentName,
     studentEmail: input.studentEmail,
     audioBlobUrl: input.audioBlobUrl,
     submittedAt: Date.now(),
   };
-  await query(
+  await transaction.execute({ sql:
     `INSERT INTO submissions (
       id, assignment_id, student_name, student_email, audio_data, audio_blob_url, submitted_at, deleted_at
     ) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL)`,
-    [item.id, item.assignmentId, item.studentName, item.studentEmail, item.audioBlobUrl, item.submittedAt]
-  );
+    args: [item.id, item.assignmentId, item.studentName, item.studentEmail, item.audioBlobUrl, item.submittedAt] });
+  await transaction.execute({
+    sql: `INSERT INTO automatic_transcription_jobs (
+      id, submission_id, assignment_id, teacher_email, status, attempt_count,
+      next_attempt_at, lease_token, lease_expires_at, last_error_code,
+      created_at, updated_at, completed_at
+    )
+    SELECT ?, ?, a.id, c.owner_email, 'queued', 0, ?, '', 0, '', ?, ?, NULL
+    FROM assignments a JOIN classes c ON c.id = a.class_id
+    WHERE a.id = ? AND a.deleted_at IS NULL AND c.deleted_at IS NULL
+      AND COALESCE(a.auto_transcribe, 0) = 1`,
+    args: [makeId("atj"), item.id, item.submittedAt, item.submittedAt, item.submittedAt, item.assignmentId],
+  });
+  await transaction.commit();
   return item;
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+// Keep the lease longer than the cron route's 800-second ceiling so an
+// overlapping delivery cannot reclaim a job while its first provider request
+// may still be finishing. Expired leases remain recoverable on the next tick.
+const AUTOMATIC_TRANSCRIPTION_JOB_LEASE_MS = 15 * 60_000;
+
+export async function claimAutomaticTranscriptionJobs(input?: {
+  limit?: number;
+  now?: number;
+}): Promise<AutomaticTranscriptionJobRow[]> {
+  await ensureInitialized();
+  const now = input?.now ?? Date.now();
+  const limit = Math.max(1, Math.min(5, Math.floor(input?.limit ?? 2)));
+  const transaction = await db.transaction("write");
+  try {
+    // Expired processing leases are retryable. A transaction plus the guarded
+    // update below makes overlapping cron deliveries safe.
+    await transaction.execute({
+      sql: `UPDATE automatic_transcription_jobs
+        SET status = 'retry', lease_token = '', lease_expires_at = 0,
+          next_attempt_at = ?, updated_at = ?, last_error_code = 'lease_expired'
+        WHERE status = 'processing' AND lease_expires_at <= ?`,
+      args: [now, now, now],
+    });
+    const due = await transaction.execute({
+      sql: `SELECT id, submission_id as submissionId,
+          assignment_id as assignmentId, teacher_email as teacherEmail,
+          attempt_count as attemptCount, status as priorStatus
+        FROM automatic_transcription_jobs
+        WHERE status IN ('queued', 'retry', 'paused') AND next_attempt_at <= ?
+        ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?`,
+      args: [now, limit],
+    });
+    const claimed: AutomaticTranscriptionJobRow[] = [];
+    for (const row of due.rows) {
+      const id = toStringValue(row.id);
+      const leaseToken = crypto.randomUUID();
+      const updated = await transaction.execute({
+        sql: `UPDATE automatic_transcription_jobs
+          SET status = 'processing',
+            attempt_count = attempt_count + CASE WHEN status = 'paused' THEN 0 ELSE 1 END,
+            lease_token = ?, lease_expires_at = ?, updated_at = ?
+          WHERE id = ? AND status IN ('queued', 'retry', 'paused') AND next_attempt_at <= ?`,
+        args: [leaseToken, now + AUTOMATIC_TRANSCRIPTION_JOB_LEASE_MS, now, id, now],
+      });
+      if (toNumber(updated.rowsAffected) === 1) {
+        claimed.push({
+          id,
+          submissionId: toStringValue(row.submissionId),
+          assignmentId: toStringValue(row.assignmentId),
+          teacherEmail: toStringValue(row.teacherEmail),
+          status: "processing",
+          attemptCount: toNumber(row.attemptCount)
+            + (toStringValue(row.priorStatus) === "paused" ? 0 : 1),
+          leaseToken,
+        });
+      }
+    }
+    await transaction.commit();
+    return claimed;
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+export async function settleAutomaticTranscriptionJob(input: {
+  id: string;
+  leaseToken: string;
+  status: "completed" | "retry" | "paused" | "failed" | "cancelled";
+  errorCode?: string;
+  nextAttemptAt?: number;
+  now?: number;
+}): Promise<boolean> {
+  const now = input.now ?? Date.now();
+  const completedAt = input.status === "completed" ? now : null;
+  const result = await query(
+    `UPDATE automatic_transcription_jobs
+      SET status = ?, next_attempt_at = ?, lease_token = '', lease_expires_at = 0,
+        last_error_code = ?, updated_at = ?, completed_at = ?
+      WHERE id = ? AND status = 'processing' AND lease_token = ?`,
+    [
+      input.status,
+      input.nextAttemptAt ?? now,
+      (input.errorCode ?? "").slice(0, 80),
+      now,
+      completedAt,
+      input.id,
+      input.leaseToken,
+    ],
+  );
+  return toNumber(result.rowsAffected) === 1;
+}
+
+export async function isAutomaticTranscriptionJobActive(input: {
+  id: string;
+  leaseToken: string;
+}): Promise<boolean> {
+  const result = await query(
+    `SELECT 1 as active
+      FROM automatic_transcription_jobs j
+      JOIN assignments a ON a.id = j.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      JOIN submissions s ON s.id = j.submission_id
+      WHERE j.id = ?
+        AND j.status = 'processing'
+        AND j.lease_token = ?
+        AND COALESCE(a.auto_transcribe, 0) = 1
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND s.deleted_at IS NULL
+      LIMIT 1`,
+    [input.id, input.leaseToken],
+  );
+  return result.rows.length === 1;
 }
 
 export async function listSubmissionsByClassId(classId: string, ownerEmail?: string): Promise<SubmissionRow[]> {

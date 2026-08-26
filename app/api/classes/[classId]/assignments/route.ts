@@ -93,6 +93,7 @@ export async function POST(
         attachmentName,
         attachmentUrl,
         attachmentContentType,
+        autoTranscribe: body.autoTranscribe,
       });
     } catch (error) {
       if (newlyUploadedAttachment) {

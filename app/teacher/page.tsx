@@ -325,7 +325,7 @@ export default function TeacherPage() {
       {showChangelogBanner ? (
         <div className="notice info" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.85rem" }}>
           <span>
-            <strong>What&apos;s new:</strong> Clean transcripts, recording downloads, and student oral portfolios.{" "}
+            <strong>What&apos;s new:</strong> Batch and automatic transcripts, recording downloads, and student oral portfolios.{" "}
             <Link className="teacher-access-link" href="/changelog">See patch notes</Link>
           </span>
           <button type="button" className="icon-btn" onClick={dismissChangelogBanner} aria-label="Dismiss">

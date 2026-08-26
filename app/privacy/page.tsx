@@ -76,10 +76,12 @@ export default function PrivacyPage() {
           <h2 id="privacy-ai">Optional AI transcription and grading</h2>
           <p>
             AI transcription and grading are optional and controlled by deployment settings and
-            teacher actions. When a teacher asks TryHabla to transcribe or grade a submission, the
-            student&apos;s recorded answer may be processed by the AI service provider or providers
-            configured for that TryHabla deployment. A transcript can be generated without an AI
-            grade. If grading is requested, the transcript, assignment instructions, and rubric may
+            teacher actions. A teacher can request a transcript individually, request a transcript-only
+            batch, or enable automatic transcription for future submissions to a specific assignment.
+            When any of those options is used, the student&apos;s recorded answer may be processed by the
+            AI service provider or providers configured for that TryHabla deployment. Students are told
+            on the assignment page when automatic transcription is on. A transcript can be generated
+            without an AI grade. If grading is requested, the transcript, assignment instructions, and rubric may
             also be processed. TryHabla may store the transcript, AI-generated score, rubric details,
             feedback, evidence excerpts, provider and model identifiers, usage details, and attempt
             status with the submission.

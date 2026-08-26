@@ -94,7 +94,9 @@ export default function TermsPage() {
           <h2 id="terms-ai">Optional AI transcription and results</h2>
           <p>
             When AI transcription or grading is enabled, configured providers may process a recorded
-            answer and generate a transcript. Transcription can be used without AI grading. If a
+            answer and generate a transcript. A teacher may request transcription individually or in
+            a batch, or enable automatic transcription for future submissions to an assignment;
+            students are shown when that assignment setting is on. Transcription can be used without AI grading. If a
             teacher requests grading, providers may also process the transcript, assignment
             instructions, and rubric and may produce a score, rubric details, feedback, and evidence.
             Transcripts and AI results can be incomplete, inaccurate, or inappropriate for a

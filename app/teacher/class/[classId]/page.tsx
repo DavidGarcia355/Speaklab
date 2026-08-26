@@ -26,6 +26,11 @@ import {
   type BulkAiGradeRunSummary,
 } from "@/app/components/bulk-ai-grade-runner";
 import { prepareBulkTranscriptDownload } from "@/app/components/bulk-transcript-download";
+import {
+  preflightBulkTranscripts,
+  runBulkTranscriptRequests,
+  type BulkTranscriptPreflight,
+} from "@/app/components/bulk-transcript-runner";
 import { buildSubmissionDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 
 type AssignmentSummary = {
@@ -37,6 +42,7 @@ type AssignmentSummary = {
   maxPoints: number;
   maxSubmissions: number;
   maxRecordingSeconds: number;
+  autoTranscribe: boolean;
   rubric: {
     title: string;
     criteria: {
@@ -117,6 +123,12 @@ type BulkTranscriptResult = {
   included: number;
   unavailable: number;
   needsReview: number;
+  generated: number;
+  reused: number;
+  failed: number;
+  uncertain: number;
+  notProcessed: number;
+  terminalError: string;
   downloadUrl: string | null;
   archiveFilename: string | null;
 };
@@ -327,6 +339,7 @@ export default function ClassDetailPage() {
   const [assignmentRubricCriteriaDraft, setAssignmentRubricCriteriaDraft] = useState<RubricCriterionDraft[]>([]);
   const [assignmentMaxSubmissionsDraft, setAssignmentMaxSubmissionsDraft] = useState("");
   const [assignmentMaxRecordingSecondsDraft, setAssignmentMaxRecordingSecondsDraft] = useState("180");
+  const [assignmentAutoTranscribeDraft, setAssignmentAutoTranscribeDraft] = useState(false);
   const [assignmentAttachmentDraft, setAssignmentAttachmentDraft] = useState<AttachmentDraft>(null);
   const [assignmentAttachmentRemoved, setAssignmentAttachmentRemoved] = useState(false);
   const [assignmentSaving, setAssignmentSaving] = useState(false);
@@ -350,6 +363,9 @@ export default function ClassDetailPage() {
   const [bulkAiProgress, setBulkAiProgress] = useState<{ processed: number; total: number } | null>(null);
   const [bulkAiError, setBulkAiError] = useState("");
   const [bulkTranscriptDownloading, setBulkTranscriptDownloading] = useState(false);
+  const [bulkTranscriptChecking, setBulkTranscriptChecking] = useState(false);
+  const [bulkTranscriptPreflight, setBulkTranscriptPreflight] = useState<BulkTranscriptPreflight | null>(null);
+  const [bulkTranscriptProgress, setBulkTranscriptProgress] = useState<{ processed: number; total: number } | null>(null);
   const [bulkTranscriptResult, setBulkTranscriptResult] = useState<BulkTranscriptResult | null>(null);
   const [bulkTranscriptError, setBulkTranscriptError] = useState("");
 
@@ -654,7 +670,10 @@ export default function ClassDetailPage() {
       URL.revokeObjectURL(bulkTranscriptUrlRef.current);
       bulkTranscriptUrlRef.current = null;
     }
+    setBulkTranscriptChecking(false);
     setBulkTranscriptDownloading(false);
+    setBulkTranscriptPreflight(null);
+    setBulkTranscriptProgress(null);
     setBulkTranscriptResult(null);
     setBulkTranscriptError("");
   }, [selectedAssignmentId]);
@@ -711,7 +730,13 @@ export default function ClassDetailPage() {
   const activeAssignment = assignmentViews.find((assignment) => assignment.id === selectedAssignmentId) ?? assignmentViews[0] ?? null;
   const activeAllSubmissions = activeAssignment ? submissionsByAssignment[activeAssignment.id] ?? [] : [];
   const activeFilteredSubmissions = activeAssignment ? filteredByAssignment[activeAssignment.id] ?? [] : [];
-  const bulkAiWorkflowActive = bulkAiChecking || bulkAiRunning || bulkAiPreflight !== null;
+  const bulkAiWorkflowActive =
+    bulkAiChecking ||
+    bulkAiRunning ||
+    bulkAiPreflight !== null ||
+    bulkTranscriptChecking ||
+    bulkTranscriptDownloading ||
+    bulkTranscriptPreflight !== null;
 
   function updatePayloadSubmissions(updater: (items: SubmissionItem[]) => SubmissionItem[]) {
     setPayload((prev) => (prev ? { ...prev, submissions: updater(prev.submissions) } : prev));
@@ -1137,6 +1162,12 @@ export default function ClassDetailPage() {
         included: result.included,
         unavailable: result.unavailable,
         needsReview: result.needsReview,
+        generated: 0,
+        reused: result.included,
+        failed: 0,
+        uncertain: 0,
+        notProcessed: 0,
+        terminalError: "",
         downloadUrl,
         archiveFilename: result.archiveFilename,
       });
@@ -1161,6 +1192,118 @@ export default function ClassDetailPage() {
         bulkTranscriptAbortRef.current = null;
       }
       if (!controller.signal.aborted) setBulkTranscriptDownloading(false);
+    }
+  }
+
+  async function openBulkTranscriptConfirm() {
+    if (!activeAssignment || activeAllSubmissions.length === 0) return;
+    const submissions = activeAllSubmissions.map((submission) => ({
+      id: submission.id,
+      studentName: submission.studentName,
+      submittedAt: submission.submittedAt,
+    }));
+
+    bulkTranscriptAbortRef.current?.abort();
+    const controller = new AbortController();
+    bulkTranscriptAbortRef.current = controller;
+    setBulkTranscriptChecking(true);
+    setBulkTranscriptResult(null);
+    setBulkTranscriptError("");
+    try {
+      const preflight = await preflightBulkTranscripts({
+        submissions,
+        signal: controller.signal,
+      });
+      if (!controller.signal.aborted) setBulkTranscriptPreflight(preflight);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setBulkTranscriptError(
+          error instanceof Error ? error.message : "Could not check transcript status.",
+        );
+      }
+    } finally {
+      if (bulkTranscriptAbortRef.current === controller) bulkTranscriptAbortRef.current = null;
+      if (!controller.signal.aborted) setBulkTranscriptChecking(false);
+    }
+  }
+
+  async function generateAndDownloadTranscripts() {
+    if (!activeAssignment || !bulkTranscriptPreflight || activeAllSubmissions.length === 0) return;
+    const assignmentTitle = activeAssignment.title;
+    const preflight = bulkTranscriptPreflight;
+    const submissions = activeAllSubmissions.map((submission) => ({
+      id: submission.id,
+      studentName: submission.studentName,
+      submittedAt: submission.submittedAt,
+    }));
+
+    setBulkTranscriptPreflight(null);
+    bulkTranscriptAbortRef.current?.abort();
+    if (bulkTranscriptUrlRef.current) {
+      URL.revokeObjectURL(bulkTranscriptUrlRef.current);
+      bulkTranscriptUrlRef.current = null;
+    }
+    const controller = new AbortController();
+    bulkTranscriptAbortRef.current = controller;
+    setBulkTranscriptDownloading(true);
+    setBulkTranscriptProgress({
+      processed: preflight.reusedSubmissionIds.length + preflight.unreadableSubmissionIds.length,
+      total: preflight.total,
+    });
+    setBulkTranscriptResult(null);
+    setBulkTranscriptError("");
+    try {
+      const result = await runBulkTranscriptRequests({
+        assignmentTitle,
+        submissions,
+        preflight,
+        signal: controller.signal,
+        onProgress: (_summary, processed) => {
+          setBulkTranscriptProgress({ processed, total: preflight.total });
+        },
+      });
+      if (controller.signal.aborted) return;
+
+      const downloadUrl = result.archive.archive
+        ? URL.createObjectURL(result.archive.archive)
+        : null;
+      bulkTranscriptUrlRef.current = downloadUrl;
+      setBulkTranscriptResult({
+        total: result.total,
+        included: result.archive.included,
+        unavailable: result.archive.unavailable,
+        needsReview: result.archive.needsReview,
+        generated: result.generated,
+        reused: result.reused,
+        failed: result.failed,
+        uncertain: result.uncertain,
+        notProcessed: result.notProcessed,
+        terminalError: result.terminalError,
+        downloadUrl,
+        archiveFilename: result.archive.archiveFilename,
+      });
+
+      if (downloadUrl && result.archive.archiveFilename) {
+        const anchor = document.createElement("a");
+        anchor.href = downloadUrl;
+        anchor.download = result.archive.archiveFilename;
+        anchor.rel = "noopener";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setBulkTranscriptError(
+          error instanceof Error ? error.message : "Could not generate transcript downloads.",
+        );
+      }
+    } finally {
+      if (bulkTranscriptAbortRef.current === controller) bulkTranscriptAbortRef.current = null;
+      if (!controller.signal.aborted) {
+        setBulkTranscriptDownloading(false);
+        setBulkTranscriptProgress(null);
+      }
     }
   }
 
@@ -1195,6 +1338,7 @@ export default function ClassDetailPage() {
     );
     setAssignmentMaxSubmissionsDraft(String(activeAssignment.maxSubmissions || ""));
     setAssignmentMaxRecordingSecondsDraft(String(activeAssignment.maxRecordingSeconds || 180));
+    setAssignmentAutoTranscribeDraft(activeAssignment.autoTranscribe === true);
     setAssignmentAttachmentDraft(null);
     setAssignmentAttachmentRemoved(false);
     setAssignmentError("");
@@ -1281,6 +1425,7 @@ export default function ClassDetailPage() {
       maxPoints: activeAssignment.maxPoints,
       maxSubmissions: activeAssignment.maxSubmissions,
       maxRecordingSeconds: activeAssignment.maxRecordingSeconds,
+      autoTranscribe: activeAssignment.autoTranscribe,
       rubric: activeAssignment.rubric,
       attachmentName: activeAssignment.attachmentName,
       attachmentUrl: activeAssignment.attachmentUrl,
@@ -1306,6 +1451,7 @@ export default function ClassDetailPage() {
               maxPoints: assignmentRubricEnabled ? rubricTotal : parsedMaxPoints,
               maxSubmissions: assignmentMaxSubmissionsDraft.trim() === "" ? 0 : Number(assignmentMaxSubmissionsDraft),
               maxRecordingSeconds: Number(assignmentMaxRecordingSecondsDraft) || 180,
+              autoTranscribe: assignmentAutoTranscribeDraft,
               rubric: rubricPayload,
               attachmentName: assignmentAttachmentDraft?.fileName ?? (assignmentAttachmentRemoved ? "" : row.attachmentName),
               attachmentUrl: assignmentAttachmentRemoved ? "" : row.attachmentUrl,
@@ -1325,6 +1471,7 @@ export default function ClassDetailPage() {
           maxPoints: assignmentRubricEnabled ? rubricTotal : parsedMaxPoints,
           maxSubmissions: assignmentMaxSubmissionsDraft.trim() === "" ? 0 : Number(assignmentMaxSubmissionsDraft),
           maxRecordingSeconds: Number(assignmentMaxRecordingSecondsDraft) || 180,
+          autoTranscribe: assignmentAutoTranscribeDraft,
           rubric: rubricPayload,
           attachment: attachmentPayload,
         }),
@@ -1339,6 +1486,7 @@ export default function ClassDetailPage() {
           maxPoints: number;
           maxSubmissions: number;
           maxRecordingSeconds: number;
+          autoTranscribe: boolean;
           rubric: AssignmentSummary["rubric"];
           attachmentName: string;
           attachmentUrl: string;
@@ -1360,6 +1508,7 @@ export default function ClassDetailPage() {
                 maxPoints: data.item!.maxPoints,
                 maxSubmissions: data.item!.maxSubmissions,
                 maxRecordingSeconds: data.item!.maxRecordingSeconds,
+                autoTranscribe: data.item!.autoTranscribe,
                 rubric: data.item!.rubric,
                 attachmentName: data.item!.attachmentName,
                 attachmentUrl: data.item!.attachmentUrl,
@@ -1657,6 +1806,13 @@ export default function ClassDetailPage() {
                 {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
                 <div className="assignment-instructions"><p className="meta"><strong>Instructions:</strong> {activeAssignment.instructions?.trim() || "No instructions provided."}</p></div>
                 <p className="meta"><strong>Points possible:</strong> {activeAssignment.maxPoints}</p>
+                {activeAssignment.autoTranscribe ? (
+                  <div className="notice info assignment-attachment-notice">
+                    Automatic transcription is on for future submissions. Successful new transcripts
+                    use one AI-assisted recording unit each; optional grading of the same recording is included.
+                    {!aiGradingEnabled ? " AI processing is currently paused for this deployment." : ""}
+                  </div>
+                ) : null}
                 {activeAssignment.rubric ? (
                   <div className="notice info assignment-attachment-notice">
                     Rubric: <strong>{activeAssignment.rubric.title}</strong> with{" "}
@@ -1693,16 +1849,37 @@ export default function ClassDetailPage() {
                     </button>
                   ) : null}
                   {activeAllSubmissions.length > 0 ? (
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      onClick={() => void downloadAllSavedTranscripts()}
-                      disabled={bulkTranscriptDownloading || bulkAiRunning}
-                    >
-                      {bulkTranscriptDownloading
-                        ? "Preparing transcript ZIP..."
-                        : "Download saved transcripts"}
-                    </button>
+                    <>
+                      {aiGradingEnabled ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          onClick={() => void openBulkTranscriptConfirm()}
+                          disabled={
+                            bulkTranscriptChecking ||
+                            bulkTranscriptDownloading ||
+                            bulkAiRunning ||
+                            Object.values(aiGrading).some(Boolean)
+                          }
+                        >
+                          {bulkTranscriptChecking
+                            ? "Checking transcripts..."
+                            : bulkTranscriptDownloading
+                              ? bulkTranscriptProgress
+                                ? `Transcribing ${bulkTranscriptProgress.processed}/${bulkTranscriptProgress.total}...`
+                                : "Generating transcripts..."
+                              : "Generate & download transcripts"}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => void downloadAllSavedTranscripts()}
+                        disabled={bulkTranscriptChecking || bulkTranscriptDownloading || bulkAiRunning}
+                      >
+                        Download saved only
+                      </button>
+                    </>
                   ) : null}
                   <span className="status-badge status-warning">{pluralize(activeAssignment.ungradedCount, "ungraded")}</span>
                 </div>
@@ -1741,6 +1918,21 @@ export default function ClassDetailPage() {
                       {bulkTranscriptResult.included} of {bulkTranscriptResult.total} submissions had a saved transcript included
                       {bulkTranscriptResult.downloadUrl ? "; ZIP download started." : "."}
                     </strong>{" "}
+                    {bulkTranscriptResult.generated > 0
+                      ? `${bulkTranscriptResult.generated} newly generated. `
+                      : ""}
+                    {bulkTranscriptResult.reused > 0
+                      ? `${bulkTranscriptResult.reused} already saved. `
+                      : ""}
+                    {bulkTranscriptResult.failed > 0
+                      ? `${bulkTranscriptResult.failed} failed. `
+                      : ""}
+                    {bulkTranscriptResult.uncertain > 0
+                      ? `${bulkTranscriptResult.uncertain} could not be confirmed; reload before retrying. `
+                      : ""}
+                    {bulkTranscriptResult.notProcessed > 0
+                      ? `${bulkTranscriptResult.notProcessed} not processed and safe to retry. `
+                      : ""}
                     {bulkTranscriptResult.unavailable > 0
                       ? `${bulkTranscriptResult.unavailable} unavailable. `
                       : ""}
@@ -1758,7 +1950,10 @@ export default function ClassDetailPage() {
                     ) : (
                       "No saved transcripts were available. Generate transcripts first or use AI grading."
                     )}
-                    <span className="meta"> Downloading saved transcripts does not use credits.</span>
+                    {bulkTranscriptResult.terminalError ? (
+                      <span className="meta"> {bulkTranscriptResult.terminalError}</span>
+                    ) : null}
+                    <span className="meta"> Downloads and already-saved transcripts do not use additional units.</span>
                   </div>
                 ) : null}
 
@@ -2147,6 +2342,7 @@ export default function ClassDetailPage() {
                     selectedStudentEmail
                   }
                   items={studentDetail.assignments}
+                  transcriptionEnabled={aiGradingEnabled}
                 />
               )
             ) : (
@@ -2193,6 +2389,32 @@ export default function ClassDetailPage() {
           setBulkAiPreflight(null);
           if (canRun && preflight) void runBulkAiGrade(preflight);
         }}
+      />
+
+      <ConfirmModal
+        open={bulkTranscriptPreflight !== null}
+        title={
+          bulkTranscriptPreflight?.missingSubmissionIds.length
+            ? `Generate ${pluralize(bulkTranscriptPreflight.missingSubmissionIds.length, "missing transcript")}?`
+            : "Download all saved transcripts?"
+        }
+        description={
+          bulkTranscriptPreflight
+            ? `${pluralize(bulkTranscriptPreflight.reusedSubmissionIds.length, "transcript")} already saved; ${pluralize(bulkTranscriptPreflight.missingSubmissionIds.length, "recording")} need transcription.${
+                bulkTranscriptPreflight.unreadableSubmissionIds.length
+                  ? ` ${pluralize(bulkTranscriptPreflight.unreadableSubmissionIds.length, "recording")} could not be checked and will not be sent for processing.`
+                  : ""
+              } Up to ${pluralize(bulkTranscriptPreflight.missingSubmissionIds.length, "AI-assisted recording unit")} will be used—only successful, usable new transcripts count. This does not grade submissions, and grading the same recording later is included. Every transcript still needs teacher review. A ZIP report will show exactly what succeeded or failed.`
+            : ""
+        }
+        confirmLabel={
+          bulkTranscriptPreflight?.missingSubmissionIds.length
+            ? "Generate & download"
+            : "Download ZIP"
+        }
+        cancelLabel="Cancel"
+        onCancel={() => setBulkTranscriptPreflight(null)}
+        onConfirm={() => void generateAndDownloadTranscripts()}
       />
 
       {assignmentEditOpen ? (
@@ -2263,6 +2485,26 @@ export default function ClassDetailPage() {
             <label className="label form-label-top" htmlFor="edit-assignment-max-recording">Max recording length (seconds)</label>
             <input id="edit-assignment-max-recording" className="input" type="number" min={10} max={300} step={1} inputMode="numeric" value={assignmentMaxRecordingSecondsDraft} onChange={(event) => setAssignmentMaxRecordingSecondsDraft(event.target.value)} />
             <p className="meta field-meta">10–300 seconds. Default 180.</p>
+            {aiGradingEnabled || activeAssignment?.autoTranscribe ? (
+              <>
+                <label className="checkbox-row form-label-top">
+                  <input
+                    type="checkbox"
+                    checked={assignmentAutoTranscribeDraft}
+                    onChange={(event) => setAssignmentAutoTranscribeDraft(event.target.checked)}
+                    disabled={!aiGradingEnabled && !assignmentAutoTranscribeDraft}
+                  />
+                  Automatically transcribe new submissions
+                </label>
+                <p className="meta field-meta">
+                  Applies to future submissions. Each usable new transcript uses one AI-assisted recording
+                  unit; grading that same recording later is included. Turning this off cancels work that
+                  has not started and keeps transcripts already created; a provider request already underway
+                  may still finish and count.
+                  {!aiGradingEnabled ? " AI processing is currently paused for this deployment." : ""}
+                </p>
+              </>
+            ) : null}
             <label className="label form-label-top" htmlFor="edit-assignment-attachment">Attachment (optional)</label>
             <input
               id="edit-assignment-attachment"

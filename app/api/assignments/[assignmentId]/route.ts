@@ -89,6 +89,7 @@ export async function PATCH(
         attachmentName,
         attachmentUrl,
         attachmentContentType,
+        autoTranscribe: body.autoTranscribe ?? found.autoTranscribe,
       });
     } catch (error) {
       if (newlyUploadedAttachment) {

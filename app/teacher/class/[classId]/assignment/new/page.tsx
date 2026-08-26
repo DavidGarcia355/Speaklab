@@ -84,6 +84,8 @@ export default function NewAssignmentPage() {
   const [rubricCriteria, setRubricCriteria] = useState<RubricCriterionDraft[]>([]);
   const [maxSubmissions, setMaxSubmissions] = useState("");
   const [maxRecordingSeconds, setMaxRecordingSeconds] = useState("180");
+  const [autoTranscribe, setAutoTranscribe] = useState(false);
+  const [aiTranscriptionEnabled, setAiTranscriptionEnabled] = useState(false);
   const [attachment, setAttachment] = useState<AttachmentDraft | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [hintMsg, setHintMsg] = useState("");
@@ -109,6 +111,15 @@ export default function NewAssignmentPage() {
         const savedLanguage = data.teacherDefaultLanguage?.trim();
         setTargetLanguage(savedLanguage || "Spanish");
         setSetAsDefaultLanguage(!savedLanguage);
+        try {
+          const featureResponse = await fetch("/api/features", { cache: "no-store" });
+          if (featureResponse.ok) {
+            const features = (await featureResponse.json()) as { aiGradingEnabled?: boolean };
+            setAiTranscriptionEnabled(features.aiGradingEnabled === true);
+          }
+        } catch {
+          setAiTranscriptionEnabled(false);
+        }
         setErrorMsg("");
       } catch (error) {
         const message = error instanceof Error ? error.message : "Class not found.";
@@ -226,6 +237,7 @@ export default function NewAssignmentPage() {
           maxPoints: rubricEnabled ? rubricTotal : parsedMaxPoints,
           maxSubmissions: parsedMaxSubmissions,
           maxRecordingSeconds: parsedMaxRecordingSeconds,
+          autoTranscribe,
           ...(rubricEnabled
             ? {
                 rubric: {
@@ -426,6 +438,24 @@ export default function NewAssignmentPage() {
             onChange={(event) => setMaxRecordingSeconds(event.target.value)}
           />
           <p className="meta field-meta">Between 10 and 300 seconds. Default is 180 (3 minutes).</p>
+
+          {aiTranscriptionEnabled ? (
+            <>
+              <label className="checkbox-row form-label-top">
+                <input
+                  type="checkbox"
+                  checked={autoTranscribe}
+                  onChange={(event) => setAutoTranscribe(event.target.checked)}
+                />
+                Automatically transcribe new submissions
+              </label>
+              <p className="meta field-meta">
+                Future recordings will be transcribed after students submit. Each usable new transcript
+                uses one AI-assisted recording unit; grading that same recording later is included and
+                still remains optional. Processing pauses at your allowance limit, with no overages.
+              </p>
+            </>
+          ) : null}
 
           <RubricBuilder
             enabled={rubricEnabled}

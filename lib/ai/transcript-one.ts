@@ -213,6 +213,7 @@ export async function transcribeOneSubmission(input: {
   config: AiConfig;
   teacherEmail: string;
   data: SubmissionForAiGradeRow;
+  processingStillAuthorized?: () => Promise<boolean>;
 }): Promise<TranscriptOneOutcome> {
   const { config, teacherEmail, data } = input;
   if (!data.audioBlobUrl) {
@@ -221,6 +222,13 @@ export async function transcribeOneSubmission(input: {
 
   let reservationId: string | null = null;
   try {
+    if (input.processingStillAuthorized && !(await input.processingStillAuthorized())) {
+      return {
+        status: "failed",
+        code: "processing_cancelled",
+        message: "Automatic transcription was turned off before processing started.",
+      };
+    }
     const audio = isLocalMockAi(config)
       ? { buffer: Buffer.from("mock audio"), contentType: "audio/webm" }
       : await fetchAuthorizedAudioBuffer(data.audioBlobUrl);
@@ -286,6 +294,13 @@ export async function transcribeOneSubmission(input: {
         };
       }
       if (reservation.reservationStatus === "duplicate") {
+        if (input.processingStillAuthorized && !(await input.processingStillAuthorized())) {
+          return {
+            status: "failed",
+            code: "processing_cancelled",
+            message: "Automatic transcription was turned off before delivery.",
+          };
+        }
         const saved = await copyConsumedReviewTranscriptToSubmission({
           reservationId: reservation.reservationId,
           sourceResultId: reservation.sourceResultId,
@@ -311,6 +326,13 @@ export async function transcribeOneSubmission(input: {
       reservationId = reservation.reservationId;
     }
 
+    if (input.processingStillAuthorized && !(await input.processingStillAuthorized())) {
+      return {
+        status: "failed",
+        code: "processing_cancelled",
+        message: "Automatic transcription was turned off before processing started.",
+      };
+    }
     const resolved = await resolveSubmissionTranscript({
       config,
       teacherEmail,
@@ -320,8 +342,22 @@ export async function transcribeOneSubmission(input: {
       persisted,
       beforeProviderCall: isLocalMockAi(config)
         ? undefined
-        : () => reserveGenerationBudget({ config }),
+        : async () => {
+            if (input.processingStillAuthorized && !(await input.processingStillAuthorized())) {
+              throw Object.assign(new Error("Automatic transcription was cancelled."), {
+                name: "TranscriptProcessingCancelledError",
+              });
+            }
+            return reserveGenerationBudget({ config });
+          },
     });
+    if (input.processingStillAuthorized && !(await input.processingStillAuthorized())) {
+      return {
+        status: "failed",
+        code: "processing_cancelled",
+        message: "Automatic transcription was turned off before delivery.",
+      };
+    }
     if (!resolved.transcript.trim()) {
       return {
         status: "failed",
@@ -368,6 +404,13 @@ export async function transcribeOneSubmission(input: {
       allowance: metered ? await getAiReviewAllowanceSummary({ teacherEmail }) : null,
     };
   } catch (error) {
+    if (error instanceof Error && error.name === "TranscriptProcessingCancelledError") {
+      return {
+        status: "failed",
+        code: "processing_cancelled",
+        message: "Automatic transcription was turned off before the provider request started.",
+      };
+    }
     if (
       error instanceof Error &&
       error.name === "TranscriptProviderBudgetExhaustedError"

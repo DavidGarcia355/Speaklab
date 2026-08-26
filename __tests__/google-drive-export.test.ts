@@ -10,6 +10,7 @@ import {
   sanitizeStudentDriveFolderName,
 } from "@/lib/google-drive/export";
 import {
+  loadGoogleIdentityServices,
   requestGoogleDriveAccessToken,
   resetGoogleIdentityLoaderForTests,
 } from "@/lib/google-drive/google-identity";
@@ -72,6 +73,7 @@ function createNewExportFetch() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   resetGoogleIdentityLoaderForTests();
 });
@@ -104,7 +106,7 @@ describe("Google Drive export privacy boundaries", () => {
     expect(capturedConfig).toMatchObject({
       client_id: "client-id",
       scope: GOOGLE_DRIVE_FILE_SCOPE,
-      include_granted_scopes: true,
+      include_granted_scopes: false,
     });
     const requestedScope = String((capturedConfig as Record<string, unknown> | null)?.scope);
     expect(requestedScope).not.toContain("https://www.googleapis.com/auth/drive ");
@@ -131,6 +133,27 @@ describe("Google Drive export privacy boundaries", () => {
       code: "cancelled",
       message: "Google Drive export canceled. Nothing was uploaded.",
     });
+  });
+
+  it("fails cleanly when an existing Google Identity script never becomes usable", async () => {
+    vi.useFakeTimers();
+    const script = new EventTarget();
+    vi.stubGlobal("window", {
+      setTimeout,
+      clearTimeout,
+    });
+    vi.stubGlobal("document", {
+      querySelector: () => script,
+      createElement: vi.fn(),
+    });
+
+    const loading = loadGoogleIdentityServices();
+    const rejection = expect(loading).rejects.toMatchObject({
+      code: "network",
+      message: "Google Drive sign-in took too long to load. Check your connection and try again.",
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejection;
   });
 
   it("only fetches protected same-origin transcript and audio routes", async () => {

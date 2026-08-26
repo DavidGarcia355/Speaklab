@@ -115,6 +115,7 @@ const rubricScoreSchema = z.object({
 });
 
 export const assignmentCreateSchema = z.object({
+  autoTranscribe: z.boolean().optional().default(false),
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true).default(""),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
@@ -159,6 +160,7 @@ export const assignmentCreateSchema = z.object({
 });
 
 export const assignmentUpdateSchema = z.object({
+  autoTranscribe: z.boolean().optional(),
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),

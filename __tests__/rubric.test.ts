@@ -112,6 +112,26 @@ describe("rubric validation", () => {
 
     expect(parsed.rubric).toBeUndefined();
     expect(parsed.maxPoints).toBe(20);
+    expect(parsed.autoTranscribe).toBe(false);
+  });
+
+  it("requires an explicit boolean opt-in for automatic transcription", () => {
+    const parsed = parseOrThrow400(assignmentCreateSchema, {
+      title: "Automatically transcribed speaking check",
+      description: "",
+      instructions: "Respond in Spanish.",
+      maxPoints: 20,
+      autoTranscribe: true,
+    });
+
+    expect(parsed.autoTranscribe).toBe(true);
+    expect(assignmentCreateSchema.safeParse({
+      title: "Invalid setting",
+      description: "",
+      instructions: "Respond in Spanish.",
+      maxPoints: 20,
+      autoTranscribe: "yes",
+    }).success).toBe(false);
   });
 
   it("accepts a valid rubric and derives its total", () => {
