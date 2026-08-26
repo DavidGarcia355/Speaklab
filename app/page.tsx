@@ -126,8 +126,9 @@ export default function Home() {
           </p>
           <h2>Start with one class. Prove the workflow before a wider rollout.</h2>
           <p className="meta">
-            Habla&apos;s core audio classroom is free during the current teacher pilot. Optional AI,
-            district rollout, and purchasing remain separate reviewed paths.
+            Free includes the complete audio classroom and a lifetime allowance of 30 successful AI
+            reviews per teacher account. Teacher adds 300 reviews per Stripe billing period for $20
+            per month. Schools can contact David about a founder-managed School Pilot.
           </p>
         </div>
         <div className="actions home-district-actions">

@@ -52,7 +52,7 @@ const ENV = Object.freeze({
   STRIPE_LIVE_SETUP_APPROVED: "true",
   STRIPE_LIVE_SETUP_SECRET_KEY: "sk_live_habla",
   STRIPE_ACCOUNT_ID: "acct_habla_live",
-  STRIPE_USAGE_BILLING_ENABLED: "false",
+  STRIPE_SUBSCRIPTION_BILLING_ENABLED: "false",
   STRIPE_CHECKOUT_ENABLED: "false",
   STRIPE_AUTOMATIC_TAX_ENABLED: "false",
 });
@@ -62,19 +62,19 @@ const PLAN_FLAGS: StripeLiveSetupFlags = Object.freeze({
   allowLiveReadOnly: true,
   allowLiveApply: false,
   confirmAccount: "acct_habla_live",
-  confirmPriceBook: "habla-teacher-ai-usd-v2",
+  confirmPriceBook: "tryhabla-teacher-usd-v3",
 });
 
 const AUTHORIZATION: StripeLiveSetupAuthorization = Object.freeze({
   accountId: "acct_habla_live",
-  priceBookId: "habla-teacher-ai-usd-v2",
+  priceBookId: "tryhabla-teacher-usd-v3",
   secretKey: "sk_live_habla",
   apply: true,
 });
 
 const CATALOG_PLAN = Object.freeze({
   applied: false,
-  priceBookId: "habla-teacher-ai-usd-v2",
+  priceBookId: "tryhabla-teacher-usd-v3",
   fingerprint: "f".repeat(64),
   actions: Object.freeze([]),
   priceEnvironment: Object.freeze({}),
@@ -90,7 +90,7 @@ describe("explicit live Stripe setup authorization", () => {
   it("authorizes only the exact read-only plan contract by default", () => {
     expect(authorizeStripeLiveSetup({ env: ENV, flags: PLAN_FLAGS })).toEqual({
       accountId: "acct_habla_live",
-      priceBookId: "habla-teacher-ai-usd-v2",
+      priceBookId: "tryhabla-teacher-usd-v3",
       secretKey: "sk_live_habla",
       apply: false,
     });
@@ -128,7 +128,11 @@ describe("explicit live Stripe setup authorization", () => {
     ["NODE_ENV", "test"],
     ["STRIPE_ALLOW_LIVE", "false"],
     ["STRIPE_LIVE_SETUP_APPROVED", "false"],
+    ["STRIPE_SUBSCRIPTION_BILLING_ENABLED", "true"],
     ["STRIPE_USAGE_BILLING_ENABLED", "true"],
+    ["STRIPE_USAGE_BILLING_ENABLED", "false"],
+    ["STRIPE_AI_GRADE_PRICE_ID", "price_retired_grade"],
+    ["STRIPE_AI_AUDIO_SECONDS_PRICE_ID", "price_retired_audio"],
     ["STRIPE_CHECKOUT_ENABLED", "true"],
     ["STRIPE_AUTOMATIC_TAX_ENABLED", "true"],
   ])("rejects an unsafe %s setting", (key, value) => {

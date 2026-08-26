@@ -6,7 +6,6 @@ import {
   createAiBillingUsage,
   getAiBillingReconciliationHealth,
   getStripeBillingStorageHealth,
-  isStripeBillingStorageReady,
   listPendingAiBillingUsage,
   listUnqueuedAiBillingAttempts,
   markAiBillingUsageDimensionFailed,
@@ -16,18 +15,18 @@ import {
 } from "@/lib/db";
 import { getStripeClient } from "@/lib/billing/client";
 import {
-  assertConfiguredStripeCatalog,
-  isStripeUsageRuntimeReady,
-} from "@/lib/billing/catalog-validation";
-import {
   getStripeUsageBillingAvailability,
-  requireStripeUsageBillingConfig,
   type StripeUsageBillingConfig,
 } from "@/lib/billing/config";
 import { STRIPE_CATALOG_MANIFEST } from "@/lib/billing/catalog-manifest";
 import { getStripeBillingContractId } from "@/lib/billing/contract";
 import { isStripeAutomaticUsageRecoverySupported } from "@/lib/billing/recovery-policy";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
+
+// Historical v2 values are retained only to interpret archived ledger rows.
+// The licensed v3 Teacher plan never calls or publishes this rate calculator.
+const RETIRED_V2_SUCCESSFUL_GRADE_USD = 0.05;
+const RETIRED_V2_AUDIO_MINUTE_USD = 0.01;
 
 export const STRIPE_AI_METER_EVENTS = Object.freeze({
   base: "habla_ai_successful_grade",
@@ -96,18 +95,20 @@ function blocksBillingSourceCleanup(health: {
   );
 }
 
-async function resolveUsageConfig(config?: StripeUsageBillingConfig) {
+async function resolveUsageConfig(
+  config?: StripeUsageBillingConfig,
+): Promise<StripeUsageBillingConfig | null> {
   if (config) {
-    await assertConfiguredStripeCatalog(config);
-    if (!(await isStripeBillingStorageReady())) {
-      throw new Error("Legacy unscoped Stripe billing rows require manual reconciliation.");
-    }
-    return config;
+    throw new Error(
+      "Stripe metered billing is retired; the licensed Teacher plan never emits usage events.",
+    );
   }
-  if (!getStripeUsageBillingAvailability().available) return null;
-  if (!(await isStripeUsageRuntimeReady())) return null;
-  if (!(await isStripeBillingStorageReady())) return null;
-  return requireStripeUsageBillingConfig();
+  // parseStripeUsageBillingConfig is permanently fail-closed. Keep the local
+  // checks explicit so a future configuration alias cannot revive v2 delivery.
+  if (getStripeUsageBillingAvailability().available) {
+    throw new Error("Retired Stripe usage billing unexpectedly became available.");
+  }
+  return null;
 }
 
 export function calculateAiRetailMicrousd(input: {
@@ -115,8 +116,8 @@ export function calculateAiRetailMicrousd(input: {
   durationSeconds: number;
 }) {
   const amountUsd =
-    input.baseUnits * TEACHER_AI_PRICE_BOOK.baseSuccessfulGradeUsd +
-    (input.durationSeconds / 60) * TEACHER_AI_PRICE_BOOK.audioMinuteUsd;
+    input.baseUnits * RETIRED_V2_SUCCESSFUL_GRADE_USD +
+    (input.durationSeconds / 60) * RETIRED_V2_AUDIO_MINUTE_USD;
   return Math.round(amountUsd * 1_000_000);
 }
 

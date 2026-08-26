@@ -3,8 +3,7 @@ import type { FinalizeAiGradeDeliveryResult } from "@/lib/db";
 
 const mocks = vi.hoisted(() => ({
   requireTeacherEmail: vi.fn(async () => "dev-teacher@local.test"),
-  getUserHasAiAccess: vi.fn(async () => false),
-  findSubmissionForAiGrade: vi.fn(async () => ({
+  findSubmissionForAiGrade: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
     submissionId: "sub_1",
     assignmentId: "asg_1",
     assignmentTitle: "Speaking",
@@ -15,6 +14,35 @@ const mocks = vi.hoisted(() => ({
     finalGrade: null,
     finalFeedback: "",
   })),
+  findOwnedSubmissionForAiReview: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null),
+  getAiReviewAllowanceSummary: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+    teacherEmail: "dev-teacher@local.test",
+    status: "free_lifetime",
+    limit: 30,
+    reserved: 0,
+    consumed: 0,
+    used: 0,
+    remaining: 30,
+    stripeSubscriptionId: null,
+    periodStart: null,
+    periodEnd: null,
+  })),
+  reserveAiReviewAllowance: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+    reservationStatus: "reserved",
+    reservationId: "air_1",
+    teacherEmail: "dev-teacher@local.test",
+    status: "free_lifetime",
+    limit: 30,
+    reserved: 1,
+    consumed: 0,
+    used: 1,
+    remaining: 29,
+    stripeSubscriptionId: null,
+    periodStart: null,
+    periodEnd: null,
+  })),
+  releaseAiReviewAllowanceReservation: vi.fn(async () => true),
+  getReusableAiReviewAttempt: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null),
   countAiAttemptsForSubmission: vi.fn(async () => 0),
   countAiAttemptsForTeacherSince: vi.fn(async () => 0),
   countAiAttemptsSince: vi.fn(async () => 0),
@@ -68,16 +96,16 @@ const mocks = vi.hoisted(() => ({
     escalations: 0,
     estimatedCostMicrousd: 0,
   })),
-  recordDeliveredAiUsageSafely: vi.fn(async () => ({ status: "disabled", usage: null })),
 }));
 
 vi.mock("@/lib/authz", () => ({ requireTeacherEmail: mocks.requireTeacherEmail }));
-vi.mock("@/lib/billing", () => ({
-  recordDeliveredAiUsageSafely: mocks.recordDeliveredAiUsageSafely,
-}));
 vi.mock("@/lib/db", () => ({
-  getUserHasAiAccess: mocks.getUserHasAiAccess,
   findSubmissionForAiGrade: mocks.findSubmissionForAiGrade,
+  findOwnedSubmissionForAiReview: mocks.findOwnedSubmissionForAiReview,
+  getAiReviewAllowanceSummary: mocks.getAiReviewAllowanceSummary,
+  reserveAiReviewAllowance: mocks.reserveAiReviewAllowance,
+  releaseAiReviewAllowanceReservation: mocks.releaseAiReviewAllowanceReservation,
+  getReusableAiReviewAttempt: mocks.getReusableAiReviewAttempt,
   countAiAttemptsForSubmission: mocks.countAiAttemptsForSubmission,
   countAiAttemptsForTeacherSince: mocks.countAiAttemptsForTeacherSince,
   countAiAttemptsSince: mocks.countAiAttemptsSince,
@@ -129,8 +157,40 @@ describe("AI grading mock route", () => {
     delete process.env.AI_ACCESS_MODE;
     delete process.env.AI_TEACHER_DENYLIST;
     mocks.requireTeacherEmail.mockClear();
-    mocks.getUserHasAiAccess.mockClear();
-    mocks.findSubmissionForAiGrade.mockClear();
+    mocks.findSubmissionForAiGrade.mockReset();
+    mocks.findSubmissionForAiGrade.mockResolvedValue({
+      submissionId: "sub_1",
+      assignmentId: "asg_1",
+      assignmentTitle: "Speaking",
+      audioBlobUrl: "data:audio/webm;base64,c2FmZQ==",
+      instructions: "Introduce yourself.",
+      rubric: null,
+      maxPoints: 10,
+      finalGrade: null,
+      finalFeedback: "",
+    });
+    mocks.findOwnedSubmissionForAiReview.mockReset();
+    mocks.findOwnedSubmissionForAiReview.mockResolvedValue(null);
+    mocks.getAiReviewAllowanceSummary.mockClear();
+    mocks.reserveAiReviewAllowance.mockReset();
+    mocks.reserveAiReviewAllowance.mockResolvedValue({
+      reservationStatus: "reserved",
+      reservationId: "air_1",
+      teacherEmail: "dev-teacher@local.test",
+      status: "free_lifetime",
+      limit: 30,
+      reserved: 1,
+      consumed: 0,
+      used: 1,
+      remaining: 29,
+      stripeSubscriptionId: null,
+      periodStart: null,
+      periodEnd: null,
+    });
+    mocks.releaseAiReviewAllowanceReservation.mockReset();
+    mocks.releaseAiReviewAllowanceReservation.mockResolvedValue(true);
+    mocks.getReusableAiReviewAttempt.mockReset();
+    mocks.getReusableAiReviewAttempt.mockResolvedValue(null);
     mocks.reserveAiBudget.mockReset();
     mocks.reserveAiBudget.mockResolvedValue(true);
     mocks.createAiGradingAttempt.mockClear();
@@ -156,13 +216,18 @@ describe("AI grading mock route", () => {
       params: Promise.resolve({ submissionId: "sub_1" }),
     });
     const body = (await response.json()) as {
-      attempt: { suggestedScore: number; feedback: string };
+      attempt: Record<string, unknown> & { suggestedScore: number; feedback: string };
       gradeApplied: boolean;
     };
 
     expect(response.status).toBe(200);
     expect(body.attempt.suggestedScore).toBe(8);
     expect(body.attempt.feedback).toContain("Mock suggestion");
+    expect(body.attempt).not.toHaveProperty("estimatedCostUsd");
+    expect(body.attempt).not.toHaveProperty("inputTokens");
+    expect(body.attempt).not.toHaveProperty("outputTokens");
+    expect(body.attempt).not.toHaveProperty("gradingProvider");
+    expect(body.attempt).not.toHaveProperty("gradingModel");
     expect(body.gradeApplied).toBe(true);
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledOnce();
     expect(mocks.createAiGradingAttempt.mock.calls[0][0]).not.toHaveProperty("grade");
@@ -173,7 +238,8 @@ describe("AI grading mock route", () => {
       expect.objectContaining({
         attemptId: "ai_1",
         ownerEmail: "dev-teacher@local.test",
-        priceBookId: "habla-teacher-ai-usd-v2",
+        priceBookId: "tryhabla-teacher-usd-v3",
+        billingCandidate: false,
       }),
     );
     expect(mocks.applyAiGradeToSubmission).not.toHaveBeenCalled();
@@ -227,8 +293,21 @@ describe("AI grading mock route", () => {
     expect(mocks.createAiGradingAttempt).not.toHaveBeenCalled();
   });
 
-  it("keeps the paid entitlement gate for non-local providers", async () => {
+  it("returns the lifetime allowance cap before non-local provider work", async () => {
     process.env.AI_GRADING_PROVIDER = "ollama";
+    mocks.reserveAiReviewAllowance.mockResolvedValueOnce({
+      reservationStatus: "exhausted",
+      teacherEmail: "dev-teacher@local.test",
+      status: "free_lifetime",
+      limit: 30,
+      reserved: 0,
+      consumed: 30,
+      used: 30,
+      remaining: 0,
+      stripeSubscriptionId: null,
+      periodStart: null,
+      periodEnd: null,
+    });
     const { POST } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
 
     const response = await POST(
@@ -236,9 +315,118 @@ describe("AI grading mock route", () => {
       { params: Promise.resolve({ submissionId: "sub_1" }) }
     );
 
-    expect(response.status).toBe(402);
-    expect(mocks.getUserHasAiAccess).toHaveBeenCalledOnce();
+    expect(response.status).toBe(429);
+    expect(mocks.reserveAiReviewAllowance).toHaveBeenCalledOnce();
     expect(mocks.reserveAiBudget).not.toHaveBeenCalled();
+    expect(mocks.createAiGradingAttempt).not.toHaveBeenCalled();
+    expect(mocks.releaseAiReviewAllowanceReservation).not.toHaveBeenCalled();
+  });
+
+  it("returns an exact saved review without generation limits or provider work", async () => {
+    process.env.AI_GRADING_PROVIDER = "ollama";
+    const reusableAttempt = {
+      id: "ai_saved",
+      submissionId: "sub_1",
+      teacherEmail: "dev-teacher@local.test",
+      status: "completed",
+      deliveryStatus: "delivered",
+      transcript: "Saved transcript",
+      detectedLanguage: "en",
+      transcriptQuality: "good",
+      durationSeconds: 12,
+      suggestedScore: 8,
+      rubricScores: [],
+      feedback: "Saved feedback",
+      strengths: [],
+      improvements: [],
+      evidence: [],
+      confidence: "high",
+      warnings: [],
+      teacherAttention: "none",
+      transcriptionProvider: "mock",
+      gradingProvider: "ollama",
+      transcriptionModel: "mock",
+      gradingModel: "llama",
+      errorCode: "",
+      errorMessage: "",
+      cacheHit: false,
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      latencyMs: 0,
+      retries: 0,
+      escalated: false,
+      escalationReason: "",
+      estimatedCostMicrousd: 0,
+      promptVersion: "test",
+      resultSource: "ai",
+      cacheKey: "semantic-key",
+      billingRequired: false,
+      billingPriceBookId: "tryhabla-teacher-usd-v3",
+      billingStripeCustomerId: "",
+      billingStripeSubscriptionId: "",
+      billingCatalogFingerprint: "",
+      billingContractId: "",
+      billingLivemode: false,
+      billingQualifyingClassHighWater: 0,
+      billingFreeCreditApplied: false,
+      billableOutputTokens: 0,
+      autoApplicable: true,
+      createdAt: 100,
+      completedAt: 100,
+    };
+    mocks.findSubmissionForAiGrade.mockResolvedValueOnce(null);
+    mocks.findOwnedSubmissionForAiReview.mockResolvedValueOnce({
+      submissionId: "sub_1",
+      assignmentId: "asg_1",
+      assignmentTitle: "Speaking",
+      audioBlobUrl: "data:audio/webm;base64,c2FmZQ==",
+      description: "",
+      instructions: "Introduce yourself.",
+      rubric: null,
+      maxPoints: 10,
+      finalGrade: 8,
+      finalGradeSource: "ai",
+      finalFeedback: "Saved feedback",
+    });
+    mocks.reserveAiReviewAllowance.mockResolvedValueOnce({
+      reservationStatus: "duplicate",
+      sourceAttemptId: "ai_saved",
+      teacherEmail: "dev-teacher@local.test",
+      status: "free_lifetime",
+      limit: 30,
+      reserved: 0,
+      consumed: 1,
+      used: 1,
+      remaining: 29,
+      stripeSubscriptionId: null,
+      periodStart: null,
+      periodEnd: null,
+    });
+    mocks.getReusableAiReviewAttempt.mockResolvedValueOnce(reusableAttempt);
+    mocks.latestAiAttemptCreatedAt.mockResolvedValueOnce(Date.now());
+    mocks.reserveAiBudget.mockResolvedValueOnce(false);
+    const { POST } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/submissions/sub_1/ai-grade", { method: "POST" }),
+      { params: Promise.resolve({ submissionId: "sub_1" }) },
+    );
+    const body = (await response.json()) as {
+      attempt: { id: string; suggestedScore: number };
+      gradeApplied: boolean;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      attempt: { id: "ai_saved", suggestedScore: 8 },
+      gradeApplied: true,
+    });
+    expect(mocks.findOwnedSubmissionForAiReview).toHaveBeenCalledOnce();
+    expect(mocks.getReusableAiReviewAttempt).toHaveBeenCalledOnce();
+    expect(mocks.reserveAiBudget).not.toHaveBeenCalled();
+    expect(mocks.createAiGradingAttempt).not.toHaveBeenCalled();
+    expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
   });
 
   it("allows broad access but stops before providers when the monthly budget is exhausted", async () => {
@@ -253,8 +441,27 @@ describe("AI grading mock route", () => {
     );
 
     expect(response.status).toBe(429);
-    expect(mocks.getUserHasAiAccess).not.toHaveBeenCalled();
     expect(mocks.reserveAiBudget).toHaveBeenCalledOnce();
+    expect(mocks.createAiGradingAttempt).not.toHaveBeenCalled();
+  });
+
+  it("releases a paid allowance reservation when provider budget is exhausted", async () => {
+    process.env.AI_GRADING_PROVIDER = "ollama";
+    mocks.reserveAiBudget.mockResolvedValueOnce(false);
+    const { POST } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
+
+    const response = await POST(
+      new Request("http://localhost/api/submissions/sub_1/ai-grade", { method: "POST" }),
+      { params: Promise.resolve({ submissionId: "sub_1" }) },
+    );
+
+    expect(response.status).toBe(429);
+    expect(mocks.reserveAiReviewAllowance).toHaveBeenCalledOnce();
+    expect(mocks.reserveAiBudget).toHaveBeenCalledOnce();
+    expect(mocks.releaseAiReviewAllowanceReservation).toHaveBeenCalledWith({
+      reservationId: "air_1",
+      teacherEmail: "dev-teacher@local.test",
+    });
     expect(mocks.createAiGradingAttempt).not.toHaveBeenCalled();
   });
 });

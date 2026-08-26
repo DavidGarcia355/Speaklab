@@ -22,7 +22,7 @@ export default function TermsPage() {
           school or district has approved Habla. A signed agreement with a school or district will
           control if it conflicts with these terms.
         </p>
-        <p className="meta">Last updated: August 25, 2026</p>
+        <p className="meta">Last updated: August 26, 2026</p>
       </header>
 
       <article className="card legal-document">
@@ -116,22 +116,28 @@ export default function TermsPage() {
             a billing error before making another payment.
           </p>
           <p>
-            When Habla offers the teacher Stripe AI plan, its published rate is $0.05 per successful
-            unique AI grade plus $0.01 per processed audio minute, billed monthly in arrears. AI
-            audio duration is measured per result and rounded up to the next whole second. Each
-            distinct recording is a separate result; exact retries of the same recording for the
-            same assignment are deduplicated. Feedback is included. Each UTC calendar month includes
-            one fewer free whole-result credit than the teacher&apos;s first 30 qualifying active classes
-            (29 credits maximum), and unused credits do not roll over. Habla does not add or collect
-            tax through this plan in the current release. Habla&apos;s on-site usage total is an estimate;
-            Stripe&apos;s invoice and billing period control the amount due.
+            Free includes one lifetime allowance of 30 successful AI reviews per teacher account.
+            Teacher costs $20 per month and includes 300 successful AI reviews in each Stripe billing
+            period. Each distinct recording submitted for review is a separate result. A review is
+            used only when Habla successfully delivers a usable AI result; failures,
+            unable-to-grade results, and exact retries of the same recording for the same assignment
+            do not use another review. Recordings submitted for AI review can be up to five minutes.
+            Unused reviews do not roll over, and neither option has automatic overages. Reaching an
+            allowance pauses AI review while recording, playback, and manual grading remain
+            available.
           </p>
           <p>
             Teachers can review invoices, update payment details, or request cancellation through
-            Manage billing. Stripe shows the effective cancellation date before confirmation, and
-            eligible usage incurred before cancellation takes effect may still appear on an invoice.
-            If Stripe confirmation or access appears delayed, contact Habla before starting another
-            checkout.
+            Manage billing. Canceling Teacher stops the next renewal, and access continues through
+            the end of the already-paid Stripe billing period. Stripe shows the effective
+            cancellation date before confirmation. If Stripe confirmation or access appears
+            delayed, contact Habla before starting another checkout.
+          </p>
+          <p>
+            School Pilot is a founder-managed, manually provisioned cohort with scope, review volume,
+            onboarding, and terms agreed directly with the school. It is not a self-service plan and
+            does not promise a school administrator console, consolidated school billing, or
+            district approval.
           </p>
           <p>
             A separate PayPal support link may be available. That link is voluntary support for

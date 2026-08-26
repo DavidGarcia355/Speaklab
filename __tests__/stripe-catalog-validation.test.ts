@@ -1,97 +1,78 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   STRIPE_CATALOG_MANIFEST,
-  StripeCatalogValidationError,
   assertConfiguredStripeCatalog,
   clearStripeAccountValidationCacheForTests,
   clearStripeCatalogValidationCacheForTests,
+  isStripeSubscriptionRuntimeReady,
   isStripeUsageRuntimeReady,
-  requireStripeUsageBillingConfig,
-  type StripeCatalogDimensionKey,
+  requireStripeSubscriptionBillingConfig,
   type StripeCatalogReadClient,
-  type StripeCatalogReadMeter,
   type StripeCatalogReadPrice,
   type StripeCatalogReadProduct,
 } from "@/lib/billing";
 
-const ENV = {
+const ENV = Object.freeze({
   NODE_ENV: "test",
-  STRIPE_USAGE_BILLING_ENABLED: "true",
-  CRON_SECRET: "test-cron-secret",
+  STRIPE_SUBSCRIPTION_BILLING_ENABLED: "true",
   STRIPE_SECRET_KEY: "rkcs_test_catalog",
   STRIPE_WEBHOOK_SECRET: "whsec_catalog",
   STRIPE_ACCOUNT_ID: "acct_habla_test",
-  STRIPE_AI_GRADE_PRICE_ID: "price_successful_grade",
-  STRIPE_AI_AUDIO_SECONDS_PRICE_ID: "price_audio_second",
-};
+  STRIPE_TRYHABLA_TEACHER_PRICE_ID: "price_teacher_monthly",
+  STRIPE_AUTOMATIC_TAX_ENABLED: "false",
+});
 
-const config = requireStripeUsageBillingConfig(ENV);
-
-function priceId(dimension: StripeCatalogDimensionKey) {
-  return dimension === "successful_grade"
-    ? ENV.STRIPE_AI_GRADE_PRICE_ID
-    : ENV.STRIPE_AI_AUDIO_SECONDS_PRICE_ID;
-}
+const config = requireStripeSubscriptionBillingConfig(ENV);
+const dimension = STRIPE_CATALOG_MANIFEST.dimensions[0];
 
 class FakeReadClient implements StripeCatalogReadClient {
   readonly prices = new Map<string, StripeCatalogReadPrice>();
   readonly products = new Map<string, StripeCatalogReadProduct>();
-  readonly meters = new Map<string, StripeCatalogReadMeter>();
-  accountId = ENV.STRIPE_ACCOUNT_ID;
+  accountId: string = ENV.STRIPE_ACCOUNT_ID;
   reads = 0;
 
   constructor() {
-    for (const dimension of STRIPE_CATALOG_MANIFEST.dimensions) {
-      const meterId = `mtr_${dimension.key}`;
-      const configuredPriceId = priceId(dimension.key);
-      this.prices.set(configuredPriceId, {
-        id: configuredPriceId,
-        livemode: false,
-        active: true,
-        lookupKey: dimension.priceLookupKey,
-        nickname: dimension.priceNickname,
-        currency: "usd",
-        billingScheme: "per_unit",
-        type: "recurring",
-        productId: dimension.productId,
-        unitAmountDecimalCents: dimension.unitAmountDecimalCents,
-        currencyOptions: {},
-        recurring: {
-          interval: "month",
-          intervalCount: 1,
-          usageType: "metered",
-          meterId,
-          trialPeriodDays: null,
+    this.prices.set(ENV.STRIPE_TRYHABLA_TEACHER_PRICE_ID, {
+      id: ENV.STRIPE_TRYHABLA_TEACHER_PRICE_ID,
+      livemode: false,
+      active: true,
+      lookupKey: dimension.priceLookupKey,
+      nickname: dimension.priceNickname,
+      currency: "usd",
+      billingScheme: "per_unit",
+      type: "recurring",
+      productId: dimension.productId,
+      unitAmountCents: dimension.unitAmountCents,
+      unitAmountDecimalCents: String(dimension.unitAmountCents),
+      currencyOptions: {
+        usd: {
+          unitAmountCents: dimension.unitAmountCents,
+          unitAmountDecimalCents: String(dimension.unitAmountCents),
         },
-        taxBehavior: "unspecified",
-        customUnitAmount: null,
-        tiersMode: null,
-        transformQuantity: null,
-        metadata: { ...dimension.metadata },
-      });
-      this.products.set(dimension.productId, {
-        id: dimension.productId,
-        livemode: false,
-        active: true,
-        name: dimension.productName,
-        description: dimension.productDescription,
-        unitLabel: dimension.productUnitLabel,
-        type: "service",
-        metadata: { ...dimension.metadata },
-      });
-      this.meters.set(meterId, {
-        id: meterId,
-        livemode: false,
-        status: "active",
-        displayName: dimension.meterDisplayName,
-        eventName: dimension.meterEventName,
-        aggregationFormula: "sum",
-        customerMappingType: "by_id",
-        customerPayloadKey: "stripe_customer_id",
-        valuePayloadKey: "value",
-        eventTimeWindow: null,
-      });
-    }
+      },
+      recurring: {
+        interval: "month",
+        intervalCount: 1,
+        usageType: "licensed",
+        meterId: null,
+        trialPeriodDays: null,
+      },
+      taxBehavior: "unspecified",
+      customUnitAmount: null,
+      tiersMode: null,
+      transformQuantity: null,
+      metadata: { ...dimension.metadata },
+    });
+    this.products.set(dimension.productId, {
+      id: dimension.productId,
+      livemode: false,
+      active: true,
+      name: dimension.productName,
+      description: dimension.productDescription,
+      unitLabel: dimension.productUnitLabel,
+      type: "service",
+      metadata: { ...dimension.metadata },
+    });
   }
 
   async retrieveAccountId() {
@@ -112,13 +93,6 @@ class FakeReadClient implements StripeCatalogReadClient {
     if (!value) throw new Error(`missing ${id}`);
     return value;
   }
-
-  async retrieveMeter(id: string) {
-    this.reads += 1;
-    const value = this.meters.get(id);
-    if (!value) throw new Error(`missing ${id}`);
-    return value;
-  }
 }
 
 beforeEach(() => {
@@ -126,105 +100,132 @@ beforeEach(() => {
   clearStripeCatalogValidationCacheForTests();
 });
 
-describe("configured Stripe catalog validation", () => {
-  it("validates the exact current catalog and caches only successful reads briefly", async () => {
+describe("configured fixed Stripe catalog validation", () => {
+  it("validates one exact licensed Price and caches only successful reads", async () => {
     const client = new FakeReadClient();
     const first = await assertConfiguredStripeCatalog(config, { client, now: () => 1_000 });
+
     expect(first).toMatchObject({
       valid: true,
       cached: false,
       keyMode: "test",
-      priceBookId: STRIPE_CATALOG_MANIFEST.priceBookId,
+      priceBookId: "tryhabla-teacher-usd-v3",
       fingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+      dimensions: ["teacher"],
     });
-    expect(client.reads).toBe(7);
+    expect(client.reads).toBe(3);
 
     const second = await assertConfiguredStripeCatalog(config, { client, now: () => 2_000 });
     expect(second.cached).toBe(true);
-    expect(client.reads).toBe(7);
+    expect(client.reads).toBe(3);
+
+    clearStripeAccountValidationCacheForTests();
+    clearStripeCatalogValidationCacheForTests();
+    const singleCurrencyClient = new FakeReadClient();
+    const singleCurrencyPrice = singleCurrencyClient.prices.get(
+      ENV.STRIPE_TRYHABLA_TEACHER_PRICE_ID,
+    )!;
+    singleCurrencyClient.prices.set(singleCurrencyPrice.id, {
+      ...singleCurrencyPrice,
+      currencyOptions: null,
+    });
+    await expect(
+      assertConfiguredStripeCatalog(config, {
+        client: singleCurrencyClient,
+        cache: false,
+      }),
+    ).resolves.toMatchObject({ valid: true });
   });
 
-  it("rejects exact rate and fingerprint drift with safe codes and messages", async () => {
-    const rateClient = new FakeReadClient();
-    const ratePrice = rateClient.prices.get(ENV.STRIPE_AI_GRADE_PRICE_ID)!;
-    rateClient.prices.set(ratePrice.id, { ...ratePrice, unitAmountDecimalCents: "6" });
+  it("rejects amount and catalog-fingerprint drift with safe error codes", async () => {
+    const amountClient = new FakeReadClient();
+    const price = amountClient.prices.get(ENV.STRIPE_TRYHABLA_TEACHER_PRICE_ID)!;
+    amountClient.prices.set(price.id, {
+      ...price,
+      unitAmountCents: 4_900,
+      unitAmountDecimalCents: "4900",
+    });
     await expect(
-      assertConfiguredStripeCatalog(config, { client: rateClient, cache: false }),
-    ).rejects.toMatchObject({ code: "catalog_price_rate_mismatch" });
+      assertConfiguredStripeCatalog(config, { client: amountClient, cache: false }),
+    ).rejects.toMatchObject({ code: "catalog_price_rate_mismatch", field: "rate" });
 
     const fingerprintClient = new FakeReadClient();
-    const fingerprintPrice = fingerprintClient.prices.get(ENV.STRIPE_AI_GRADE_PRICE_ID)!;
+    const fingerprintPrice = fingerprintClient.prices.get(
+      ENV.STRIPE_TRYHABLA_TEACHER_PRICE_ID,
+    )!;
     fingerprintClient.prices.set(fingerprintPrice.id, {
       ...fingerprintPrice,
       metadata: { ...fingerprintPrice.metadata, catalog_fingerprint: "wrong" },
     });
-    const failure = await assertConfiguredStripeCatalog(config, {
-      client: fingerprintClient,
-      cache: false,
-    }).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(StripeCatalogValidationError);
-    expect(failure).toMatchObject({ code: "catalog_fingerprint_mismatch" });
-    expect((failure as Error).message).not.toContain(ENV.STRIPE_AI_GRADE_PRICE_ID);
+    await expect(
+      assertConfiguredStripeCatalog(config, { client: fingerprintClient, cache: false }),
+    ).rejects.toMatchObject({ code: "catalog_fingerprint_mismatch" });
   });
 
-  it("requires expanded USD-only currency options and rejects alternate currencies", async () => {
-    const unexpandedClient = new FakeReadClient();
-    const unexpanded = unexpandedClient.prices.get(ENV.STRIPE_AI_GRADE_PRICE_ID)!;
-    unexpandedClient.prices.set(unexpanded.id, { ...unexpanded, currencyOptions: null });
-    await expect(
-      assertConfiguredStripeCatalog(config, { client: unexpandedClient, cache: false }),
-    ).rejects.toMatchObject({ code: "catalog_price_currency_mismatch" });
+  it("rejects metered, trial, alternate-currency, and wrong-mode Prices", async () => {
+    const mutations: Array<
+      (price: StripeCatalogReadPrice) => StripeCatalogReadPrice
+    > = [
+      (price) => ({
+        ...price,
+        recurring: { ...price.recurring!, usageType: "metered", meterId: "mtr_retired" },
+      }),
+      (price) => ({
+        ...price,
+        recurring: { ...price.recurring!, trialPeriodDays: 14 },
+      }),
+      (price) => ({
+        ...price,
+        currencyOptions: {
+          ...price.currencyOptions,
+          eur: { unitAmountCents: 2_000, unitAmountDecimalCents: "2000" },
+        },
+      }),
+      (price) => ({ ...price, livemode: true }),
+    ];
 
-    const alternateClient = new FakeReadClient();
-    const alternate = alternateClient.prices.get(ENV.STRIPE_AI_GRADE_PRICE_ID)!;
-    alternateClient.prices.set(alternate.id, {
-      ...alternate,
-      currencyOptions: {
-        eur: { unitAmountDecimalCents: alternate.unitAmountDecimalCents },
-      },
-    });
-    await expect(
-      assertConfiguredStripeCatalog(config, { client: alternateClient, cache: false }),
-    ).rejects.toMatchObject({ code: "catalog_price_currency_mismatch" });
+    const codes = [
+      "catalog_price_contract_mismatch",
+      "catalog_price_contract_mismatch",
+      "catalog_price_currency_mismatch",
+      "catalog_price_mode_mismatch",
+    ];
 
-    const wrongUsdClient = new FakeReadClient();
-    const wrongUsd = wrongUsdClient.prices.get(ENV.STRIPE_AI_GRADE_PRICE_ID)!;
-    wrongUsdClient.prices.set(wrongUsd.id, {
-      ...wrongUsd,
-      currencyOptions: { usd: { unitAmountDecimalCents: "999" } },
-    });
-    await expect(
-      assertConfiguredStripeCatalog(config, { client: wrongUsdClient, cache: false }),
-    ).rejects.toMatchObject({ code: "catalog_price_rate_mismatch" });
+    for (const [index, mutate] of mutations.entries()) {
+      const client = new FakeReadClient();
+      const current = client.prices.get(ENV.STRIPE_TRYHABLA_TEACHER_PRICE_ID)!;
+      client.prices.set(current.id, mutate(current));
+      await expect(
+        assertConfiguredStripeCatalog(config, { client, cache: false }),
+      ).rejects.toMatchObject({ code: codes[index] });
+    }
   });
 
-  it("rejects mode, product, and meter contract drift", async () => {
-    const modeClient = new FakeReadClient();
-    const price = modeClient.prices.get(ENV.STRIPE_AI_GRADE_PRICE_ID)!;
-    modeClient.prices.set(price.id, { ...price, livemode: true });
+  it("rejects Product presentation or metadata drift", async () => {
+    const presentationClient = new FakeReadClient();
+    const product = presentationClient.products.get(dimension.productId)!;
+    presentationClient.products.set(product.id, { ...product, name: "TryHabla Teacher" });
     await expect(
-      assertConfiguredStripeCatalog(config, { client: modeClient, cache: false }),
-    ).rejects.toMatchObject({ code: "catalog_price_mode_mismatch" });
-
-    const productClient = new FakeReadClient();
-    const dimension = STRIPE_CATALOG_MANIFEST.dimensions[0];
-    const product = productClient.products.get(dimension.productId)!;
-    productClient.products.set(product.id, { ...product, active: false });
-    await expect(
-      assertConfiguredStripeCatalog(config, { client: productClient, cache: false }),
+      assertConfiguredStripeCatalog(config, {
+        client: presentationClient,
+        cache: false,
+      }),
     ).rejects.toMatchObject({ code: "catalog_product_contract_mismatch" });
 
-    const meterClient = new FakeReadClient();
-    const meter = meterClient.meters.get(`mtr_${dimension.key}`)!;
-    meterClient.meters.set(meter.id, { ...meter, aggregationFormula: "count" });
+    const metadataClient = new FakeReadClient();
+    const metadataProduct = metadataClient.products.get(dimension.productId)!;
+    metadataClient.products.set(metadataProduct.id, {
+      ...metadataProduct,
+      metadata: { ...metadataProduct.metadata, unexpected: "drift" },
+    });
     await expect(
-      assertConfiguredStripeCatalog(config, { client: meterClient, cache: false }),
-    ).rejects.toMatchObject({ code: "catalog_meter_contract_mismatch" });
+      assertConfiguredStripeCatalog(config, { client: metadataClient, cache: false }),
+    ).rejects.toMatchObject({ code: "catalog_product_metadata_mismatch" });
   });
 
-  it("rejects a credential from any account other than the pinned Stripe account", async () => {
+  it("verifies account identity before reading catalog objects", async () => {
     const client = new FakeReadClient();
-    client.accountId = "acct_foreign";
+    client.accountId = "acct_wrong";
 
     await expect(
       assertConfiguredStripeCatalog(config, { client, cache: false }),
@@ -232,32 +233,47 @@ describe("configured Stripe catalog validation", () => {
     expect(client.reads).toBe(1);
   });
 
-  it("wraps remote failures without leaking resource IDs and never caches them", async () => {
+  it("rejects a non-v3 manifest before any remote read", async () => {
     const client = new FakeReadClient();
-    client.prices.delete(ENV.STRIPE_AI_GRADE_PRICE_ID);
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const failure = await assertConfiguredStripeCatalog(config, { client }).catch(
-        (error: unknown) => error,
-      );
-      expect(failure).toMatchObject({ code: "catalog_price_read_failed" });
-      expect((failure as Error).message).not.toContain(ENV.STRIPE_AI_GRADE_PRICE_ID);
-    }
-    expect(client.reads).toBeGreaterThanOrEqual(4);
+    const invalidManifest = {
+      ...STRIPE_CATALOG_MANIFEST,
+      schemaVersion: 1,
+    } as unknown as typeof STRIPE_CATALOG_MANIFEST;
+
+    await expect(
+      assertConfiguredStripeCatalog(config, {
+        client,
+        manifest: invalidManifest,
+        cache: false,
+      }),
+    ).rejects.toMatchObject({ code: "catalog_manifest_invalid" });
+    expect(client.reads).toBe(0);
   });
 
-  it("reports usage runtime readiness only after local and remote validation", async () => {
-    await expect(isStripeUsageRuntimeReady(ENV, { client: new FakeReadClient() })).resolves.toBe(
+  it("masks configured IDs when remote reads fail", async () => {
+    const client = new FakeReadClient();
+    client.prices.delete(ENV.STRIPE_TRYHABLA_TEACHER_PRICE_ID);
+
+    const failure = await assertConfiguredStripeCatalog(config, {
+      client,
+      cache: false,
+    }).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "catalog_price_read_failed" });
+    expect((failure as Error).message).not.toContain(
+      ENV.STRIPE_TRYHABLA_TEACHER_PRICE_ID,
+    );
+  });
+
+  it("reports only the licensed subscription runtime ready", async () => {
+    expect(await isStripeSubscriptionRuntimeReady(ENV, { client: new FakeReadClient() })).toBe(
       true,
     );
-    await expect(
-      isStripeUsageRuntimeReady({ ...ENV, STRIPE_USAGE_BILLING_ENABLED: "false" }, {
-        client: new FakeReadClient(),
-      }),
-    ).resolves.toBe(false);
+    expect(await isStripeUsageRuntimeReady(ENV, { client: new FakeReadClient() })).toBe(false);
+
     const broken = new FakeReadClient();
-    broken.prices.delete(ENV.STRIPE_AI_GRADE_PRICE_ID);
-    await expect(isStripeUsageRuntimeReady(ENV, { client: broken, cache: false })).resolves.toBe(
-      false,
-    );
+    broken.prices.delete(ENV.STRIPE_TRYHABLA_TEACHER_PRICE_ID);
+    expect(
+      await isStripeSubscriptionRuntimeReady(ENV, { client: broken, cache: false }),
+    ).toBe(false);
   });
 });

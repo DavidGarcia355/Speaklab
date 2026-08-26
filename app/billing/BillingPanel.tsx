@@ -19,13 +19,6 @@ const BILLING_SUPPORT_URL =
 const CONFIRMATION_POLL_INTERVAL_MS = 1_500;
 const MAX_CONFIRMATION_POLLS = 10;
 
-const usd = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
 function formatPeriodEnd(timestamp: number | null) {
   if (!timestamp) return "";
   return new Date(timestamp).toLocaleDateString(undefined, {
@@ -37,7 +30,7 @@ function formatPeriodEnd(timestamp: number | null) {
 
 function billingBadge(status: BillingStatus) {
   if (status.mode === "test") return "Stripe test mode";
-  if (status.runtimeAvailable) return "Habla teacher billing";
+  if (status.runtimeAvailable) return "TryHabla Teacher billing";
   if (status.clientConfigured) return "Stripe controls limited";
   return "Habla AI access";
 }
@@ -203,8 +196,20 @@ export default function BillingPanel() {
   }
 
   const presentation = deriveBillingPresentation(status, checkoutReturn);
-  const hasAccess = presentation.subscribed || status.access === "pilot";
+  const hasAccess =
+    presentation.subscribed ||
+    status.access === "pilot" ||
+    (status.usage.allowanceKind !== "subscription_unavailable" &&
+      status.usage.remainingReviews > 0);
   const periodEnd = presentation.subscribed ? formatPeriodEnd(status.periodEnd) : "";
+  const allowanceLabel =
+    status.usage.allowanceKind === "teacher_period"
+      ? "Teacher / current Stripe period"
+      : status.usage.allowanceKind === "manual_lifetime"
+        ? "Founder-managed pilot / lifetime"
+        : status.usage.allowanceKind === "free_lifetime"
+          ? "Free / lifetime"
+          : "Billing verification required";
   const portalButton = presentation.showPortal ? (
     <button
       className={`btn ${presentation.portalIsPrimary ? "btn-primary" : "btn-ghost"}`}
@@ -242,17 +247,16 @@ export default function BillingPanel() {
           </div>
         </div>
 
-        <div className="billing-plan-terms" aria-label="Published Stripe AI plan terms">
-          <strong>Published Stripe AI plan</strong>
+        <div className="billing-plan-terms" aria-label="TryHabla Teacher plan terms">
+          <strong>Teacher</strong>
           <p>
-            $0.05 per successful unique AI grade plus $0.01 per processed audio minute, billed
-            monthly in arrears. Audio is measured per result and rounded up to the next whole second.
-            Each distinct recording is a separate result; exact retries of the same recording and
-            assignment are deduplicated. AI feedback is included. Each UTC month includes one fewer
-            free whole-result credit than your first 30 qualifying active classes (29 credits
-            maximum); credits do not roll over. Habla does not add or collect tax through this plan
-            in the current release. You can cancel through Manage billing, where Stripe shows the
-            effective date before confirmation.
+            $20 per month includes 300 successful AI reviews in each Stripe billing period.
+            Recordings can be up to five minutes. A review is used only when TryHabla delivers a
+            usable AI result; failures, unable-to-grade results, and exact retries do not use
+            another review. Unused reviews do not roll over, and there are no automatic overages.
+            Reaching the limit pauses AI while recording, playback, and manual grading remain
+            available. You can cancel through Manage billing, where Stripe shows the effective date
+            before confirmation.
           </p>
         </div>
 
@@ -267,7 +271,7 @@ export default function BillingPanel() {
               disabled={Boolean(action)}
               onClick={() => void openStripe("checkout")}
             >
-              {action === "checkout" ? "Opening checkout…" : "Activate AI billing"}
+              {action === "checkout" ? "Opening checkout…" : "Choose Teacher - $20/month"}
               <ArrowRight size={17} aria-hidden="true" />
             </button>
           ) : null}
@@ -308,44 +312,34 @@ export default function BillingPanel() {
         ) : null}
       </div>
 
-      <aside className="billing-usage-card" aria-label="Current UTC-month AI usage estimate">
-        <span>Current UTC month</span>
-        <strong>{usd.format(status.usage.estimatedChargeUsd)}</strong>
+      <aside className="billing-usage-card" aria-label="Current AI review usage">
+        <span>AI reviews remaining</span>
+        <strong>{status.usage.remainingReviews.toLocaleString()}</strong>
         <small>
-          {status.access === "active"
-            ? "estimated usage at published rates — not a Stripe invoice"
-            : "estimated value at published rates — not an amount due"}
+          {status.usage.allowanceKind === "subscription_unavailable"
+            ? "Refresh billing or contact support before another AI review."
+            : `of ${status.usage.limit.toLocaleString()} in your ${allowanceLabel.toLowerCase()} allowance`}
         </small>
         <dl>
           <div>
-            <dt>Successful grades</dt>
-            <dd>{status.usage.successfulGrades.toLocaleString()}</dd>
+            <dt>Allowance</dt>
+            <dd>{allowanceLabel}</dd>
           </div>
           <div>
-            <dt>Audio</dt>
-            <dd>
-              {status.usage.audioSeconds.toLocaleString()} sec
-              {status.usage.audioSeconds > 0
-                ? ` (${(status.usage.audioSeconds / 60).toLocaleString(undefined, {
-                    maximumFractionDigits: 2,
-                  })} min)`
-                : ""}
-            </dd>
+            <dt>Successful reviews used</dt>
+            <dd>{status.usage.consumedReviews.toLocaleString()}</dd>
           </div>
           <div>
-            <dt>AI feedback</dt>
-            <dd>Included</dd>
+            <dt>Reviews in progress</dt>
+            <dd>{status.usage.reservedReviews.toLocaleString()}</dd>
           </div>
           <div>
-            <dt>{presentation.subscribed ? "Included credits" : "Published-rate credits"}</dt>
-            <dd>
-              {status.usage.freeCreditsUsed}/{status.usage.monthlyFreeCredits}
-            </dd>
+            <dt>Automatic overages</dt>
+            <dd>None</dd>
           </div>
         </dl>
         <p className="billing-usage-caveat">
-          Habla shows a UTC-calendar-month estimate. Your Stripe invoice period can use different
-          dates; Manage billing is the source for invoices and amounts due.
+          Need more AI reviews? Ask your school about a TryHabla School Pilot.
         </p>
       </aside>
     </section>

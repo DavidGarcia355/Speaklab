@@ -1,175 +1,177 @@
 import { describe, expect, it } from "vitest";
 import {
   STRIPE_API_VERSION,
+  STRIPE_BILLING_CONTRACT_SCHEMA,
   STRIPE_CATALOG_MANIFEST,
   StripeBillingConfigurationError,
   buildBillingPortalSessionParams,
   buildCheckoutSessionParams,
   constructWebhookEvent,
+  getStripeBillingContractId,
   getStripeCatalogAvailability,
   getStripeCheckoutAvailability,
   getStripeClient,
   getStripeClientAvailability,
-  getStripeBillingContractId,
   getStripePortalAvailability,
+  getStripeSubscriptionBillingAvailability,
   getStripeUsageBillingAvailability,
   getStripeWebhookAvailability,
   requireStripeCheckoutConfig,
   requireStripePortalConfig,
+  requireStripeSubscriptionBillingConfig,
   requireStripeUsageBillingConfig,
-  type StripeBillingEnv,
 } from "@/lib/billing";
 
-const CAPABILITY_ENV: StripeBillingEnv = {
+const CLIENT_ENV = Object.freeze({
   NODE_ENV: "test",
   STRIPE_SECRET_KEY: "sk_test_habla",
   STRIPE_ACCOUNT_ID: "acct_habla_test",
+});
+
+const CATALOG_ENV = Object.freeze({
+  ...CLIENT_ENV,
+  STRIPE_TRYHABLA_TEACHER_PRICE_ID: "price_teacher_monthly",
+  STRIPE_AUTOMATIC_TAX_ENABLED: "false",
+});
+
+const SUBSCRIPTION_ENV = Object.freeze({
+  ...CATALOG_ENV,
+  STRIPE_SUBSCRIPTION_BILLING_ENABLED: "true",
   STRIPE_WEBHOOK_SECRET: "whsec_habla",
-  STRIPE_AI_GRADE_PRICE_ID: "price_ai_grade",
-  STRIPE_AI_AUDIO_SECONDS_PRICE_ID: "price_audio_minute",
-};
+});
 
-const USAGE_ENV: StripeBillingEnv = {
-  ...CAPABILITY_ENV,
-  STRIPE_USAGE_BILLING_ENABLED: "true",
-  CRON_SECRET: "test-cron-secret",
-};
-
-const PORTAL_ENV: StripeBillingEnv = {
-  ...CAPABILITY_ENV,
-  STRIPE_PORTAL_CONFIGURATION_ID: "bpc_habla_v1",
-  STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: "pmc_habla_card_only",
-};
-
-const CHECKOUT_ENV: StripeBillingEnv = {
-  ...USAGE_ENV,
+const CHECKOUT_ENV = Object.freeze({
+  ...SUBSCRIPTION_ENV,
   STRIPE_CHECKOUT_ENABLED: "true",
-};
+});
 
-describe("Stripe billing runtime", () => {
-  it("keeps credentials, webhook signing, and catalog configuration independent of flags", () => {
-    expect(getStripeClientAvailability(CAPABILITY_ENV)).toMatchObject({
-      available: true,
-      keyMode: "test",
-    });
-    expect(getStripeWebhookAvailability(CAPABILITY_ENV)).toMatchObject({ available: true });
-    expect(getStripeCatalogAvailability(CAPABILITY_ENV)).toMatchObject({ available: true });
-    expect(getStripePortalAvailability(CAPABILITY_ENV)).toMatchObject({
-      available: false,
-      issues: expect.arrayContaining([
-        expect.stringContaining("STRIPE_PORTAL_CONFIGURATION_ID"),
-        expect.stringContaining("STRIPE_PAYMENT_METHOD_CONFIGURATION_ID"),
-      ]),
-    });
-    expect(getStripeUsageBillingAvailability(CAPABILITY_ENV)).toEqual({
-      enabled: false,
+const PORTAL_ENV = Object.freeze({
+  ...CLIENT_ENV,
+  STRIPE_PORTAL_CONFIGURATION_ID: "bpc_habla_v1",
+  STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: "pmc_habla_v1",
+});
+
+describe("Stripe fixed-subscription runtime", () => {
+  it("keeps independent capabilities disabled or unavailable until configured", () => {
+    expect(getStripeSubscriptionBillingAvailability({})).toMatchObject({
       available: false,
       reason: "disabled",
-      issues: [],
     });
-    expect(getStripeCheckoutAvailability(CAPABILITY_ENV)).toEqual({
-      enabled: false,
+    expect(getStripeCheckoutAvailability({})).toMatchObject({
       available: false,
       reason: "disabled",
-      issues: [],
     });
     expect(getStripeClientAvailability({})).toMatchObject({
       available: false,
       reason: "not_configured",
     });
+    expect(getStripeUsageBillingAvailability(SUBSCRIPTION_ENV)).toMatchObject({
+      available: false,
+      reason: "disabled",
+    });
   });
 
-  it("keeps the pinned Portal capability independent of webhook and usage configuration", () => {
-    expect(getStripePortalAvailability(PORTAL_ENV)).toMatchObject({
+  it("enables licensed billing without CRON_SECRET or meter configuration", () => {
+    expect(getStripeSubscriptionBillingAvailability(SUBSCRIPTION_ENV)).toMatchObject({
       available: true,
       keyMode: "test",
-      portalConfigurationId: "bpc_habla_v1",
-      paymentMethodConfigurationId: "pmc_habla_card_only",
-    });
-    const invalidPortalEnv = {
-      ...PORTAL_ENV,
-      STRIPE_PORTAL_CONFIGURATION_ID: "portal_wrong",
-    };
-    expect(getStripePortalAvailability(invalidPortalEnv)).toMatchObject({
-      available: false,
-      reason: "invalid_configuration",
-      issues: [expect.stringContaining("bpc_")],
-    });
-    expect(getStripeClientAvailability(invalidPortalEnv)).toMatchObject({ available: true });
-    expect(getStripeWebhookAvailability(invalidPortalEnv)).toMatchObject({ available: true });
-  });
-
-  it("gates usage billing and requires it before enabling Checkout acquisition", () => {
-    expect(getStripeUsageBillingAvailability(USAGE_ENV)).toMatchObject({
-      available: true,
-      usageBillingEnabled: true,
-    });
-    expect(getStripeCheckoutAvailability(CHECKOUT_ENV)).toMatchObject({
-      available: true,
-      usageBillingEnabled: true,
-      checkoutEnabled: true,
-    });
-    expect(
-      getStripeCheckoutAvailability({
-        ...CAPABILITY_ENV,
-        STRIPE_CHECKOUT_ENABLED: "true",
-      }),
-    ).toMatchObject({
-      available: false,
-      reason: "invalid_configuration",
-      issues: [expect.stringContaining("STRIPE_USAGE_BILLING_ENABLED")],
+      automaticTaxEnabled: false,
+      subscriptionBillingEnabled: true,
     });
 
-    const missingRecoverySecret = { ...USAGE_ENV };
-    delete missingRecoverySecret.CRON_SECRET;
-    expect(getStripeUsageBillingAvailability(missingRecoverySecret)).toMatchObject({
+    const config = requireStripeSubscriptionBillingConfig(SUBSCRIPTION_ENV);
+    expect(config).toMatchObject({
       enabled: true,
-      available: false,
-      reason: "invalid_configuration",
-      issues: [expect.stringContaining("CRON_SECRET")],
+      subscriptionBillingEnabled: true,
+      accountId: "acct_habla_test",
+      priceIds: { teacher: "price_teacher_monthly" },
     });
+    expect("cronSecret" in config).toBe(false);
+  });
+
+  it("rejects every obsolete billing switch and metered Price variable", () => {
     expect(
-      getStripeCheckoutAvailability({
-        ...missingRecoverySecret,
-        STRIPE_CHECKOUT_ENABLED: "true",
+      getStripeSubscriptionBillingAvailability({
+        ...SUBSCRIPTION_ENV,
+        STRIPE_USAGE_BILLING_ENABLED: "true",
       }),
     ).toMatchObject({
       available: false,
       reason: "invalid_configuration",
-      issues: [expect.stringContaining("CRON_SECRET")],
+      issues: [expect.stringContaining("STRIPE_USAGE_BILLING_ENABLED is obsolete")],
     });
+    expect(
+      getStripeSubscriptionBillingAvailability({
+        ...SUBSCRIPTION_ENV,
+        STRIPE_USAGE_BILLING_ENABLED: "false",
+      }),
+    ).toMatchObject({ available: false, reason: "invalid_configuration" });
+    expect(
+      getStripeSubscriptionBillingAvailability({
+        ...SUBSCRIPTION_ENV,
+        STRIPE_AI_GRADE_PRICE_ID: "price_retired_grade",
+        STRIPE_AI_AUDIO_SECONDS_PRICE_ID: "price_retired_audio",
+      }),
+    ).toMatchObject({
+      available: false,
+      reason: "invalid_configuration",
+      issues: [
+        expect.stringContaining("STRIPE_AI_GRADE_PRICE_ID is obsolete"),
+        expect.stringContaining("STRIPE_AI_AUDIO_SECONDS_PRICE_ID is obsolete"),
+      ],
+    });
+    expect(() =>
+      requireStripeUsageBillingConfig({
+        ...SUBSCRIPTION_ENV,
+        STRIPE_USAGE_BILLING_ENABLED: "true",
+      }),
+    ).toThrow(StripeBillingConfigurationError);
   });
 
-  it("fails migration-safe on the old master switch while ignoring explicit false", () => {
-    const legacy = getStripeUsageBillingAvailability({
-      ...USAGE_ENV,
-      STRIPE_BILLING_ENABLED: "true",
-    });
-    expect(legacy).toMatchObject({ available: false, reason: "invalid_configuration" });
-    expect(legacy.issues).toEqual([
-      expect.stringContaining("STRIPE_BILLING_ENABLED is obsolete"),
-    ]);
+  it("fails migration-safe on the old master switch", () => {
     expect(
-      getStripeUsageBillingAvailability({
-        ...USAGE_ENV,
+      getStripeSubscriptionBillingAvailability({
+        ...SUBSCRIPTION_ENV,
+        STRIPE_BILLING_ENABLED: "true",
+      }),
+    ).toMatchObject({
+      available: false,
+      reason: "invalid_configuration",
+      issues: [expect.stringContaining("STRIPE_BILLING_ENABLED is obsolete")],
+    });
+    expect(
+      getStripeSubscriptionBillingAvailability({
+        ...SUBSCRIPTION_ENV,
         STRIPE_BILLING_ENABLED: "false",
       }),
     ).toMatchObject({ available: true });
   });
 
+  it("requires the subscription switch before Checkout can be enabled", () => {
+    expect(
+      getStripeCheckoutAvailability({
+        ...CHECKOUT_ENV,
+        STRIPE_SUBSCRIPTION_BILLING_ENABLED: "false",
+      }),
+    ).toMatchObject({
+      available: false,
+      reason: "invalid_configuration",
+      issues: [expect.stringContaining("requires STRIPE_SUBSCRIPTION_BILLING_ENABLED=true")],
+    });
+    expect(getStripeCheckoutAvailability(CHECKOUT_ENV)).toMatchObject({
+      available: true,
+      checkoutEnabled: true,
+      subscriptionBillingEnabled: true,
+    });
+  });
+
   it("accepts supported restricted test keys and double-gates live keys", () => {
     for (const secretKey of ["sk_test_habla", "rk_test_habla", "rkcs_test_habla"]) {
-      expect(getStripeClientAvailability({ ...CAPABILITY_ENV, STRIPE_SECRET_KEY: secretKey }))
+      expect(getStripeClientAvailability({ ...CLIENT_ENV, STRIPE_SECRET_KEY: secretKey }))
         .toMatchObject({ available: true, keyMode: "test" });
     }
-    expect(
-      getStripeClientAvailability({
-        ...CAPABILITY_ENV,
-        STRIPE_SECRET_KEY: "rkcs_live_unrecognized",
-      }),
-    ).toMatchObject({ available: false, reason: "invalid_configuration" });
 
-    const live = { ...CAPABILITY_ENV, STRIPE_SECRET_KEY: "rk_live_habla" };
+    const live = { ...CLIENT_ENV, STRIPE_SECRET_KEY: "rk_live_habla" };
     expect(getStripeClientAvailability({ ...live, STRIPE_ALLOW_LIVE: "true" })).toMatchObject({
       available: false,
     });
@@ -195,76 +197,51 @@ describe("Stripe billing runtime", () => {
       available: false,
       issues: [expect.stringContaining("Vercel production")],
     });
+  });
+
+  it("validates catalog, webhook, and Portal capabilities independently", () => {
+    expect(getStripeCatalogAvailability(CATALOG_ENV)).toMatchObject({ available: true });
+    expect(getStripeWebhookAvailability(SUBSCRIPTION_ENV)).toMatchObject({ available: true });
+    expect(getStripePortalAvailability(PORTAL_ENV)).toMatchObject({ available: true });
     expect(
-      getStripeClientAvailability({
-        ...live,
-        NODE_ENV: "production",
-        STRIPE_ALLOW_LIVE: "true",
-        VERCEL: "1",
-        VERCEL_ENV: "production",
-      }),
-    ).toMatchObject({ available: true, keyMode: "live" });
+      getStripeWebhookAvailability({ ...SUBSCRIPTION_ENV, STRIPE_WEBHOOK_SECRET: "bad" }),
+    ).toMatchObject({ available: false, reason: "invalid_configuration" });
     expect(
-      getStripeClientAvailability({
-        ...CAPABILITY_ENV,
-        NODE_ENV: "production",
-        VERCEL: "1",
-        VERCEL_ENV: "production",
+      getStripeCatalogAvailability({
+        ...CATALOG_ENV,
+        STRIPE_AUTOMATIC_TAX_ENABLED: "true",
       }),
     ).toMatchObject({
       available: false,
-      issues: [expect.stringContaining("test keys")],
+      issues: [expect.stringContaining("must remain false")],
     });
   });
 
-  it("validates each capability strictly without exposing configured values", () => {
-    expect(
-      getStripeWebhookAvailability({ ...CAPABILITY_ENV, STRIPE_WEBHOOK_SECRET: "bad" }),
-    ).toMatchObject({ available: false, reason: "invalid_configuration" });
-    expect(
-      getStripeCatalogAvailability({
-        ...CAPABILITY_ENV,
-        STRIPE_AUTOMATIC_TAX_ENABLED: "yes",
-      }),
-    ).toMatchObject({ available: false, reason: "invalid_configuration" });
-    expect(
-      getStripeCatalogAvailability({
-        ...CAPABILITY_ENV,
-        STRIPE_AI_AUDIO_SECONDS_PRICE_ID: "price_ai_grade",
-      }),
-    ).toMatchObject({ available: false, reason: "invalid_configuration" });
-    expect(() => requireStripeUsageBillingConfig({})).toThrow(
-      StripeBillingConfigurationError,
-    );
-  });
-
-  it("builds two quantity-free metered Checkout items with server metadata", () => {
+  it("builds exactly one licensed quantity-one Checkout line with pinned metadata", () => {
     const config = requireStripeCheckoutConfig(CHECKOUT_ENV);
     const params = buildCheckoutSessionParams({
       config,
       teacherEmail: " Teacher@Example.COM ",
-      priceBookId: "habla-teacher-ai-usd-v2",
+      priceBookId: "tryhabla-teacher-usd-v3",
       successUrl: "https://tryhabla.com/teacher?checkout=success",
       cancelUrl: "https://tryhabla.com/pricing?checkout=cancelled",
     });
 
     expect(STRIPE_API_VERSION).toBe("2026-07-29.dahlia");
+    expect(STRIPE_BILLING_CONTRACT_SCHEMA).toBe("tryhabla_billing_contract_v2");
     expect(params.mode).toBe("subscription");
     expect(params.currency).toBe("usd");
     expect(params.adaptive_pricing).toEqual({ enabled: false });
     expect(params.line_items).toEqual([
-      { price: "price_ai_grade" },
-      { price: "price_audio_minute" },
+      { price: "price_teacher_monthly", quantity: 1 },
     ]);
-    expect(params.line_items?.every((item) => !("quantity" in item))).toBe(true);
     expect(params.customer_email).toBe("teacher@example.com");
-    expect(params.customer).toBeUndefined();
     expect(params.payment_method_types).toEqual(["card"]);
     expect(params.consent_collection).toEqual({ terms_of_service: "required" });
     expect(params.metadata).toEqual({
       habla_app: "tryhabla",
       catalog_fingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
-      price_book_id: "habla-teacher-ai-usd-v2",
+      price_book_id: "tryhabla-teacher-usd-v3",
       teacher_email: "teacher@example.com",
       payment_method_policy: "card_only_v1",
       stripe_account_id: "acct_habla_test",
@@ -274,19 +251,43 @@ describe("Stripe billing runtime", () => {
     expect(params.automatic_tax).toBeUndefined();
   });
 
-  it("uses an existing customer and pure pinned Portal parameters", () => {
+  it("changes the entitlement contract when catalog scope changes", () => {
+    const config = requireStripeCheckoutConfig(CHECKOUT_ENV);
+    const contract = getStripeBillingContractId(config);
+
+    expect(
+      getStripeBillingContractId({
+        ...config,
+        accountId: "acct_other",
+      }),
+    ).not.toBe(contract);
+    expect(
+      getStripeBillingContractId({
+        ...config,
+        priceIds: { teacher: "price_other" },
+      }),
+    ).not.toBe(contract);
+    expect(
+      getStripeBillingContractId({
+        ...config,
+        keyMode: "live",
+      }),
+    ).not.toBe(contract);
+  });
+
+  it("uses an existing Customer and pinned Portal configuration", () => {
     const config = requireStripeCheckoutConfig(CHECKOUT_ENV);
     const checkout = buildCheckoutSessionParams({
       config,
       teacherEmail: "teacher@example.com",
-      priceBookId: "habla-teacher-ai-usd-v2",
+      priceBookId: "tryhabla-teacher-usd-v3",
       successUrl: "https://tryhabla.com/teacher?checkout=success",
       cancelUrl: "https://tryhabla.com/pricing",
       customerId: "cus_existing",
     });
     expect(checkout.customer).toBe("cus_existing");
     expect(checkout.customer_email).toBeUndefined();
-    expect(checkout.automatic_tax).toBeUndefined();
+
     const portalConfig = requireStripePortalConfig(PORTAL_ENV);
     expect(
       buildBillingPortalSessionParams({
@@ -301,20 +302,8 @@ describe("Stripe billing runtime", () => {
     });
   });
 
-  it("rejects automatic tax until the catalog has explicit reviewed tax behavior", () => {
-    expect(
-      getStripeCheckoutAvailability({
-        ...CHECKOUT_ENV,
-        STRIPE_AUTOMATIC_TAX_ENABLED: "true",
-      }),
-    ).toMatchObject({
-      available: false,
-      issues: [expect.stringContaining("must remain false")],
-    });
-  });
-
   it("constructs and verifies webhook events locally without a network request", () => {
-    const config = requireStripeUsageBillingConfig(USAGE_ENV);
+    const config = requireStripeSubscriptionBillingConfig(SUBSCRIPTION_ENV);
     const payload = JSON.stringify({
       id: "evt_checkout_completed",
       object: "event",

@@ -140,12 +140,12 @@ const FAQ_SECTIONS = [
       {
         question: "Is Habla free?",
         answer:
-          "Habla's core audio classroom is free during the current teacher pilot, including classes, rosters, speaking assignments, student recordings, teacher grading, feedback, and CSV export. Optional AI, district-wide use, and purchasing remain separate reviewed paths. Any future change will be shown before it applies.",
+          "Yes. Free includes classes, rosters, speaking assignments, student recordings, teacher grading, feedback, CSV export, and a lifetime allowance of 30 successful AI reviews per teacher account. After those 30 reviews, the non-AI classroom remains available at no charge.",
       },
       {
         question: "How does optional AI pricing work?",
         answer:
-          "Habla publishes an illustrative rate of 5 cents per successful grade plus 1 cent per audio minute, with feedback included. Under that model, the monthly allowance is one fewer AI grade than the number of qualifying active classes; failed attempts and duplicate delivery are excluded. This does not mean billing or AI access is currently available. Sign in to the billing page to see whether your account is explicitly offered a Stripe plan.",
+          "Teacher is $20 per month and includes 300 successful AI reviews in each Stripe billing period. Recordings can be up to five minutes. Failures, unable-to-grade results, and exact retries do not use another review. Unused reviews do not roll over, and there are no automatic overages; reaching the limit pauses AI while recording and manual grading remain available.",
       },
       {
         question: "Does AI save the grade automatically?",
@@ -160,7 +160,7 @@ const FAQ_SECTIONS = [
       {
         question: "What if my department or district needs a review?",
         answer:
-          "Contact us to request current privacy, retention, security, subprocessor, and DPA-review materials. Habla should not be described as district-approved until that district completes its own review.",
+          "Ask about a School Pilot. It is a founder-managed, manually provisioned teacher cohort with scope, onboarding, expected review volume, and pilot terms agreed directly with the school. It does not currently include a school admin console or imply district approval. Contact us for privacy, retention, security, subprocessor, and DPA-review materials.",
       },
     ],
   },

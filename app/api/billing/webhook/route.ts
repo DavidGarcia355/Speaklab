@@ -26,6 +26,7 @@ import {
   type StripeBillingAccountRow,
 } from "@/lib/db";
 import {
+  requireSubscriptionPeriodBoundsMs,
   requireStripeWebhookConfigForApi,
   stripeObjectId,
 } from "@/app/api/billing/_shared";
@@ -77,7 +78,7 @@ function checkoutTeacherEmail(session: Stripe.Checkout.Session) {
   return teacherEmail;
 }
 
-function assertConfiguredMeteredPrices(
+function assertConfiguredTeacherSubscription(
   subscription: Stripe.Subscription,
   config: StripeCatalogConfig,
 ) {
@@ -90,15 +91,14 @@ function assertConfiguredMeteredPrices(
   ) {
     throw new Error("Stripe subscription has unapproved manual tax rates.");
   }
-  const actualPriceIds = subscription.items.data.map((item) => item.price.id);
-  const expectedPriceIds = Object.values(config.priceIds);
+  const item = subscription.items.data[0];
   if (
     subscription.items.has_more === true ||
-    actualPriceIds.length !== expectedPriceIds.length ||
-    new Set(actualPriceIds).size !== expectedPriceIds.length ||
-    !expectedPriceIds.every((priceId) => actualPriceIds.includes(priceId))
+    subscription.items.data.length !== 1 ||
+    item?.price.id !== config.priceIds.teacher ||
+    item.quantity !== 1
   ) {
-    throw new Error("Stripe subscription does not match the configured AI meter catalog.");
+    throw new Error("Stripe subscription does not match the configured Teacher plan.");
   }
 }
 
@@ -156,7 +156,7 @@ async function assertSingleNonterminalHablaSubscription(input: {
   }
   assertCollectibleSubscription(listedRetrievedSubscription, input.config);
   assertHablaEntitlementMetadata(listedRetrievedSubscription, input.account);
-  assertConfiguredMeteredPrices(
+  assertConfiguredTeacherSubscription(
     listedRetrievedSubscription,
     requireStripeCatalogConfig(),
   );
@@ -292,6 +292,7 @@ async function writeCurrentEntitledProjection(input: {
   priceBookId: string;
   catalogFingerprint: string;
 }) {
+  const period = requireSubscriptionPeriodBoundsMs(input.subscription);
   const projected = await projectCurrentStripeEntitledSubscription({
     stripeCustomerId: input.account.stripeCustomerId,
     stripeSubscriptionId: input.subscription.id,
@@ -301,6 +302,8 @@ async function writeCurrentEntitledProjection(input: {
     stripeAccountId: input.account.stripeAccountId,
     billingContractId: input.account.billingContractId,
     livemode: input.account.livemode,
+    subscriptionPeriodStart: period.periodStart,
+    subscriptionPeriodEnd: period.periodEnd,
     observedEventCreated: input.eventCreated,
     expectedAccount: {
       stripeSubscriptionId: input.account.stripeSubscriptionId,
@@ -352,7 +355,7 @@ function signedSubscriptionViolatesLocalContract(input: {
   try {
     assertCollectibleSubscription(input.subscription, input.config);
     assertHablaEntitlementMetadata(input.subscription, input.account);
-    assertConfiguredMeteredPrices(input.subscription, requireStripeCatalogConfig());
+    assertConfiguredTeacherSubscription(input.subscription, requireStripeCatalogConfig());
     return false;
   } catch {
     return true;
@@ -393,6 +396,7 @@ async function writeTerminalCheckoutReplacement(input: {
   eventCreated: number;
   subscriptionStatus: string;
 }) {
+  const period = requireSubscriptionPeriodBoundsMs(input.subscription);
   const projected = await replaceTerminalStripeSubscriptionFromCheckout({
     stripeCustomerId: input.account.stripeCustomerId,
     stripeSubscriptionId: input.subscription.id,
@@ -402,6 +406,8 @@ async function writeTerminalCheckoutReplacement(input: {
     stripeAccountId: input.account.stripeAccountId,
     billingContractId: input.account.billingContractId,
     livemode: input.account.livemode,
+    subscriptionPeriodStart: period.periodStart,
+    subscriptionPeriodEnd: period.periodEnd,
     observedEventCreated: input.eventCreated,
     expectedAccount: {
       stripeSubscriptionId: input.account.stripeSubscriptionId,
@@ -461,7 +467,7 @@ async function projectSubscription(input: {
     assertCollectibleSubscription(input.subscription, input.config);
     assertHablaEntitlementMetadata(input.subscription, input.account);
     const catalogConfig = requireStripeCatalogConfig();
-    assertConfiguredMeteredPrices(input.subscription, catalogConfig);
+    assertConfiguredTeacherSubscription(input.subscription, catalogConfig);
     await assertConfiguredStripeCatalog(catalogConfig);
     if (!(await isStripeBillingStorageReady())) {
       throw new Error("Legacy billing rows require reconciliation.");

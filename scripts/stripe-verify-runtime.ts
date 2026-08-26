@@ -22,7 +22,7 @@ export function assertLiveReadOnlyPermission(
 function printHelp() {
   console.log(`Usage: npx tsx scripts/stripe-verify-runtime.ts [--allow-live-read-only]
 
-Verifies Habla's configured Stripe account and exact catalog before usage billing is enabled.
+Verifies TryHabla's configured Stripe account and fixed Teacher catalog before subscription billing is enabled.
 This command is read-only and never creates, changes, or deletes Stripe resources.
 
 Live mode also requires the application's NODE_ENV=production and

@@ -6,29 +6,28 @@ import { createClient } from "@libsql/client";
 import { STRIPE_CATALOG_MANIFEST } from "@/lib/billing/catalog-manifest";
 import { STRIPE_API_VERSION } from "@/lib/billing/config";
 import { getStripeBillingContractId } from "@/lib/billing/contract";
-import { STRIPE_AUTOMATIC_USAGE_RECOVERY_WINDOW_MS } from "@/lib/billing/recovery-policy";
-import {
-  TEACHER_AI_PRICE_BOOK,
-  TEACHER_AI_PRICING_LIMITS,
-} from "@/lib/teacher-ai-pricing";
+import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 
 const billingRuntimeMocks = vi.hoisted(() => ({
-  isReady: vi.fn(async () => true),
+  subscriptionReady: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/billing/catalog-validation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/billing/catalog-validation")>()),
-  isStripeUsageRuntimeReady: billingRuntimeMocks.isReady,
+  isStripeSubscriptionRuntimeReady: billingRuntimeMocks.subscriptionReady,
 }));
 
 const localDbPath = path.join(os.tmpdir(), "speaklab-stripe-persistence-test.db");
 const stripeEnvKeys = [
+  "STRIPE_SUBSCRIPTION_BILLING_ENABLED",
+  "STRIPE_CHECKOUT_ENABLED",
   "STRIPE_USAGE_BILLING_ENABLED",
   "STRIPE_BILLING_ENABLED",
-  "CRON_SECRET",
   "STRIPE_SECRET_KEY",
   "STRIPE_ACCOUNT_ID",
   "STRIPE_WEBHOOK_SECRET",
+  "STRIPE_TRYHABLA_TEACHER_PRICE_ID",
+  "STRIPE_AUTOMATIC_TAX_ENABLED",
   "STRIPE_AI_GRADE_PRICE_ID",
   "STRIPE_AI_AUDIO_SECONDS_PRICE_ID",
 ] as const;
@@ -41,8 +40,7 @@ const TEST_BILLING_CONTRACT_ID = getStripeBillingContractId({
   accountId: TEST_STRIPE_ACCOUNT_ID,
   keyMode: "test",
   priceIds: {
-    aiGrade: "price_ai_grade",
-    audioMinute: "price_audio_seconds",
+    teacher: "price_teacher",
   },
   automaticTaxEnabled: false,
 });
@@ -50,12 +48,8 @@ const testStripeScope = {
   stripeAccountId: TEST_STRIPE_ACCOUNT_ID,
   billingContractId: TEST_BILLING_CONTRACT_ID,
 } as const;
-const testBillingScope = {
-  priceBookId: TEACHER_AI_PRICE_BOOK.id,
-  catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
-  billingContractId: TEST_BILLING_CONTRACT_ID,
-  livemode: false,
-};
+const RETIRED_V2_PRICE_BOOK_ID = "habla-teacher-ai-usd-v2";
+const RETIRED_V2_CATALOG_FINGERPRINT = "retired-v2-catalog-fingerprint";
 
 async function loadDbModule() {
   vi.resetModules();
@@ -68,6 +62,28 @@ type TestScopedInput<
   Input extends { stripeAccountId: string; billingContractId: string },
 > = Omit<Input, "stripeAccountId" | "billingContractId"> &
   Partial<Pick<Input, "stripeAccountId" | "billingContractId">>;
+
+type TestEntitledInput = Omit<
+  TestScopedInput<Parameters<DbModule["projectCurrentStripeEntitledSubscription"]>[0]>,
+  "subscriptionPeriodStart" | "subscriptionPeriodEnd"
+> &
+  Partial<
+    Pick<
+      Parameters<DbModule["projectCurrentStripeEntitledSubscription"]>[0],
+      "subscriptionPeriodStart" | "subscriptionPeriodEnd"
+    >
+  >;
+
+type TestReplacementInput = Omit<
+  TestScopedInput<Parameters<DbModule["replaceTerminalStripeSubscriptionFromCheckout"]>[0]>,
+  "subscriptionPeriodStart" | "subscriptionPeriodEnd"
+> &
+  Partial<
+    Pick<
+      Parameters<DbModule["replaceTerminalStripeSubscriptionFromCheckout"]>[0],
+      "subscriptionPeriodStart" | "subscriptionPeriodEnd"
+    >
+  >;
 
 type TestDbModule = Omit<
   DbModule,
@@ -89,30 +105,44 @@ type TestDbModule = Omit<
     >,
   ): ReturnType<DbModule["projectCurrentStripeNonEntitledSubscription"]>;
   projectCurrentStripeEntitledSubscription(
-    input: TestScopedInput<
-      Parameters<DbModule["projectCurrentStripeEntitledSubscription"]>[0]
-    >,
+    input: TestEntitledInput,
   ): ReturnType<DbModule["projectCurrentStripeEntitledSubscription"]>;
   replaceTerminalStripeSubscriptionFromCheckout(
-    input: TestScopedInput<
-      Parameters<DbModule["replaceTerminalStripeSubscriptionFromCheckout"]>[0]
-    >,
+    input: TestReplacementInput,
   ): ReturnType<DbModule["replaceTerminalStripeSubscriptionFromCheckout"]>;
 };
 
 function withTestStripeScope(rawDb: DbModule): TestDbModule {
+  const periodDefaults = {
+    subscriptionPeriodStart: Date.now() - 86_400_000,
+    subscriptionPeriodEnd: Date.now() + 31 * 86_400_000,
+  } as const;
   return {
     ...rawDb,
     upsertStripeBillingCustomer: (input) =>
       rawDb.upsertStripeBillingCustomer({ ...testStripeScope, ...input }),
     upsertStripeBillingSubscription: (input) =>
-      rawDb.upsertStripeBillingSubscription({ ...testStripeScope, ...input }),
+      rawDb.upsertStripeBillingSubscription({
+        ...(input.subscriptionStatus.trim().toLowerCase() === "active"
+          ? periodDefaults
+          : {}),
+        ...testStripeScope,
+        ...input,
+      }),
     projectCurrentStripeNonEntitledSubscription: (input) =>
       rawDb.projectCurrentStripeNonEntitledSubscription({ ...testStripeScope, ...input }),
     projectCurrentStripeEntitledSubscription: (input) =>
-      rawDb.projectCurrentStripeEntitledSubscription({ ...testStripeScope, ...input }),
+      rawDb.projectCurrentStripeEntitledSubscription({
+        ...periodDefaults,
+        ...testStripeScope,
+        ...input,
+      }),
     replaceTerminalStripeSubscriptionFromCheckout: (input) =>
-      rawDb.replaceTerminalStripeSubscriptionFromCheckout({ ...testStripeScope, ...input }),
+      rawDb.replaceTerminalStripeSubscriptionFromCheckout({
+        ...periodDefaults,
+        ...testStripeScope,
+        ...input,
+      }),
   };
 }
 
@@ -120,7 +150,6 @@ async function createCompletedGradingFixture(
   db: TestDbModule,
   teacherEmail: string,
   label: string,
-  billing?: { required: boolean; priceBookId: string; outputTokens: number },
   attemptOverrides?: {
     status?: "completed" | "failed";
     cacheKey?: string;
@@ -178,9 +207,6 @@ async function createCompletedGradingFixture(
     gradingModel: "mock-grader",
     cacheKey,
     promptVersion: "prompt-v1",
-    billingRequired: billing?.required,
-    billingPriceBookId: billing?.priceBookId,
-    billableOutputTokens: billing?.outputTokens,
   });
   return { classroom, assignment, submission, attempt, cacheKey };
 }
@@ -211,27 +237,6 @@ async function grantStripeBilling(
   });
 }
 
-async function applyAndMarkFixtureForBilling(
-  db: TestDbModule,
-  fixture: Awaited<ReturnType<typeof createCompletedGradingFixture>>,
-  teacherEmail: string,
-  priceBookId: string,
-) {
-  await grantStripeBilling(db, teacherEmail, priceBookId);
-  const applied = await db.applyAiGradeToSubmission(fixture.submission.id, teacherEmail, {
-    grade: fixture.attempt.suggestedScore!,
-    feedback: fixture.attempt.feedback,
-    rubricScores: null,
-  });
-  if (!applied) throw new Error("Billing test fixture could not apply its AI grade.");
-  const marked = await db.markAiGradingAttemptBillingRequired({
-    attemptId: fixture.attempt.id,
-    ownerEmail: teacherEmail,
-    priceBookId,
-  });
-  if (!marked) throw new Error("Billing test fixture could not persist its billing marker.");
-}
-
 describe("Stripe and AI billing persistence", () => {
   let db: TestDbModule;
 
@@ -239,14 +244,17 @@ describe("Stripe and AI billing persistence", () => {
     delete process.env.TURSO_DATABASE_URL;
     delete process.env.TURSO_AUTH_TOKEN;
     process.env.HABLA_LOCAL_DB_PATH = localDbPath;
-    process.env.STRIPE_USAGE_BILLING_ENABLED = "true";
-    process.env.STRIPE_BILLING_ENABLED = "false";
-    process.env.CRON_SECRET = "test-cron-secret";
+    process.env.STRIPE_SUBSCRIPTION_BILLING_ENABLED = "true";
+    delete process.env.STRIPE_CHECKOUT_ENABLED;
+    delete process.env.STRIPE_USAGE_BILLING_ENABLED;
+    delete process.env.STRIPE_BILLING_ENABLED;
     process.env.STRIPE_SECRET_KEY = "sk_test_persistence";
     process.env.STRIPE_ACCOUNT_ID = TEST_STRIPE_ACCOUNT_ID;
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_persistence";
-    process.env.STRIPE_AI_GRADE_PRICE_ID = "price_ai_grade";
-    process.env.STRIPE_AI_AUDIO_SECONDS_PRICE_ID = "price_audio_seconds";
+    process.env.STRIPE_TRYHABLA_TEACHER_PRICE_ID = "price_teacher";
+    process.env.STRIPE_AUTOMATIC_TAX_ENABLED = "false";
+    delete process.env.STRIPE_AI_GRADE_PRICE_ID;
+    delete process.env.STRIPE_AI_AUDIO_SECONDS_PRICE_ID;
     fs.rmSync(localDbPath, { force: true });
     db = withTestStripeScope(await loadDbModule());
   });
@@ -260,8 +268,8 @@ describe("Stripe and AI billing persistence", () => {
   });
 
   beforeEach(() => {
-    billingRuntimeMocks.isReady.mockReset();
-    billingRuntimeMocks.isReady.mockResolvedValue(true);
+    billingRuntimeMocks.subscriptionReady.mockReset();
+    billingRuntimeMocks.subscriptionReady.mockResolvedValue(true);
   });
 
   it("projects Stripe state monotonically while retaining manual access", async () => {
@@ -360,7 +368,7 @@ describe("Stripe and AI billing persistence", () => {
     });
     await expect(db.getStripeSubscriptionGrantsAiAccess(teacherEmail)).resolves.toBe(true);
 
-    billingRuntimeMocks.isReady.mockResolvedValue(false);
+    billingRuntimeMocks.subscriptionReady.mockResolvedValue(false);
     await expect(db.getStripeSubscriptionGrantsAiAccess(teacherEmail)).resolves.toBe(false);
     await expect(db.getUserHasAiAccess(teacherEmail)).resolves.toBe(false);
     await db.setUserPaid(teacherEmail, true);
@@ -494,6 +502,140 @@ describe("Stripe and AI billing persistence", () => {
     });
   });
 
+  it("converges concurrent identical Subscription and Checkout projections", async () => {
+    const stripeCustomerId = "cus_identical_projection_race";
+    const stripeSubscriptionId = "sub_identical_projection_race";
+    await db.upsertStripeBillingCustomer({
+      teacherEmail: "identical-projection-race@example.com",
+      stripeCustomerId,
+      now: 4_500,
+    });
+    const snapshot = await db.getStripeBillingAccountByCustomerId(stripeCustomerId);
+    if (!snapshot) throw new Error("Projection race account fixture was not persisted.");
+
+    // Stripe can deliver customer.subscription.created and
+    // checkout.session.completed together. Both handlers can validate remote
+    // current state before either local projection commits.
+    const projections = await Promise.all([
+      db.projectCurrentStripeEntitledSubscription({
+        stripeCustomerId,
+        stripeSubscriptionId,
+        subscriptionStatus: "active",
+        priceBookId: TEACHER_AI_PRICE_BOOK.id,
+        catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+        observedEventCreated: 500,
+        expectedAccount: snapshot,
+        now: 4_600,
+      }),
+      db.projectCurrentStripeEntitledSubscription({
+        stripeCustomerId,
+        stripeSubscriptionId,
+        subscriptionStatus: "active",
+        priceBookId: TEACHER_AI_PRICE_BOOK.id,
+        catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+        observedEventCreated: 501,
+        expectedAccount: snapshot,
+        now: 4_601,
+      }),
+    ]);
+
+    expect(projections).toHaveLength(2);
+    expect(projections.every(Boolean)).toBe(true);
+    await expect(db.getStripeBillingAccountByCustomerId(stripeCustomerId)).resolves.toMatchObject({
+      stripeSubscriptionId,
+      subscriptionStatus: "active",
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+      stripeEventCreated: 501,
+    });
+
+    const afterConcurrentProjection = await db.getStripeBillingAccountByCustomerId(
+      stripeCustomerId,
+    );
+    if (!afterConcurrentProjection) {
+      throw new Error("Converged projection fixture was not persisted.");
+    }
+    const staleSameState = await db.projectCurrentStripeEntitledSubscription({
+      stripeCustomerId,
+      stripeSubscriptionId,
+      subscriptionStatus: "active",
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+      observedEventCreated: 499,
+      expectedAccount: snapshot,
+      now: 4_700,
+    });
+    expect(staleSameState).toMatchObject({
+      stripeEventCreated: 501,
+      projectionRevision: afterConcurrentProjection.projectionRevision,
+    });
+  });
+
+  it("does not converge an active projection over a newer revocation or another scope", async () => {
+    const stripeCustomerId = "cus_divergent_projection_race";
+    const stripeSubscriptionId = "sub_divergent_projection_race";
+    await db.upsertStripeBillingCustomer({
+      teacherEmail: "divergent-projection-race@example.com",
+      stripeCustomerId,
+      now: 4_800,
+    });
+    const emptySnapshot = await db.getStripeBillingAccountByCustomerId(stripeCustomerId);
+    if (!emptySnapshot) throw new Error("Divergent race account fixture was not persisted.");
+    const active = await db.projectCurrentStripeEntitledSubscription({
+      stripeCustomerId,
+      stripeSubscriptionId,
+      subscriptionStatus: "active",
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+      observedEventCreated: 600,
+      expectedAccount: emptySnapshot,
+      now: 4_900,
+    });
+    if (!active) throw new Error("Active race fixture was not persisted.");
+    const revoked = await db.upsertStripeBillingSubscription({
+      stripeCustomerId,
+      stripeSubscriptionId,
+      subscriptionStatus: "canceled",
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      catalogFingerprint: "",
+      stripeEventCreated: 700,
+      expectedAccount: active,
+      now: 5_000,
+    });
+    if (!revoked) throw new Error("Revoked race fixture was not persisted.");
+
+    await expect(
+      db.projectCurrentStripeEntitledSubscription({
+        stripeCustomerId,
+        stripeSubscriptionId,
+        subscriptionStatus: "active",
+        priceBookId: TEACHER_AI_PRICE_BOOK.id,
+        catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+        observedEventCreated: 600,
+        expectedAccount: active,
+        now: 5_100,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      db.projectCurrentStripeEntitledSubscription({
+        stripeCustomerId,
+        stripeSubscriptionId,
+        subscriptionStatus: "active",
+        priceBookId: TEACHER_AI_PRICE_BOOK.id,
+        catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+        billingContractId: "contract_other_scope",
+        observedEventCreated: 800,
+        expectedAccount: revoked,
+        now: 5_200,
+      }),
+    ).resolves.toBeNull();
+    await expect(db.getStripeBillingAccountByCustomerId(stripeCustomerId)).resolves.toMatchObject({
+      subscriptionStatus: "canceled",
+      catalogFingerprint: "",
+      stripeEventCreated: 700,
+    });
+  });
+
   it("allows only one same-revision projection to win even in the same millisecond", async () => {
     const stripeCustomerId = "cus_projection_revision_race";
     const stripeSubscriptionId = "sub_projection_revision_race";
@@ -620,7 +762,7 @@ describe("Stripe and AI billing persistence", () => {
       stripeCustomerId: "cus_catalog_entitlement",
       stripeSubscriptionId: "sub_catalog_entitlement",
       subscriptionStatus: "active",
-      priceBookId: "habla-teacher-ai-usd-v1",
+      priceBookId: RETIRED_V2_PRICE_BOOK_ID,
       catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
       stripeEventCreated: 1,
     });
@@ -692,621 +834,113 @@ describe("Stripe and AI billing persistence", () => {
     });
   });
 
-  it("durably finds subscribed-at-delivery attempts until their usage row is queued", async () => {
-    const teacherEmail = "durable-billing@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    await db.upsertStripeBillingCustomer({
-      teacherEmail,
-      stripeCustomerId: "cus_durable_billing",
-    });
-    await db.upsertStripeBillingSubscription({
-      stripeCustomerId: "cus_durable_billing",
-      stripeSubscriptionId: "sub_durable_billing",
-      subscriptionStatus: "active",
-      priceBookId,
-      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
-      stripeEventCreated: 1,
-    });
-    const fixture = await createCompletedGradingFixture(db, teacherEmail, "durable", {
-      required: false,
-      priceBookId,
-      outputTokens: 321,
-    });
-    await applyAndMarkFixtureForBilling(db, fixture, teacherEmail, priceBookId);
+  it("serializes the Free lifetime cap and persists released capacity", async () => {
+    const teacherEmail = "free-allowance-cap@example.com";
+    const now = Date.now();
+    await db.setUserRoleTeacher(teacherEmail);
 
-    expect(fixture.attempt).toMatchObject({
-      billingRequired: false,
-      billingPriceBookId: priceBookId,
-      billableOutputTokens: 321,
-    });
-    await expect(db.listUnqueuedAiBillingAttempts(priceBookId)).resolves.toEqual([
-      expect.objectContaining({
-        attemptId: fixture.attempt.id,
-        cacheKey: fixture.cacheKey,
-        durationSeconds: 65,
-        outputTokens: 321,
-      }),
-    ]);
-
-    await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: fixture.cacheKey,
-      priceBookId,
-      attemptId: fixture.attempt.id,
-      submissionId: fixture.submission.id,
-      durationSeconds: 65,
-      outputTokens: 321,
-    });
-    await expect(db.listUnqueuedAiBillingAttempts(priceBookId)).resolves.toEqual([]);
-  });
-
-  it("materializes a billable delivery marker into the scoped v3 outbox", async () => {
-    const teacherEmail = "v3-marker-materialization@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const fixture = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "v3-marker-materialization",
-      { required: false, priceBookId, outputTokens: 37 },
-    );
-    await applyAndMarkFixtureForBilling(db, fixture, teacherEmail, priceBookId);
-
-    const [marker] = await db.listAiGradingAttemptsForSubmission(
-      fixture.submission.id,
-      teacherEmail,
-    );
-    expect(marker).toMatchObject({
-      billingRequired: true,
-      billingContractId: TEST_BILLING_CONTRACT_ID,
-      billingFreeCreditApplied: false,
-    });
-
-    const usage = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: fixture.cacheKey,
-      priceBookId,
-      attemptId: fixture.attempt.id,
-      submissionId: fixture.submission.id,
-      baseUnits: 999,
-      durationSeconds: 999,
-      outputTokens: 999,
-    });
-    expect(usage).toMatchObject({
-      teacherEmail,
-      cacheKey: fixture.cacheKey,
-      attemptId: fixture.attempt.id,
-      submissionId: fixture.submission.id,
-      billingContractId: TEST_BILLING_CONTRACT_ID,
-      freeCreditApplied: false,
-      baseUnits: 1,
-      durationSeconds: 65,
-      outputTokens: 37,
-      status: "pending",
-    });
-
-    const raw = createClient({ url: `file:${localDbPath}` });
-    try {
-      const persisted = await raw.execute({
-        sql: `SELECT
-          teacher_email as teacherEmail,
-          cache_key as cacheKey,
-          attempt_id as attemptId,
-          submission_id as submissionId,
-          billing_contract_id as billingContractId,
-          base_units as baseUnits,
-          duration_seconds as durationSeconds,
-          output_tokens as outputTokens,
-          status
-        FROM ai_billing_usage_v3
-        WHERE id = ?`,
-        args: [usage!.id],
-      });
-      expect(persisted.rows).toEqual([
-        expect.objectContaining({
+    const results = await Promise.all(
+      Array.from({ length: 31 }, (_, index) =>
+        db.reserveAiReviewAllowance({
           teacherEmail,
-          cacheKey: fixture.cacheKey,
-          attemptId: fixture.attempt.id,
-          submissionId: fixture.submission.id,
-          billingContractId: TEST_BILLING_CONTRACT_ID,
-          baseUnits: 1,
-          durationSeconds: 65,
-          outputTokens: 37,
-          status: "pending",
+          semanticKey: "free-cap-" + index,
+          now,
         }),
-      ]);
-      const legacy = await raw.execute({
-        sql: "SELECT COUNT(*) as count FROM ai_billing_usage_v2 WHERE cache_key = ?",
-        args: [fixture.cacheKey],
-      });
-      expect(Number(legacy.rows[0]?.count)).toBe(0);
-    } finally {
-      raw.close();
-    }
-  });
-
-  it("ceilings the immutable fractional attempt duration during outbox recovery", async () => {
-    const teacherEmail = "fractional-duration-recovery@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const fixture = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "fractional-duration-recovery",
-      { required: false, priceBookId, outputTokens: 41 },
-      { durationSeconds: 65.25 },
+      ),
     );
-    await applyAndMarkFixtureForBilling(db, fixture, teacherEmail, priceBookId);
-
-    const recovered = (
-      await db.listUnqueuedAiBillingAttempts(
-        priceBookId,
-        100,
-        Date.now(),
-        false,
-        TEST_BILLING_CONTRACT_ID,
-      )
-    ).find((item) => item.attemptId === fixture.attempt.id);
-    expect(recovered).toMatchObject({
-      durationSeconds: 65.25,
-      outputTokens: 41,
-      billingContractId: TEST_BILLING_CONTRACT_ID,
+    const reserved = results.filter((result) => result.reservationStatus === "reserved");
+    const exhausted = results.filter((result) => result.reservationStatus === "exhausted");
+    expect(reserved).toHaveLength(30);
+    expect(exhausted).toHaveLength(1);
+    expect(exhausted[0]).toMatchObject({
+      status: "free_lifetime",
+      limit: 30,
+      reserved: 30,
+      consumed: 0,
+      used: 30,
+      remaining: 0,
     });
-
-    const usage = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: fixture.cacheKey,
-      priceBookId,
-      attemptId: fixture.attempt.id,
-      submissionId: fixture.submission.id,
-      durationSeconds: 1,
-      outputTokens: 1,
-      occurredAt: recovered!.occurredAt,
-    });
-    expect(usage).toMatchObject({
-      durationSeconds: 66,
-      outputTokens: 41,
-      billingContractId: TEST_BILLING_CONTRACT_ID,
-    });
-  });
-
-  it("keeps an old credited marker automatically recoverable beyond the replay cutoff", async () => {
-    const teacherEmail = "credited-marker-long-recovery@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const credited = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "credited-marker-long-recovery",
-      { required: false, priceBookId, outputTokens: 9 },
-    );
-    await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "credited-marker-qualifying-class",
-    );
-    await applyAndMarkFixtureForBilling(db, credited, teacherEmail, priceBookId);
-    const [marker] = await db.listAiGradingAttemptsForSubmission(
-      credited.submission.id,
-      teacherEmail,
-    );
-    expect(marker).toMatchObject({
-      billingRequired: true,
-      billingFreeCreditApplied: true,
-    });
-
-    const occurredAt = credited.attempt.completedAt ?? credited.attempt.createdAt;
-    const recoveryNow = occurredAt + STRIPE_AUTOMATIC_USAGE_RECOVERY_WINDOW_MS + 1;
-    const recovered = (
-      await db.listUnqueuedAiBillingAttempts(
-        priceBookId,
-        100,
-        recoveryNow,
-        false,
-        TEST_BILLING_CONTRACT_ID,
-      )
-    ).find((item) => item.attemptId === credited.attempt.id);
-    expect(recovered).toMatchObject({ attemptId: credited.attempt.id, occurredAt });
-
     await expect(
-      db.createAiBillingUsage({
+      db.getAiReviewAllowanceSummary({ teacherEmail, now }),
+    ).resolves.toMatchObject({
+      status: "free_lifetime",
+      limit: 30,
+      reserved: 30,
+      consumed: 0,
+      used: 30,
+      remaining: 0,
+    });
+
+    const released = reserved[0];
+    if (released?.reservationStatus !== "reserved") {
+      throw new Error("Free allowance fixture did not retain a reservation.");
+    }
+    await expect(
+      db.releaseAiReviewAllowanceReservation({
+        reservationId: released.reservationId,
         teacherEmail,
-        cacheKey: credited.cacheKey,
-        priceBookId,
-        attemptId: credited.attempt.id,
-        submissionId: credited.submission.id,
-        durationSeconds: credited.attempt.durationSeconds,
-        outputTokens: credited.attempt.billableOutputTokens,
-        occurredAt,
-        now: recoveryNow,
-      }),
-    ).resolves.toMatchObject({
-      freeCreditApplied: true,
-      status: "credited",
-      createdAt: occurredAt,
-    });
-  });
-
-  it("keeps recovered usage in the attempt occurrence month across a UTC rollover", async () => {
-    const teacherEmail = "month-rollover@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const occurrenceClock = Date.UTC(2026, 7, 31, 23, 0);
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(occurrenceClock);
-    const fixture = await createCompletedGradingFixture(db, teacherEmail, "month-rollover", {
-      required: false,
-      priceBookId,
-      outputTokens: 15,
-    });
-    await applyAndMarkFixtureForBilling(db, fixture, teacherEmail, priceBookId);
-    nowSpy.mockRestore();
-    const occurredAt = fixture.attempt.completedAt ?? fixture.attempt.createdAt;
-    const occurred = new Date(occurredAt);
-    const recoveryNow = Date.UTC(
-      occurred.getUTCFullYear(),
-      occurred.getUTCMonth() + 1,
-      1,
-      0,
-      5,
-    );
-    const recovered = (await db.listUnqueuedAiBillingAttempts(
-      priceBookId,
-      100,
-      recoveryNow,
-    )).find((item) => item.attemptId === fixture.attempt.id);
-    expect(recovered).toMatchObject({ attemptId: fixture.attempt.id, occurredAt });
-
-    const usage = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: fixture.cacheKey,
-      priceBookId,
-      attemptId: fixture.attempt.id,
-      submissionId: fixture.submission.id,
-      durationSeconds: fixture.attempt.durationSeconds,
-      outputTokens: fixture.attempt.billableOutputTokens,
-      occurredAt: recovered!.occurredAt,
-      now: recoveryNow,
-    });
-    const occurrenceMonth = db.getAiBillingUtcMonth(occurredAt);
-    const recoveryMonth = db.getAiBillingUtcMonth(recoveryNow);
-    expect(occurrenceMonth).not.toBe(recoveryMonth);
-    expect(usage).toMatchObject({ billingMonth: occurrenceMonth, createdAt: occurredAt });
-    await expect(
-      db.getAiBillingMonthlySummary(teacherEmail, occurrenceMonth, testBillingScope),
-    ).resolves.toMatchObject({
-      successfulResults: 1,
-    });
-    await expect(
-      db.getAiBillingMonthlySummary(teacherEmail, recoveryMonth, testBillingScope),
-    ).resolves.toMatchObject({
-      successfulResults: 0,
-    });
-  });
-
-  it("recovers from a soft-deleted source and bills the immutable delivery-time destination", async () => {
-    const teacherEmail = "snapshot-recovery@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const fixture = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "snapshot-recovery",
-      { required: false, priceBookId, outputTokens: 77 },
-    );
-    await applyAndMarkFixtureForBilling(db, fixture, teacherEmail, priceBookId);
-    const deliveryAccount = await db.getStripeBillingAccountByTeacherEmail(teacherEmail);
-    expect(deliveryAccount?.stripeSubscriptionId).toBeTruthy();
-
-    const markerBefore = (await db.listAiGradingAttemptsForSubmission(
-      fixture.submission.id,
-      teacherEmail,
-    ))[0]!;
-
-    const remap = createClient({ url: `file:${localDbPath}` });
-    try {
-      await remap.execute({
-        sql: `UPDATE stripe_billing_accounts
-        SET stripe_customer_id = 'cus_snapshot_replacement',
-            stripe_subscription_id = 'sub_snapshot_replacement',
-            subscription_status = 'active',
-            price_book_id = ?,
-            catalog_fingerprint = ?,
-            livemode = 0,
-            stripe_event_created = 50
-        WHERE teacher_email = ?`,
-        args: [priceBookId, STRIPE_CATALOG_MANIFEST.fingerprint, teacherEmail],
-      });
-    } finally {
-      remap.close();
-    }
-    await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "snapshot-recovery-new-class",
-      { required: false, priceBookId, outputTokens: 0 },
-    );
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: fixture.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
+        now: now + 1,
       }),
     ).resolves.toBe(true);
-    const markerAfter = (await db.listAiGradingAttemptsForSubmission(
-      fixture.submission.id,
-      teacherEmail,
-    ))[0]!;
-    expect(markerAfter).toMatchObject({
-      billingStripeCustomerId: markerBefore.billingStripeCustomerId,
-      billingStripeSubscriptionId: markerBefore.billingStripeSubscriptionId,
-      billingCatalogFingerprint: markerBefore.billingCatalogFingerprint,
-      billingLivemode: markerBefore.billingLivemode,
-      billingQualifyingClassHighWater: markerBefore.billingQualifyingClassHighWater,
-    });
-    expect(markerAfter.billingStripeCustomerId).not.toBe("cus_snapshot_replacement");
-
-    await expect(db.deleteSubmission(fixture.submission.id, teacherEmail)).resolves.toBe(true);
-
-    const usage = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: fixture.cacheKey,
-      priceBookId,
-      attemptId: fixture.attempt.id,
-      submissionId: fixture.submission.id,
-      durationSeconds: fixture.attempt.durationSeconds,
-      outputTokens: fixture.attempt.billableOutputTokens,
-      livemode: false,
-    });
-    expect(usage).toMatchObject({
-      stripeCustomerId: deliveryAccount!.stripeCustomerId,
-      stripeSubscriptionId: deliveryAccount!.stripeSubscriptionId,
-      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
-      livemode: false,
-      createdAt: fixture.attempt.completedAt ?? fixture.attempt.createdAt,
-    });
-    expect(usage?.stripeCustomerId).not.toBe("cus_snapshot_replacement");
-  });
-
-  it("reports attempted-unreported dimensions and expired unqueued attempts for reconciliation", async () => {
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const attemptedTeacher = "attempted-reconciliation@example.com";
-    const attempted = await createCompletedGradingFixture(
-      db,
-      attemptedTeacher,
-      "attempted-reconciliation",
-      { required: false, priceBookId, outputTokens: 0 },
-    );
-    await applyAndMarkFixtureForBilling(db, attempted, attemptedTeacher, priceBookId);
-    const usage = await db.createAiBillingUsage({
-      teacherEmail: attemptedTeacher,
-      cacheKey: attempted.cacheKey,
-      priceBookId,
-      attemptId: attempted.attempt.id,
-      submissionId: attempted.submission.id,
-      durationSeconds: attempted.attempt.durationSeconds,
-      outputTokens: 0,
-    });
-    expect(usage).not.toBeNull();
-    await db.claimAiBillingUsageDimensionForDelivery({
-      usageId: usage!.id,
-      dimension: "base",
-    });
-
-    const expiredTeacher = "expired-reconciliation@example.com";
-    const expired = await createCompletedGradingFixture(
-      db,
-      expiredTeacher,
-      "expired-reconciliation",
-      { required: false, priceBookId, outputTokens: 0 },
-    );
-    await applyAndMarkFixtureForBilling(db, expired, expiredTeacher, priceBookId);
-    const expiredAt =
-      (expired.attempt.completedAt ?? expired.attempt.createdAt) +
-      STRIPE_AUTOMATIC_USAGE_RECOVERY_WINDOW_MS +
-      1;
-
     await expect(
-      db.getAiBillingReconciliationHealth(priceBookId, expiredAt, {
-        livemode: false,
-        billingContractId: TEST_BILLING_CONTRACT_ID,
-      }),
-    ).resolves.toMatchObject({ attemptedUnreported: 1, expiredUnqueued: 1 });
-    await expect(
-      db.listUnqueuedAiBillingAttempts(priceBookId, 100, expiredAt),
-    ).resolves.not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ attemptId: expired.attempt.id })]),
-    );
-  });
-
-  it("classifies old-contract billing rows as manual while current-contract rows stay recoverable", async () => {
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const scope = {
-      livemode: false,
-      billingContractId: TEST_BILLING_CONTRACT_ID,
-    } as const;
-    const baseline = await db.getAiBillingReconciliationHealth(
-      priceBookId,
-      Date.now(),
-      scope,
-    );
-
-    async function markedFixture(label: string) {
-      const teacherEmail = `${label}@example.com`;
-      const fixture = await createCompletedGradingFixture(
-        db,
+      db.reserveAiReviewAllowance({
         teacherEmail,
-        label,
-        { required: false, priceBookId, outputTokens: 0 },
-      );
-      await applyAndMarkFixtureForBilling(db, fixture, teacherEmail, priceBookId);
-      return { teacherEmail, fixture };
-    }
-
-    const oldUsageFixture = await markedFixture("old-contract-usage");
-    const oldUsage = await db.createAiBillingUsage({
-      teacherEmail: oldUsageFixture.teacherEmail,
-      cacheKey: oldUsageFixture.fixture.cacheKey,
-      priceBookId,
-      attemptId: oldUsageFixture.fixture.attempt.id,
-      submissionId: oldUsageFixture.fixture.submission.id,
-      durationSeconds: oldUsageFixture.fixture.attempt.durationSeconds,
-      outputTokens: 0,
+        semanticKey: "free-cap-replacement",
+        now: now + 2,
+      }),
+    ).resolves.toMatchObject({
+      reservationStatus: "reserved",
+      status: "free_lifetime",
+      used: 30,
+      remaining: 0,
     });
-    const currentUsageFixture = await markedFixture("current-contract-usage");
-    const currentUsage = await db.createAiBillingUsage({
-      teacherEmail: currentUsageFixture.teacherEmail,
-      cacheKey: currentUsageFixture.fixture.cacheKey,
-      priceBookId,
-      attemptId: currentUsageFixture.fixture.attempt.id,
-      submissionId: currentUsageFixture.fixture.submission.id,
-      durationSeconds: currentUsageFixture.fixture.attempt.durationSeconds,
-      outputTokens: 0,
-    });
-    const oldMarker = await markedFixture("old-contract-marker");
-    const currentMarker = await markedFixture("current-contract-marker");
-
-    const oldContractId = "contract_superseded_manual_reconciliation";
-    const raw = createClient({ url: `file:${localDbPath}` });
-    try {
-      await raw.execute({
-        sql: "UPDATE ai_billing_usage_v3 SET billing_contract_id = ? WHERE id = ?",
-        args: [oldContractId, oldUsage!.id],
-      });
-      await raw.execute({
-        sql: "UPDATE ai_grading_attempts SET billing_contract_id = ? WHERE id = ?",
-        args: [oldContractId, oldMarker.fixture.attempt.id],
-      });
-    } finally {
-      raw.close();
-    }
-
-    const health = await db.getAiBillingReconciliationHealth(
-      priceBookId,
-      Date.now(),
-      scope,
-    );
-    expect(health.pendingUnattempted - baseline.pendingUnattempted).toBe(2);
-    expect(health.invalidPendingUnattempted - baseline.invalidPendingUnattempted).toBe(2);
-    expect(health.recoverableUnqueued - baseline.recoverableUnqueued).toBe(1);
-    expect(health.invalidUnqueued - baseline.invalidUnqueued).toBe(1);
-
-    const pending = await db.listPendingAiBillingUsage(
-      100,
-      false,
-      Date.now(),
-      TEST_BILLING_CONTRACT_ID,
-    );
-    expect(pending).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: currentUsage!.id })]),
-    );
-    expect(pending).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: oldUsage!.id })]),
-    );
-
-    const unqueued = await db.listUnqueuedAiBillingAttempts(
-      priceBookId,
-      100,
-      Date.now(),
-      false,
-      TEST_BILLING_CONTRACT_ID,
-    );
-    expect(unqueued).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ attemptId: currentMarker.fixture.attempt.id }),
-      ]),
-    );
-    expect(unqueued).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ attemptId: oldMarker.fixture.attempt.id }),
-      ]),
-    );
   });
 
-  it("marks billing only after an owner-scoped completed result has durable Stripe entitlement", async () => {
-    const teacherEmail = "post-apply-billing@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    await db.upsertStripeBillingCustomer({
-      teacherEmail,
-      stripeCustomerId: "cus_post_apply_billing",
-    });
-    await db.upsertStripeBillingSubscription({
-      stripeCustomerId: "cus_post_apply_billing",
-      stripeSubscriptionId: "sub_post_apply_billing",
-      subscriptionStatus: "active",
-      priceBookId,
-      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
-      stripeEventCreated: 1,
-    });
+  it("atomically consumes a delivered review and reuses its semantic result", async () => {
+    const teacherEmail = "allowance-delivery@example.com";
+    const semanticKey = "allowance-delivery-result";
+    await db.setUserRoleTeacher(teacherEmail);
     const fixture = await createCompletedGradingFixture(
       db,
       teacherEmail,
-      "post-apply",
-      { required: false, priceBookId, outputTokens: 222 },
+      "allowance-delivery",
+      { cacheKey: semanticKey },
     );
-    expect(fixture.attempt).toMatchObject({
-      billingRequired: false,
-      billingPriceBookId: priceBookId,
-    });
-    await expect(
-      db.applyAiGradeToSubmission(fixture.submission.id, teacherEmail, {
-        grade: 8,
-        feedback: "Applied before billing is marked.",
-        rubricScores: null,
-      }),
-    ).resolves.not.toBeNull();
-
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: fixture.attempt.id,
-        ownerEmail: "other@example.com",
-        priceBookId,
-      }),
-    ).resolves.toBe(false);
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: fixture.attempt.id,
-        ownerEmail: teacherEmail.toUpperCase(),
-        priceBookId,
-      }),
-    ).resolves.toBe(true);
-
-    await expect(
-      db.listAiGradingAttemptsForSubmission(fixture.submission.id, teacherEmail),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        id: fixture.attempt.id,
-        billingRequired: true,
-        billingPriceBookId: priceBookId,
-      }),
-    ]);
-    await expect(db.listUnqueuedAiBillingAttempts(priceBookId)).resolves.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ attemptId: fixture.attempt.id, cacheKey: fixture.cacheKey }),
-      ]),
-    );
-  });
-
-  it("atomically applies a persisted grade and snapshots its Stripe billing destination", async () => {
-    const teacherEmail = "atomic-finalize@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const fixture = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "atomic-finalize",
-      { required: false, priceBookId, outputTokens: 88 },
-    );
-    const account = await grantStripeBilling(db, teacherEmail, priceBookId);
+    const reservation = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    if (reservation.reservationStatus !== "reserved") {
+      throw new Error("AI review fixture did not reserve capacity.");
+    }
 
     await expect(
       db.finalizeAiGradeDelivery({
         attemptId: fixture.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-        billingCandidate: true,
+        ownerEmail: "other-owner@example.com",
+        priceBookId: TEACHER_AI_PRICE_BOOK.id,
+        billingCandidate: false,
         allowUnmeteredAccess: false,
+        reviewReservationId: reservation.reservationId,
       }),
-    ).resolves.toEqual({ status: "applied", billingRequired: true });
+    ).resolves.toEqual({
+      status: "not_applied",
+      billingRequired: false,
+      reason: "attempt_ineligible",
+    });
+    await expect(
+      db.finalizeAiGradeDelivery({
+        attemptId: fixture.attempt.id,
+        ownerEmail: teacherEmail,
+        priceBookId: TEACHER_AI_PRICE_BOOK.id,
+        billingCandidate: false,
+        allowUnmeteredAccess: false,
+        reviewReservationId: reservation.reservationId,
+      }),
+    ).resolves.toEqual({ status: "applied", billingRequired: false });
+
     await expect(
       db.findSubmissionById(fixture.submission.id, teacherEmail),
     ).resolves.toMatchObject({
       grade: fixture.attempt.suggestedScore,
       feedback: fixture.attempt.feedback,
-      gradeSource: "ai",
     });
     await expect(
       db.listAiGradingAttemptsForSubmission(fixture.submission.id, teacherEmail),
@@ -1314,34 +948,49 @@ describe("Stripe and AI billing persistence", () => {
       expect.objectContaining({
         id: fixture.attempt.id,
         deliveryStatus: "delivered",
-        billingRequired: true,
-        billingStripeCustomerId: account!.stripeCustomerId,
-        billingStripeSubscriptionId: account!.stripeSubscriptionId,
-        billingCatalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
-        billingLivemode: false,
+        billingRequired: false,
+        billingPriceBookId: "",
+        billingStripeCustomerId: "",
+        billingStripeSubscriptionId: "",
       }),
     ]);
-    await expect(db.listUnqueuedAiBillingAttempts(priceBookId)).resolves.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ attemptId: fixture.attempt.id }),
-      ]),
-    );
+    await expect(
+      db.getAiReviewAllowanceSummary({ teacherEmail }),
+    ).resolves.toMatchObject({
+      status: "free_lifetime",
+      reserved: 0,
+      consumed: 1,
+      used: 1,
+      remaining: 29,
+    });
+    await expect(
+      db.reserveAiReviewAllowance({ teacherEmail, semanticKey }),
+    ).resolves.toMatchObject({
+      reservationStatus: "duplicate",
+      sourceAttemptId: fixture.attempt.id,
+      used: 1,
+      remaining: 29,
+    });
   });
 
-  it("preserves a teacher edit and writes no billing marker when the apply race is lost", async () => {
-    const teacherEmail = "atomic-teacher-race@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
+  it("preserves a teacher edit when finalization loses its submission CAS", async () => {
+    const teacherEmail = "allowance-teacher-edit@example.com";
+    const semanticKey = "allowance-teacher-edit-result";
+    await db.setUserRoleTeacher(teacherEmail);
     const fixture = await createCompletedGradingFixture(
       db,
       teacherEmail,
-      "atomic-teacher-race",
-      { required: false, priceBookId, outputTokens: 12 },
+      "allowance-teacher-edit",
+      { cacheKey: semanticKey },
     );
-    await grantStripeBilling(db, teacherEmail, priceBookId);
+    const reservation = await db.reserveAiReviewAllowance({ teacherEmail, semanticKey });
+    if (reservation.reservationStatus !== "reserved") {
+      throw new Error("AI review fixture did not reserve capacity.");
+    }
     await db.updateSubmission(fixture.submission.id, teacherEmail, {
       studentName: fixture.submission.studentName,
       grade: 6,
-      feedback: "Teacher-authored grade won the race.",
+      feedback: "Teacher decision wins.",
       rubricScores: null,
     });
 
@@ -1349,9 +998,10 @@ describe("Stripe and AI billing persistence", () => {
       db.finalizeAiGradeDelivery({
         attemptId: fixture.attempt.id,
         ownerEmail: teacherEmail,
-        priceBookId,
-        billingCandidate: true,
+        priceBookId: TEACHER_AI_PRICE_BOOK.id,
+        billingCandidate: false,
         allowUnmeteredAccess: false,
+        reviewReservationId: reservation.reservationId,
       }),
     ).resolves.toEqual({
       status: "not_applied",
@@ -1362,711 +1012,348 @@ describe("Stripe and AI billing persistence", () => {
       db.findSubmissionById(fixture.submission.id, teacherEmail),
     ).resolves.toMatchObject({
       grade: 6,
-      feedback: "Teacher-authored grade won the race.",
-      gradeSource: "teacher",
+      feedback: "Teacher decision wins.",
     });
     await expect(
-      db.listAiGradingAttemptsForSubmission(fixture.submission.id, teacherEmail),
-    ).resolves.toEqual([]);
+      db.getAiReviewAllowanceSummary({ teacherEmail }),
+    ).resolves.toMatchObject({ reserved: 1, consumed: 0, used: 1 });
     await expect(
-      db.withholdAiGradingAttemptResult({
-        attemptId: fixture.attempt.id,
-        ownerEmail: teacherEmail,
-        reason: "Teacher-authored grade won the delivery race.",
+      db.releaseAiReviewAllowanceReservation({
+        reservationId: reservation.reservationId,
+        teacherEmail,
       }),
     ).resolves.toBe(true);
-    const raw = createClient({ url: `file:${localDbPath}` });
-    try {
-      const audit = await raw.execute({
-        sql: `SELECT status, delivery_status, transcript, suggested_score, feedback, error_code
-          FROM ai_grading_attempts
-          WHERE id = ?`,
-        args: [fixture.attempt.id],
-      });
-      expect(audit.rows[0]).toMatchObject({
-        status: "failed",
-        delivery_status: "withheld",
-        transcript: "",
-        suggested_score: null,
-        feedback: "",
-        error_code: "result_not_delivered",
-      });
-    } finally {
-      raw.close();
-    }
+    await expect(
+      db.getAiReviewAllowanceSummary({ teacherEmail }),
+    ).resolves.toMatchObject({ reserved: 0, consumed: 0, used: 0, remaining: 30 });
   });
 
-  it("rolls the grade back when the atomic billing marker write fails", async () => {
-    const teacherEmail = "atomic-rollback@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const fixture = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "atomic-rollback",
-      { required: false, priceBookId, outputTokens: 55 },
-    );
-    await grantStripeBilling(db, teacherEmail, priceBookId);
-    const raw = createClient({ url: `file:${localDbPath}` });
-    await raw.execute(`CREATE TRIGGER test_atomic_billing_marker_failure
-      BEFORE UPDATE OF billing_required ON ai_grading_attempts
-      BEGIN
-        SELECT RAISE(ABORT, 'forced atomic marker failure');
-      END`);
-    try {
-      await expect(
-        db.finalizeAiGradeDelivery({
-          attemptId: fixture.attempt.id,
-          ownerEmail: teacherEmail,
-          priceBookId,
-          billingCandidate: true,
-          allowUnmeteredAccess: false,
-        }),
-      ).rejects.toThrow();
-    } finally {
-      await raw.execute("DROP TRIGGER test_atomic_billing_marker_failure");
-      raw.close();
-    }
-
-    await expect(
-      db.findSubmissionById(fixture.submission.id, teacherEmail),
-    ).resolves.toMatchObject({
-      grade: null,
-      feedback: "",
-      gradeSource: "teacher",
-    });
-    await expect(
-      db.listAiGradingAttemptsForSubmission(fixture.submission.id, teacherEmail),
-    ).resolves.toEqual([]);
-  });
-
-  it("allows explicit unmetered access but fails closed for Stripe-only access when billing is unavailable", async () => {
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const unmeteredTeacher = "atomic-unmetered@example.com";
-    const unmetered = await createCompletedGradingFixture(
-      db,
-      unmeteredTeacher,
-      "atomic-unmetered",
-      { required: false, priceBookId, outputTokens: 10 },
-    );
-    billingRuntimeMocks.isReady.mockResolvedValue(false);
-    await expect(
-      db.finalizeAiGradeDelivery({
-        attemptId: unmetered.attempt.id,
-        ownerEmail: unmeteredTeacher,
-        priceBookId,
-        billingCandidate: true,
-        allowUnmeteredAccess: true,
-      }),
-    ).resolves.toEqual({ status: "applied", billingRequired: false });
-
-    billingRuntimeMocks.isReady.mockResolvedValue(true);
-    const stripeTeacher = "atomic-stripe-only@example.com";
-    const stripeOnly = await createCompletedGradingFixture(
-      db,
-      stripeTeacher,
-      "atomic-stripe-only",
-      { required: false, priceBookId, outputTokens: 10 },
-    );
-    await grantStripeBilling(db, stripeTeacher, priceBookId);
-    billingRuntimeMocks.isReady.mockResolvedValue(false);
-    await expect(
-      db.finalizeAiGradeDelivery({
-        attemptId: stripeOnly.attempt.id,
-        ownerEmail: stripeTeacher,
-        priceBookId,
-        billingCandidate: true,
-        allowUnmeteredAccess: false,
-      }),
-    ).resolves.toEqual({
-      status: "not_applied",
-      billingRequired: false,
-      reason: "billing_unavailable",
-    });
-    await expect(
-      db.findSubmissionById(stripeOnly.submission.id, stripeTeacher),
-    ).resolves.toMatchObject({ grade: null, feedback: "" });
-  });
-
-  it("never creates a billing marker while usage runtime is off, including for manual access", async () => {
-    const teacherEmail = "runtime-off-marker@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const fixture = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "runtime-off-marker",
-      { required: false, priceBookId, outputTokens: 40 },
-    );
-    await grantStripeBilling(db, teacherEmail, priceBookId);
+  it("rolls the grade back when a reserved Stripe allowance changes scope", async () => {
+    const teacherEmail = "allowance-scope-race@example.com";
+    const semanticKey = "allowance-scope-race-result";
+    const now = Date.now();
     await db.setUserRoleTeacher(teacherEmail);
-    await db.setUserPaid(teacherEmail, true);
-    await expect(
-      db.applyAiGradeToSubmission(fixture.submission.id, teacherEmail, {
-        grade: fixture.attempt.suggestedScore!,
-        feedback: fixture.attempt.feedback,
-        rubricScores: null,
-      }),
-    ).resolves.not.toBeNull();
-
-    billingRuntimeMocks.isReady.mockResolvedValue(false);
-    await expect(db.getUserHasAiAccess(teacherEmail)).resolves.toBe(true);
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: fixture.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-      }),
-    ).resolves.toBe(false);
-    await expect(db.listUnqueuedAiBillingAttempts(priceBookId)).resolves.not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ attemptId: fixture.attempt.id })]),
-    );
-  });
-
-  it("refuses the post-apply billing marker when any durable prerequisite is missing", async () => {
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-
-    const noSubscription = await createCompletedGradingFixture(
+    const fixture = await createCompletedGradingFixture(
       db,
-      "no-post-apply-subscription@example.com",
-      "post-apply-no-subscription",
-      { required: false, priceBookId, outputTokens: 10 },
+      teacherEmail,
+      "allowance-scope-race",
+      { cacheKey: semanticKey },
     );
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: noSubscription.attempt.id,
-        ownerEmail: "no-post-apply-subscription@example.com",
-        priceBookId,
-      }),
-    ).resolves.toBe(false);
-    await expect(
-      db.createAiBillingUsage({
-        teacherEmail: "no-post-apply-subscription@example.com",
-        cacheKey: noSubscription.cacheKey,
-        priceBookId,
-        attemptId: noSubscription.attempt.id,
-        submissionId: noSubscription.submission.id,
-        baseUnits: 1,
-        durationSeconds: 65,
-        outputTokens: 10,
-      }),
-    ).resolves.toBeNull();
-
-    const teacherEmail = "post-apply-guards@example.com";
     await db.upsertStripeBillingCustomer({
       teacherEmail,
-      stripeCustomerId: "cus_post_apply_guards",
+      stripeCustomerId: "cus_allowance_scope_race",
+      now,
     });
-    await db.upsertStripeBillingSubscription({
-      stripeCustomerId: "cus_post_apply_guards",
-      stripeSubscriptionId: "sub_post_apply_guards",
+    const active = await db.upsertStripeBillingSubscription({
+      stripeCustomerId: "cus_allowance_scope_race",
+      stripeSubscriptionId: "sub_allowance_scope_race",
       subscriptionStatus: "active",
-      priceBookId: "different-price-book",
+      subscriptionPeriodStart: now - 1_000,
+      subscriptionPeriodEnd: now + 60_000,
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
       catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
       stripeEventCreated: 1,
+      now,
     });
-    const wrongBook = await createCompletedGradingFixture(
-      db,
+    if (!active) throw new Error("Active allowance fixture was not persisted.");
+    const reservation = await db.reserveAiReviewAllowance({
       teacherEmail,
-      "post-apply-wrong-book",
-      { required: false, priceBookId, outputTokens: 11 },
-    );
-    await expect(
-      db.applyAiGradeToSubmission(wrongBook.submission.id, teacherEmail, {
-        grade: wrongBook.attempt.suggestedScore!,
-        feedback: wrongBook.attempt.feedback,
-        rubricScores: null,
-      }),
-    ).resolves.not.toBeNull();
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: wrongBook.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-      }),
-    ).resolves.toBe(false);
-
+      semanticKey,
+      now: now + 1,
+    });
+    if (reservation.reservationStatus !== "reserved") {
+      throw new Error("Teacher allowance fixture did not reserve capacity.");
+    }
     await db.upsertStripeBillingSubscription({
-      stripeCustomerId: "cus_post_apply_guards",
-      stripeSubscriptionId: "sub_post_apply_guards",
-      subscriptionStatus: "active",
-      priceBookId,
-      catalogFingerprint: "wrong-fingerprint",
+      stripeCustomerId: "cus_allowance_scope_race",
+      stripeSubscriptionId: "sub_allowance_scope_race",
+      subscriptionStatus: "canceled",
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      catalogFingerprint: "",
       stripeEventCreated: 2,
+      expectedAccount: active,
+      now: now + 2,
     });
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: wrongBook.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-      }),
-    ).resolves.toBe(false);
-    await db.upsertStripeBillingSubscription({
-      stripeCustomerId: "cus_post_apply_guards",
-      stripeSubscriptionId: "sub_post_apply_guards",
-      subscriptionStatus: "active",
-      priceBookId,
-      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
-      stripeEventCreated: 3,
-    });
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: wrongBook.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-      }),
-    ).resolves.toBe(true);
-    await expect(
-      db.createAiBillingUsage({
-        teacherEmail,
-        cacheKey: wrongBook.cacheKey,
-        priceBookId: "different-price-book",
-        attemptId: wrongBook.attempt.id,
-        submissionId: wrongBook.submission.id,
-        baseUnits: 1,
-        durationSeconds: 65,
-        outputTokens: 11,
-      }),
-    ).resolves.toBeNull();
-
-    const mismatchedAppliedGrade = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "post-apply-mismatched-grade",
-      { required: false, priceBookId, outputTokens: 0 },
-    );
-    await expect(
-      db.applyAiGradeToSubmission(mismatchedAppliedGrade.submission.id, teacherEmail, {
-        grade: 7,
-        feedback: mismatchedAppliedGrade.attempt.feedback,
-        rubricScores: null,
-      }),
-    ).resolves.not.toBeNull();
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: mismatchedAppliedGrade.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-      }),
-    ).resolves.toBe(false);
-
-    const teacherAuthoredGrade = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "post-apply-teacher-grade",
-      { required: false, priceBookId, outputTokens: 0 },
-    );
-    await db.updateSubmission(teacherAuthoredGrade.submission.id, teacherEmail, {
-      studentName: teacherAuthoredGrade.submission.studentName,
-      grade: teacherAuthoredGrade.attempt.suggestedScore,
-      feedback: teacherAuthoredGrade.attempt.feedback,
-      rubricScores: null,
-    });
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: teacherAuthoredGrade.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-      }),
-    ).resolves.toBe(false);
-
-    const emptyCache = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "post-apply-empty-cache",
-      { required: false, priceBookId, outputTokens: 12 },
-      { cacheKey: "" },
-    );
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: emptyCache.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-      }),
-    ).resolves.toBe(false);
-
-    const failedAttempt = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "post-apply-failed-attempt",
-      { required: false, priceBookId, outputTokens: 13 },
-      { status: "failed" },
-    );
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: failedAttempt.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-      }),
-    ).resolves.toBe(false);
-
-    const deletedSubmission = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "post-apply-deleted-submission",
-      { required: false, priceBookId, outputTokens: 14 },
-    );
-    await expect(
-      db.deleteSubmission(deletedSubmission.submission.id, teacherEmail),
-    ).resolves.toBe(true);
-    await expect(
-      db.markAiGradingAttemptBillingRequired({
-        attemptId: deletedSubmission.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-      }),
-    ).resolves.toBe(false);
-  });
-
-  it("atomically deduplicates semantic results and allocates full-result monthly credits", async () => {
-    const teacherEmail = "credit-teacher@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const first = await createCompletedGradingFixture(db, teacherEmail, "credit-first", {
-      required: false,
-      priceBookId,
-      outputTokens: 400,
-    });
-    const second = await createCompletedGradingFixture(db, teacherEmail, "credit-second", {
-      required: false,
-      priceBookId,
-      outputTokens: 450,
-    });
-    await db.createClass("Not qualifying", teacherEmail);
-    await applyAndMarkFixtureForBilling(db, first, teacherEmail, priceBookId);
-    await applyAndMarkFixtureForBilling(db, second, teacherEmail, priceBookId);
-
-    await expect(db.countQualifyingAiBillingClasses(teacherEmail)).resolves.toBe(2);
-    const createFirst = () =>
-      db.createAiBillingUsage({
-        teacherEmail,
-        cacheKey: first.cacheKey,
-        priceBookId,
-        attemptId: first.attempt.id,
-        submissionId: first.submission.id,
-        baseUnits: 999,
-        durationSeconds: 999,
-        outputTokens: 999,
-        now: Date.UTC(2026, 7, 21, 12),
-      });
-    const [duplicateA, duplicateB] = await Promise.all([createFirst(), createFirst()]);
-    expect(duplicateA).not.toBeNull();
-    expect(duplicateB).toEqual(duplicateA);
-    expect(duplicateA).toMatchObject({
-      freeCreditApplied: true,
-      status: "credited",
-      baseUnits: 1,
-      durationSeconds: 65,
-      outputTokens: 400,
-    });
-
-    const billable = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: second.cacheKey,
-      priceBookId,
-      attemptId: second.attempt.id,
-      submissionId: second.submission.id,
-      durationSeconds: 999,
-      outputTokens: 999,
-      now: Date.UTC(2026, 7, 21, 12, 1),
-    });
-    expect(billable).toMatchObject({ freeCreditApplied: false, status: "pending" });
-
-    const third = await createCompletedGradingFixture(db, teacherEmail, "credit-third", {
-      required: false,
-      priceBookId,
-      outputTokens: 500,
-    });
-    await applyAndMarkFixtureForBilling(db, third, teacherEmail, priceBookId);
-    const newlyEarnedCredit = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: third.cacheKey,
-      priceBookId,
-      attemptId: third.attempt.id,
-      submissionId: third.submission.id,
-      durationSeconds: 80,
-      outputTokens: 500,
-      now: Date.UTC(2026, 7, 21, 12, 2),
-    });
-    expect(newlyEarnedCredit).toMatchObject({ freeCreditApplied: true, status: "credited" });
-
-    await expect(
-      db.getAiBillingMonthlySummary(teacherEmail, "2026-08", testBillingScope),
-    ).resolves.toMatchObject({
-      qualifyingClassHighWater: 3,
-      earnedCredits: 2,
-      usedCredits: 2,
-      remainingCredits: 0,
-      successfulResults: 3,
-      freeCreditResults: 2,
-      billableResults: 1,
-      billableBaseUnits: 1,
-      billableDurationSeconds: 65,
-      billableOutputTokens: 450,
-    });
-
-    const billingNow = billable!.createdAt + 1_000;
-    const pending = await db.listPendingAiBillingUsage(100, undefined, billingNow);
-    expect(pending.map((item) => item.id)).toContain(billable?.id);
-    expect(pending.map((item) => item.id)).not.toContain(duplicateA?.id);
-    await expect(
-      db.listPendingAiBillingUsage(
-        100,
-        undefined,
-        billable!.createdAt + STRIPE_AUTOMATIC_USAGE_RECOVERY_WINDOW_MS + 1,
-      ),
-    ).resolves.not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: billable!.id })]),
-    );
-    const expiredHealth = await db.getAiBillingReconciliationHealth(
-      priceBookId,
-      billable!.createdAt + STRIPE_AUTOMATIC_USAGE_RECOVERY_WINDOW_MS + 1,
-      { livemode: false, billingContractId: TEST_BILLING_CONTRACT_ID },
-    );
-    expect(expiredHealth.expiredPendingUnattempted).toBeGreaterThanOrEqual(2);
-
-    const deliveryClaim = await db.claimAiBillingUsageDimensionForDelivery({
-      usageId: billable!.id,
-      dimension: "audio",
-      attemptedAt: 9_000,
-    });
-    expect(deliveryClaim).toMatchObject({
-      claimed: true,
-      usage: { audioAttemptedAt: 9_000 },
-    });
-    await expect(
-      db.claimAiBillingUsageDimensionForDelivery({
-        usageId: billable!.id,
-        dimension: "audio",
-        attemptedAt: 9_500,
-      }),
-    ).resolves.toMatchObject({ claimed: false, usage: { audioAttemptedAt: 9_000 } });
-
-    const failed = await db.markAiBillingUsageDimensionFailed({
-      usageId: billable!.id,
-      dimension: "audio",
-      error: "temporary Stripe error",
-      failedAt: 10_000,
-    });
-    expect(failed).toMatchObject({
-      status: "failed",
-      lastErrorDimension: "audio",
-      lastError: "temporary Stripe error",
-    });
-    await db.markAiBillingUsageDimensionReported({
-      usageId: billable!.id,
-      dimension: "base",
-      reportedAt: 11_000,
-    });
-    const audioReported = await db.markAiBillingUsageDimensionReported({
-      usageId: billable!.id,
-      dimension: "audio",
-      reportedAt: 12_000,
-    });
-    expect(audioReported).toMatchObject({
-      status: "reported",
-      baseReportedAt: 11_000,
-      audioReportedAt: 12_000,
-      outputReportedAt: null,
-    });
-    await expect(db.listPendingAiBillingUsage(100, undefined, billingNow)).resolves.not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: billable!.id })])
-    );
-  });
-
-  it("keeps first-result credit assignment immutable across an outbox crash and recovery", async () => {
-    const teacherEmail = "credit-crash-order@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const first = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "credit-crash-first",
-      { required: false, priceBookId, outputTokens: 10 },
-    );
-    const second = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "credit-crash-second",
-      { required: false, priceBookId, outputTokens: 20 },
-    );
-    await grantStripeBilling(db, teacherEmail, priceBookId);
 
     await expect(
       db.finalizeAiGradeDelivery({
-        attemptId: first.attempt.id,
+        attemptId: fixture.attempt.id,
         ownerEmail: teacherEmail,
-        priceBookId,
-        billingCandidate: true,
+        priceBookId: TEACHER_AI_PRICE_BOOK.id,
+        billingCandidate: false,
         allowUnmeteredAccess: false,
+        reviewReservationId: reservation.reservationId,
       }),
-    ).resolves.toEqual({ status: "applied", billingRequired: true });
+    ).rejects.toThrow("AI review allowance changed before result delivery");
     await expect(
-      db.finalizeAiGradeDelivery({
-        attemptId: second.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-        billingCandidate: true,
-        allowUnmeteredAccess: false,
-      }),
-    ).resolves.toEqual({ status: "applied", billingRequired: true });
-
-    const [firstMarker] = await db.listAiGradingAttemptsForSubmission(
-      first.submission.id,
-      teacherEmail,
-    );
-    const [secondMarker] = await db.listAiGradingAttemptsForSubmission(
-      second.submission.id,
-      teacherEmail,
-    );
-    expect(firstMarker).toMatchObject({ billingFreeCreditApplied: true });
-    expect(secondMarker).toMatchObject({ billingFreeCreditApplied: false });
-
-    // Simulate A crashing after its atomic marker but before outbox creation:
-    // B queues first, then recovery materializes A later.
-    const secondUsage = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: second.cacheKey,
-      priceBookId,
-      attemptId: second.attempt.id,
-      submissionId: second.submission.id,
-      durationSeconds: 65,
-      outputTokens: 20,
-    });
-    const recoveredFirstUsage = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: first.cacheKey,
-      priceBookId,
-      attemptId: first.attempt.id,
-      submissionId: first.submission.id,
-      durationSeconds: 65,
-      outputTokens: 10,
-    });
-
-    expect(secondUsage).toMatchObject({ freeCreditApplied: false, status: "pending" });
-    expect(recoveredFirstUsage).toMatchObject({
-      freeCreditApplied: true,
-      status: "credited",
-    });
-  });
-
-  it("does not reserve another credit when durable usage outlives its source attempt", async () => {
-    const teacherEmail = "credit-retention-dedup@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const sharedCacheKey = "credit-retention-semantic-result";
-    const original = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "credit-retention-original",
-      { required: false, priceBookId, outputTokens: 5 },
-      { cacheKey: sharedCacheKey },
-    );
-    await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "credit-retention-qualifying-class",
-    );
-    await grantStripeBilling(db, teacherEmail, priceBookId);
-    await expect(
-      db.finalizeAiGradeDelivery({
-        attemptId: original.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-        billingCandidate: true,
-        allowUnmeteredAccess: false,
-      }),
-    ).resolves.toEqual({ status: "applied", billingRequired: true });
-    const originalUsage = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: sharedCacheKey,
-      priceBookId,
-      attemptId: original.attempt.id,
-      submissionId: original.submission.id,
-      durationSeconds: 65,
-      outputTokens: 5,
-    });
-    expect(originalUsage).toMatchObject({ freeCreditApplied: true });
+      db.findSubmissionById(fixture.submission.id, teacherEmail),
+    ).resolves.toMatchObject({ grade: null, feedback: "" });
 
     const raw = createClient({ url: `file:${localDbPath}` });
     try {
-      await raw.execute({
-        sql: "DELETE FROM submissions WHERE id = ?",
-        args: [original.submission.id],
+      const rows = await raw.execute({
+        sql: `SELECT status, attempt_id as attemptId
+          FROM ai_review_allowance_reservations_v1
+          WHERE id = ?`,
+        args: [reservation.reservationId],
       });
+      expect(rows.rows).toEqual([
+        expect.objectContaining({ status: "reserved", attemptId: "" }),
+      ]);
     } finally {
       raw.close();
     }
-    await expect(db.getAiBillingUsageById(originalUsage!.id)).resolves.toMatchObject({
-      cacheKey: sharedCacheKey,
-      freeCreditApplied: true,
-    });
-
-    const duplicate = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "credit-retention-duplicate",
-      { required: false, priceBookId, outputTokens: 6 },
-      { cacheKey: sharedCacheKey },
-    );
-    await expect(
-      db.finalizeAiGradeDelivery({
-        attemptId: duplicate.attempt.id,
-        ownerEmail: teacherEmail,
-        priceBookId,
-        billingCandidate: true,
-        allowUnmeteredAccess: false,
-      }),
-    ).resolves.toEqual({ status: "applied", billingRequired: false });
-
-    const billingMonth = db.getAiBillingUtcMonth(originalUsage!.createdAt);
-    await expect(
-      db.getAiBillingMonthlySummary(teacherEmail, billingMonth, testBillingScope),
-    ).resolves.toMatchObject({ usedCredits: 1, freeCreditResults: 1 });
   });
 
-  it("caps the qualifying-class allowance and bills results beyond the published limit", async () => {
-    const teacherEmail = "class-cap-teacher@example.com";
-    const classCap = TEACHER_AI_PRICING_LIMITS.classCount.max;
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const fixtures = [];
-    for (let index = 0; index < classCap + 1; index += 1) {
-      fixtures.push(
-        await createCompletedGradingFixture(db, teacherEmail, `class-cap-${index}`),
-      );
-    }
-    for (const fixture of fixtures) {
-      await applyAndMarkFixtureForBilling(db, fixture, teacherEmail, priceBookId);
-    }
-    await expect(db.countQualifyingAiBillingClasses(teacherEmail)).resolves.toBe(classCap);
-
-    const usageRows = [];
-    for (const fixture of fixtures) {
-      usageRows.push(
-        await db.createAiBillingUsage({
-          teacherEmail,
-          cacheKey: fixture.cacheKey,
-          priceBookId,
-          attemptId: fixture.attempt.id,
-          submissionId: fixture.submission.id,
-          durationSeconds: 65,
-          outputTokens: 100,
-          now: Date.UTC(2026, 7, 21, 13),
-        }),
-      );
-    }
-
-    expect(usageRows.filter((row) => row?.freeCreditApplied)).toHaveLength(classCap - 1);
-    expect(usageRows.filter((row) => row && !row.freeCreditApplied)).toHaveLength(2);
-    await expect(
-      db.getAiBillingMonthlySummary(teacherEmail, "2026-08", testBillingScope),
-    ).resolves.toMatchObject({
-      qualifyingClassHighWater: classCap,
-      earnedCredits: classCap - 1,
-      usedCredits: classCap - 1,
-      remainingCredits: 0,
-      successfulResults: classCap + 1,
-      freeCreditResults: classCap - 1,
-      billableResults: 2,
-      billableBaseUnits: 2,
-      billableDurationSeconds: 130,
-      billableOutputTokens: 0,
+  it("starts each verified Teacher period empty while preserving the prior period archive", async () => {
+    const teacherEmail = "teacher-period-archive@example.com";
+    const firstSemanticKey = "teacher-period-one-result";
+    const now = Date.now();
+    const firstPeriodStart = now - 1_000;
+    const firstPeriodEnd = now + 60_000;
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedGradingFixture(
+      db,
+      teacherEmail,
+      "teacher-period-archive",
+      { cacheKey: firstSemanticKey },
+    );
+    await db.upsertStripeBillingCustomer({
+      teacherEmail,
+      stripeCustomerId: "cus_teacher_period_archive",
+      now,
     });
+    const firstPeriod = await db.upsertStripeBillingSubscription({
+      stripeCustomerId: "cus_teacher_period_archive",
+      stripeSubscriptionId: "sub_teacher_period_archive",
+      subscriptionStatus: "active",
+      subscriptionPeriodStart: firstPeriodStart,
+      subscriptionPeriodEnd: firstPeriodEnd,
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+      stripeEventCreated: 10,
+      now,
+    });
+    if (!firstPeriod) throw new Error("First Teacher period was not persisted.");
+    const firstReservation = await db.reserveAiReviewAllowance({
+      teacherEmail,
+      semanticKey: firstSemanticKey,
+      now: now + 1,
+    });
+    if (firstReservation.reservationStatus !== "reserved") {
+      throw new Error("First Teacher period did not reserve capacity.");
+    }
+    expect(firstReservation).toMatchObject({
+      status: "teacher_period",
+      limit: 300,
+      used: 1,
+      remaining: 299,
+      periodStart: firstPeriodStart,
+      periodEnd: firstPeriodEnd,
+    });
+    await db.finalizeAiGradeDelivery({
+      attemptId: fixture.attempt.id,
+      ownerEmail: teacherEmail,
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      billingCandidate: false,
+      allowUnmeteredAccess: false,
+      reviewReservationId: firstReservation.reservationId,
+    });
+
+    const secondPeriodStart = firstPeriodEnd;
+    const secondPeriodEnd = secondPeriodStart + 60_000;
+    const secondPeriod = await db.upsertStripeBillingSubscription({
+      stripeCustomerId: "cus_teacher_period_archive",
+      stripeSubscriptionId: "sub_teacher_period_archive",
+      subscriptionStatus: "active",
+      subscriptionPeriodStart: secondPeriodStart,
+      subscriptionPeriodEnd: secondPeriodEnd,
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+      stripeEventCreated: 11,
+      expectedAccount: firstPeriod,
+      now: now + 2,
+    });
+    if (!secondPeriod) throw new Error("Second Teacher period was not persisted.");
+    await expect(
+      db.getAiReviewAllowanceSummary({
+        teacherEmail,
+        now: secondPeriodStart + 1,
+      }),
+    ).resolves.toMatchObject({
+      status: "teacher_period",
+      limit: 300,
+      reserved: 0,
+      consumed: 0,
+      used: 0,
+      remaining: 300,
+      periodStart: secondPeriodStart,
+      periodEnd: secondPeriodEnd,
+    });
+    await expect(
+      db.reserveAiReviewAllowance({
+        teacherEmail,
+        semanticKey: "teacher-period-two-result",
+        now: secondPeriodStart + 2,
+      }),
+    ).resolves.toMatchObject({
+      reservationStatus: "reserved",
+      status: "teacher_period",
+      used: 1,
+      remaining: 299,
+    });
+
+    const raw = createClient({ url: `file:${localDbPath}` });
+    try {
+      const rows = await raw.execute({
+        sql: `SELECT scope_key as scopeKey, status
+          FROM ai_review_allowance_reservations_v1
+          WHERE teacher_email = ?
+          ORDER BY created_at ASC, id ASC`,
+        args: [teacherEmail],
+      });
+      expect(rows.rows).toEqual([
+        expect.objectContaining({
+          scopeKey:
+            "teacher_period:sub_teacher_period_archive:" +
+            firstPeriodStart +
+            ":" +
+            firstPeriodEnd,
+          status: "consumed",
+        }),
+        expect.objectContaining({
+          scopeKey:
+            "teacher_period:sub_teacher_period_archive:" +
+            secondPeriodStart +
+            ":" +
+            secondPeriodEnd,
+          status: "reserved",
+        }),
+      ]);
+    } finally {
+      raw.close();
+    }
+  });
+
+  it("fails closed instead of falling back from a stale nonterminal Stripe mapping", async () => {
+    const teacherEmail = "stale-subscription-allowance@example.com";
+    const now = Date.now();
+    await db.setUserRoleTeacher(teacherEmail);
+    await db.setUserPaid(teacherEmail, true);
+    await db.upsertStripeBillingCustomer({
+      teacherEmail,
+      stripeCustomerId: "cus_stale_subscription_allowance",
+      now,
+    });
+    await db.upsertStripeBillingSubscription({
+      stripeCustomerId: "cus_stale_subscription_allowance",
+      stripeSubscriptionId: "sub_stale_subscription_allowance",
+      subscriptionStatus: "active",
+      subscriptionPeriodStart: now - 60_000,
+      subscriptionPeriodEnd: now - 1,
+      priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+      stripeEventCreated: 1,
+      now,
+    });
+
+    await expect(
+      db.reserveAiReviewAllowance({
+        teacherEmail,
+        semanticKey: "must-not-fall-back-to-manual-or-free",
+        now,
+      }),
+    ).resolves.toMatchObject({
+      reservationStatus: "subscription_unavailable",
+      status: "subscription_unavailable",
+      limit: 0,
+      reserved: 0,
+      consumed: 0,
+      used: 0,
+      remaining: 0,
+    });
+    await expect(
+      db.getAiReviewAllowanceSummary({ teacherEmail, now }),
+    ).resolves.toMatchObject({
+      status: "subscription_unavailable",
+      limit: 0,
+      used: 0,
+      remaining: 0,
+    });
+
+    billingRuntimeMocks.subscriptionReady.mockResolvedValue(false);
+    await expect(db.getStripeSubscriptionGrantsAiAccess(teacherEmail)).resolves.toBe(false);
+    await expect(
+      db.reserveAiReviewAllowance({
+        teacherEmail,
+        semanticKey: "runtime-must-not-fall-back",
+        now,
+      }),
+    ).resolves.toMatchObject({
+      reservationStatus: "subscription_unavailable",
+      status: "subscription_unavailable",
+      limit: 0,
+    });
+  });
+
+  it("keeps retired metering archive-only for an active Teacher subscription", async () => {
+    const teacherEmail = "retired-metering-archive@example.com";
+    await db.setUserRoleTeacher(teacherEmail);
+    const fixture = await createCompletedGradingFixture(
+      db,
+      teacherEmail,
+      "retired-metering-archive",
+    );
+    await grantStripeBilling(db, teacherEmail, TEACHER_AI_PRICE_BOOK.id);
+    await db.applyAiGradeToSubmission(fixture.submission.id, teacherEmail, {
+      grade: fixture.attempt.suggestedScore!,
+      feedback: fixture.attempt.feedback,
+      rubricScores: null,
+    });
+
+    await expect(
+      db.markAiGradingAttemptBillingRequired({
+        attemptId: fixture.attempt.id,
+        ownerEmail: teacherEmail,
+        priceBookId: TEACHER_AI_PRICE_BOOK.id,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      db.createAiBillingUsage({
+        teacherEmail,
+        cacheKey: fixture.cacheKey,
+        priceBookId: TEACHER_AI_PRICE_BOOK.id,
+        attemptId: fixture.attempt.id,
+        submissionId: fixture.submission.id,
+        durationSeconds: fixture.attempt.durationSeconds,
+        outputTokens: fixture.attempt.billableOutputTokens,
+        livemode: false,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      db.listUnqueuedAiBillingAttempts(TEACHER_AI_PRICE_BOOK.id),
+    ).resolves.toEqual([]);
+
+    const raw = createClient({ url: `file:${localDbPath}` });
+    try {
+      const marker = await raw.execute({
+        sql: `SELECT billing_required as billingRequired,
+          billing_price_book_id as billingPriceBookId
+          FROM ai_grading_attempts WHERE id = ?`,
+        args: [fixture.attempt.id],
+      });
+      expect(marker.rows).toEqual([
+        expect.objectContaining({ billingRequired: 0, billingPriceBookId: "" }),
+      ]);
+      const usage = await raw.execute({
+        sql: `SELECT COUNT(*) as count FROM ai_billing_usage_v3
+          WHERE teacher_email = ?`,
+        args: [teacherEmail],
+      });
+      expect(Number(usage.rows[0]?.count ?? -1)).toBe(0);
+    } finally {
+      raw.close();
+    }
   });
 
   it("applies AI grade fields only to an active submission owned by the teacher", async () => {
@@ -2172,189 +1459,6 @@ describe("Stripe and AI billing persistence", () => {
     });
   });
 
-  it("isolates semantic usage and monthly credits across Stripe modes", async () => {
-    const teacherEmail = "scope-isolation@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const sharedCacheKey = "same-semantic-result-across-stripe-modes";
-    const testFixture = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "scope-isolation-test",
-      { required: false, priceBookId, outputTokens: 20 },
-      { cacheKey: sharedCacheKey },
-    );
-    const liveFixture = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "scope-isolation-live",
-      { required: false, priceBookId, outputTokens: 20 },
-      { cacheKey: sharedCacheKey },
-    );
-    await applyAndMarkFixtureForBilling(db, testFixture, teacherEmail, priceBookId);
-    await db.applyAiGradeToSubmission(liveFixture.submission.id, teacherEmail, {
-      grade: liveFixture.attempt.suggestedScore!,
-      feedback: liveFixture.attempt.feedback,
-      rubricScores: null,
-    });
-    const raw = createClient({ url: `file:${localDbPath}` });
-    try {
-      await raw.execute({
-        sql: `UPDATE ai_grading_attempts
-        SET billing_required = 1,
-            delivery_status = 'delivered',
-            billing_price_book_id = ?,
-            billing_stripe_customer_id = 'cus_scope_live',
-            billing_stripe_subscription_id = 'sub_scope_live',
-            billing_catalog_fingerprint = ?,
-            billing_contract_id = ?,
-            billing_livemode = 1,
-            billing_qualifying_class_high_water = 2,
-            billing_free_credit_applied = 1
-        WHERE id = ?`,
-        args: [
-          priceBookId,
-          STRIPE_CATALOG_MANIFEST.fingerprint,
-          TEST_BILLING_CONTRACT_ID,
-          liveFixture.attempt.id,
-        ],
-      });
-    } finally {
-      raw.close();
-    }
-
-    const testUsage = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: sharedCacheKey,
-      priceBookId,
-      attemptId: testFixture.attempt.id,
-      submissionId: testFixture.submission.id,
-      durationSeconds: 65,
-      outputTokens: 20,
-      livemode: false,
-    });
-    const liveUsage = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: sharedCacheKey,
-      priceBookId,
-      attemptId: liveFixture.attempt.id,
-      submissionId: liveFixture.submission.id,
-      durationSeconds: 65,
-      outputTokens: 20,
-      livemode: true,
-    });
-    expect(testUsage).toMatchObject({ freeCreditApplied: true, livemode: false });
-    expect(liveUsage).toMatchObject({ freeCreditApplied: true, livemode: true });
-    expect(liveUsage?.id).not.toBe(testUsage?.id);
-
-    const billingMonth = db.getAiBillingUtcMonth(testUsage!.createdAt);
-    await expect(
-      db.getAiBillingMonthlySummary(teacherEmail, billingMonth, testBillingScope),
-    ).resolves.toMatchObject({ successfulResults: 1, freeCreditResults: 1, usedCredits: 1 });
-    await expect(
-      db.getAiBillingMonthlySummary(teacherEmail, billingMonth, {
-        ...testBillingScope,
-        livemode: true,
-      }),
-    ).resolves.toMatchObject({ successfulResults: 1, freeCreditResults: 1, usedCredits: 1 });
-    await expect(
-      db.getAiBillingMonthlySummary(teacherEmail, billingMonth, {
-        ...testBillingScope,
-        billingContractId: "different-billing-contract",
-      }),
-    ).resolves.toMatchObject({
-      successfulResults: 0,
-      freeCreditResults: 0,
-      billableResults: 0,
-    });
-  });
-
-  it("does not let an invalid legacy-shaped ledger row starve valid pending usage", async () => {
-    const teacherEmail = "invalid-ledger-queue@example.com";
-    const priceBookId = TEACHER_AI_PRICE_BOOK.id;
-    const first = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "invalid-ledger-first",
-      { required: false, priceBookId, outputTokens: 0 },
-    );
-    const second = await createCompletedGradingFixture(
-      db,
-      teacherEmail,
-      "invalid-ledger-second",
-      { required: false, priceBookId, outputTokens: 0 },
-    );
-    await applyAndMarkFixtureForBilling(db, first, teacherEmail, priceBookId);
-    await applyAndMarkFixtureForBilling(db, second, teacherEmail, priceBookId);
-    await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: first.cacheKey,
-      priceBookId,
-      attemptId: first.attempt.id,
-      submissionId: first.submission.id,
-      durationSeconds: 65,
-      outputTokens: 0,
-      livemode: false,
-    });
-    const validPending = await db.createAiBillingUsage({
-      teacherEmail,
-      cacheKey: second.cacheKey,
-      priceBookId,
-      attemptId: second.attempt.id,
-      submissionId: second.submission.id,
-      durationSeconds: 65,
-      outputTokens: 0,
-      livemode: false,
-    });
-    expect(validPending).toMatchObject({ status: "pending", freeCreditApplied: false });
-
-    const invalidId = "aiu_invalid_legacy_shaped_queue";
-    const raw = createClient({ url: `file:${localDbPath}` });
-    try {
-      const queueNow = validPending!.createdAt + 1_000;
-      const validCreatedAt = queueNow - 22 * 60 * 60 * 1_000;
-      await raw.execute({
-        sql: `UPDATE ai_billing_usage_v3
-        SET created_at = ?, updated_at = ?
-        WHERE id = ?`,
-        args: [validCreatedAt, validCreatedAt, validPending!.id],
-      });
-      await raw.execute({
-        sql: `INSERT INTO ai_billing_usage_v3 (
-          id, teacher_email, billing_month, cache_key, price_book_id,
-          attempt_id, submission_id, stripe_customer_id,
-          stripe_subscription_id, catalog_fingerprint, billing_contract_id, livemode,
-          free_credit_applied, base_units, duration_seconds, output_tokens,
-          status, last_error, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, '', '', '', '', 0, 0, 1, 1, 0, 'pending', '', ?, ?)`,
-        args: [
-          invalidId,
-          "legacy-invalid@example.com",
-          db.getAiBillingUtcMonth(validPending!.createdAt),
-          "legacy-invalid-cache",
-          priceBookId,
-          "legacy-invalid-attempt",
-          "legacy-invalid-submission",
-          validCreatedAt - 1,
-          validCreatedAt - 1,
-        ],
-      });
-      await expect(
-        db.listPendingAiBillingUsage(1, false, queueNow),
-      ).resolves.toEqual([expect.objectContaining({ id: validPending!.id })]);
-      const health = await db.getAiBillingReconciliationHealth(
-        priceBookId,
-        queueNow,
-      );
-      expect(health.invalidPendingUnattempted).toBeGreaterThanOrEqual(2);
-    } finally {
-      await raw.execute({
-        sql: "DELETE FROM ai_billing_usage_v3 WHERE id = ?",
-        args: [invalidId],
-      });
-      raw.close();
-    }
-  });
-
   it("keeps ambiguous unscoped legacy billing rows quarantined and billing fail-closed", async () => {
     const raw = createClient({ url: `file:${localDbPath}` });
     try {
@@ -2450,8 +1554,8 @@ describe("Stripe and AI billing persistence", () => {
         ) VALUES (?, '2026-08', ?, ?, 0, 2, 1, 1, 1)`,
         args: [
           "legacy-v2-upgrade@example.com",
-          TEACHER_AI_PRICE_BOOK.id,
-          STRIPE_CATALOG_MANIFEST.fingerprint,
+          RETIRED_V2_PRICE_BOOK_ID,
+          RETIRED_V2_CATALOG_FINGERPRINT,
         ],
       });
       await seed.execute({
@@ -2467,8 +1571,8 @@ describe("Stripe and AI billing persistence", () => {
         )`,
         args: [
           "legacy-v2-upgrade@example.com",
-          TEACHER_AI_PRICE_BOOK.id,
-          STRIPE_CATALOG_MANIFEST.fingerprint,
+          RETIRED_V2_PRICE_BOOK_ID,
+          RETIRED_V2_CATALOG_FINGERPRINT,
         ],
       });
     } finally {
@@ -2487,10 +1591,17 @@ describe("Stripe and AI billing persistence", () => {
       const verify = createClient({ url: `file:${upgradeDbPath}` });
       try {
         const v2Rows = await verify.execute(
-          "SELECT id, cache_key as cacheKey FROM ai_billing_usage_v2",
+          `SELECT id, cache_key as cacheKey, price_book_id as priceBookId,
+            catalog_fingerprint as catalogFingerprint
+          FROM ai_billing_usage_v2`,
         );
         expect(v2Rows.rows).toEqual([
-          expect.objectContaining({ id: "legacy_v2_usage", cacheKey: "legacy-v2-cache" }),
+          expect.objectContaining({
+            id: "legacy_v2_usage",
+            cacheKey: "legacy-v2-cache",
+            priceBookId: RETIRED_V2_PRICE_BOOK_ID,
+            catalogFingerprint: RETIRED_V2_CATALOG_FINGERPRINT,
+          }),
         ]);
 
         async function semanticUniqueColumns(table: string) {
@@ -2546,10 +1657,10 @@ describe("Stripe and AI billing persistence", () => {
           sql: insertV3Sql,
           args: [
             "v3_upgrade_usage",
-            TEACHER_AI_PRICE_BOOK.id,
+            RETIRED_V2_PRICE_BOOK_ID,
             "v3-upgrade-attempt",
             "v3-upgrade-submission",
-            STRIPE_CATALOG_MANIFEST.fingerprint,
+            RETIRED_V2_CATALOG_FINGERPRINT,
             TEST_BILLING_CONTRACT_ID,
           ],
         });
@@ -2558,10 +1669,10 @@ describe("Stripe and AI billing persistence", () => {
             sql: insertV3Sql,
             args: [
               "v3_upgrade_usage_duplicate",
-              TEACHER_AI_PRICE_BOOK.id,
+              RETIRED_V2_PRICE_BOOK_ID,
               "v3-upgrade-attempt-duplicate",
               "v3-upgrade-submission-duplicate",
-              STRIPE_CATALOG_MANIFEST.fingerprint,
+              RETIRED_V2_CATALOG_FINGERPRINT,
               "contract_changed_but_same_semantic_result",
             ],
           }),

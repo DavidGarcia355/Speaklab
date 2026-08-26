@@ -15,25 +15,14 @@ import { STRIPE_API_VERSION, type StripeKeyMode } from "@/lib/billing/config";
 export { STRIPE_API_VERSION } from "@/lib/billing/config";
 export {
   STRIPE_CATALOG_MANIFEST,
+  STRIPE_TEACHER_CATALOG_PRICE_BOOK,
   createStripeCatalogManifest,
   type StripeCatalogDimension,
   type StripeCatalogDimensionKey,
   type StripeCatalogManifest,
   type StripeCatalogMetadata,
+  type StripeTeacherCatalogPriceBook,
 } from "@/lib/billing/catalog-manifest";
-
-export type CatalogMeterRecord = {
-  id: string;
-  livemode: boolean;
-  status: string;
-  displayName: string;
-  eventName: string;
-  aggregationFormula: string;
-  customerMappingType: string;
-  customerPayloadKey: string;
-  valuePayloadKey: string;
-  eventTimeWindow: string | null;
-};
 
 export type CatalogProductRecord = {
   id: string;
@@ -56,8 +45,12 @@ export type CatalogPriceRecord = {
   billingScheme: string;
   type: string;
   productId: string;
+  unitAmountCents: number | null;
   unitAmountDecimalCents: string | null;
-  currencyOptions: Record<string, { unitAmountDecimalCents: string | null }> | null;
+  currencyOptions: Record<
+    string,
+    { unitAmountCents: number | null; unitAmountDecimalCents: string | null }
+  > | null;
   recurring: {
     interval: string;
     intervalCount: number;
@@ -74,15 +67,6 @@ export type CatalogPriceRecord = {
 
 export interface StripeCatalogClient {
   retrieveAccountId(): Promise<string>;
-  listMeters(): Promise<readonly CatalogMeterRecord[]>;
-  createMeter(
-    dimension: StripeCatalogDimension,
-    idempotencyKey: string,
-  ): Promise<CatalogMeterRecord>;
-  updateMeter(
-    meterId: string,
-    dimension: StripeCatalogDimension,
-  ): Promise<CatalogMeterRecord>;
   getProduct(productId: string): Promise<CatalogProductRecord | null>;
   createProduct(
     dimension: StripeCatalogDimension,
@@ -96,14 +80,13 @@ export interface StripeCatalogClient {
   listPrices(lookupKey: string): Promise<readonly CatalogPriceRecord[]>;
   createPrice(
     dimension: StripeCatalogDimension,
-    meterId: string,
     idempotencyKey: string,
   ): Promise<CatalogPriceRecord>;
 }
 
 export type CatalogAction = {
   dimension: StripeCatalogDimensionKey;
-  resource: "meter" | "product" | "price";
+  resource: "product" | "price";
   action: "create" | "update" | "unchanged";
   id: string;
 };
@@ -160,9 +143,7 @@ async function assertStripeCatalogAccount(
     throw new Error("Could not verify the Stripe account identity.");
   }
   if (actualAccountId !== assertStripeCatalogAccountId(expectedAccountId)) {
-    throw new Error(
-      "Stripe account mismatch. Refusing to inspect or mutate catalog resources.",
-    );
+    throw new Error("Stripe account mismatch. Refusing to inspect or mutate catalog resources.");
   }
 }
 
@@ -204,7 +185,7 @@ function metadataMismatchKeys(
   expected: CatalogMetadata,
 ) {
   return [...new Set([...Object.keys(actual), ...Object.keys(expected)])]
-    .filter((key) => actual[key] !== expected[key as keyof CatalogMetadata])
+    .filter((key) => actual[key] !== expected[key])
     .sort();
 }
 
@@ -232,22 +213,6 @@ function assertIdentityMetadata(
   }
 }
 
-function assertMeterImmutable(
-  meter: CatalogMeterRecord,
-  dimension: StripeCatalogDimension,
-  keyMode: StripeKeyMode,
-) {
-  const resource = `meter ${meter.id}`;
-  assertResourceMode(meter, "meter", keyMode);
-  requireEqual(resource, "event_name", dimension.meterEventName, meter.eventName);
-  requireEqual(resource, "status", "active", meter.status);
-  requireEqual(resource, "aggregation", "sum", meter.aggregationFormula);
-  requireEqual(resource, "customer mapping", "by_id", meter.customerMappingType);
-  requireEqual(resource, "customer payload key", "stripe_customer_id", meter.customerPayloadKey);
-  requireEqual(resource, "value payload key", "value", meter.valuePayloadKey);
-  requireEqual(resource, "event time window", null, meter.eventTimeWindow);
-}
-
 function productNeedsUpdate(
   product: CatalogProductRecord,
   dimension: StripeCatalogDimension,
@@ -268,7 +233,6 @@ function productNeedsUpdate(
 function assertPriceImmutable(
   price: CatalogPriceRecord,
   dimension: StripeCatalogDimension,
-  meterId: string,
   keyMode: StripeKeyMode,
 ) {
   const resource = `price ${price.id}`;
@@ -281,7 +245,7 @@ function assertPriceImmutable(
   requireEqual(resource, "nickname", dimension.priceNickname, price.nickname);
   requireEqual(resource, "currency", "usd", price.currency);
   if (
-    price.currencyOptions === null ||
+    price.currencyOptions !== null &&
     Object.keys(price.currencyOptions).some((currency) => currency !== "usd")
   ) {
     drift(resource, "currency_options", "USD only", price.currencyOptions);
@@ -291,50 +255,46 @@ function assertPriceImmutable(
   requireEqual(resource, "product", dimension.productId, price.productId);
   requireEqual(resource, "recurring.interval", "month", price.recurring?.interval);
   requireEqual(resource, "recurring.interval_count", 1, price.recurring?.intervalCount);
-  requireEqual(resource, "recurring.usage_type", "metered", price.recurring?.usageType);
-  requireEqual(resource, "recurring.meter", meterId, price.recurring?.meterId);
+  requireEqual(resource, "recurring.usage_type", "licensed", price.recurring?.usageType);
+  requireEqual(resource, "recurring.meter", null, price.recurring?.meterId);
   requireEqual(resource, "recurring.trial_period_days", null, price.recurring?.trialPeriodDays);
   requireEqual(resource, "tax_behavior", "unspecified", price.taxBehavior ?? "unspecified");
   requireEqual(resource, "custom_unit_amount", null, price.customUnitAmount);
   requireEqual(resource, "tiers_mode", null, price.tiersMode);
   requireEqual(resource, "transform_quantity", null, price.transformQuantity);
+  requireEqual(resource, "unit_amount", dimension.unitAmountCents, price.unitAmountCents);
 
-  if (price.unitAmountDecimalCents === null) {
-    drift(resource, "unit_amount_decimal", dimension.unitAmountDecimalCents, null);
-  }
-  const actualAmount = Stripe.Decimal.from(price.unitAmountDecimalCents);
-  const expectedAmount = Stripe.Decimal.from(dimension.unitAmountDecimalCents);
-  if (!actualAmount.eq(expectedAmount)) {
-    drift(
-      resource,
-      "unit_amount_decimal",
-      dimension.unitAmountDecimalCents,
-      price.unitAmountDecimalCents,
-    );
-  }
-  const usdOption = price.currencyOptions.usd;
+  const expectedAmount = Stripe.Decimal.from(String(dimension.unitAmountCents));
   if (
-    usdOption?.unitAmountDecimalCents !== undefined &&
-    (usdOption.unitAmountDecimalCents === null ||
-      !Stripe.Decimal.from(usdOption.unitAmountDecimalCents).eq(expectedAmount))
+    price.unitAmountDecimalCents === null ||
+    !Stripe.Decimal.from(price.unitAmountDecimalCents).eq(expectedAmount)
   ) {
     drift(
       resource,
-      "currency_options.usd.unit_amount_decimal",
-      dimension.unitAmountDecimalCents,
-      usdOption.unitAmountDecimalCents,
+      "unit_amount_decimal",
+      String(dimension.unitAmountCents),
+      price.unitAmountDecimalCents,
     );
+  }
+  const usdOption = price.currencyOptions?.usd;
+  if (
+    usdOption !== undefined &&
+    (usdOption.unitAmountCents !== dimension.unitAmountCents ||
+      usdOption.unitAmountDecimalCents === null ||
+      !Stripe.Decimal.from(usdOption.unitAmountDecimalCents).eq(expectedAmount))
+  ) {
+    drift(resource, "currency_options.usd", dimension.unitAmountCents, usdOption);
   }
 }
 
 function operationKey(
   manifest: StripeCatalogManifest,
-  resource: "meter" | "product" | "price",
+  resource: "product" | "price",
   identity: string,
   keyMode: StripeKeyMode,
 ) {
   const modeNamespace = keyMode === "live" ? "live:" : "";
-  return `habla:${modeNamespace}${manifest.priceBookId}:${resource}:${identity}:${manifest.fingerprint.slice(0, 16)}`;
+  return `tryhabla:${modeNamespace}${manifest.priceBookId}:${resource}:${identity}:${manifest.fingerprint.slice(0, 16)}`;
 }
 
 export async function reconcileStripeCatalog(
@@ -354,73 +314,8 @@ export async function reconcileStripeCatalog(
   const manifest = options.manifest ?? createStripeCatalogManifest();
   const actions: CatalogAction[] = [];
   const priceEnvironment: Record<string, string> = {};
-  const allMeters = await client.listMeters();
-  for (const meter of allMeters) assertResourceMode(meter, "meter", options.keyMode);
 
   for (const dimension of manifest.dimensions) {
-    const meterMatches = allMeters.filter((meter) => meter.eventName === dimension.meterEventName);
-    if (meterMatches.length > 1) {
-      throw new StripeCatalogDriftError(
-        `Multiple Stripe meters use event_name ${dimension.meterEventName}; refusing to guess.`,
-      );
-    }
-
-    let meter = meterMatches[0];
-    if (!meter) {
-      actions.push({
-        dimension: dimension.key,
-        resource: "meter",
-        action: "create",
-        id: `<${dimension.meterEventName}>`,
-      });
-      if (options.apply) {
-        meter = await client.createMeter(
-          dimension,
-          operationKey(
-            manifest,
-            "meter",
-            dimension.meterEventName,
-            options.keyMode,
-          ),
-        );
-        assertMeterImmutable(meter, dimension, options.keyMode);
-        requireEqual(
-          `meter ${meter.id}`,
-          "display_name",
-          dimension.meterDisplayName,
-          meter.displayName,
-        );
-        actions[actions.length - 1] = { ...actions[actions.length - 1], id: meter.id };
-      }
-    } else {
-      assertMeterImmutable(meter, dimension, options.keyMode);
-      if (meter.displayName !== dimension.meterDisplayName) {
-        actions.push({
-          dimension: dimension.key,
-          resource: "meter",
-          action: "update",
-          id: meter.id,
-        });
-        if (options.apply) {
-          meter = await client.updateMeter(meter.id, dimension);
-          assertMeterImmutable(meter, dimension, options.keyMode);
-          requireEqual(
-            `meter ${meter.id}`,
-            "display_name",
-            dimension.meterDisplayName,
-            meter.displayName,
-          );
-        }
-      } else {
-        actions.push({
-          dimension: dimension.key,
-          resource: "meter",
-          action: "unchanged",
-          id: meter.id,
-        });
-      }
-    }
-
     let product = await client.getProduct(dimension.productId);
     if (!product) {
       actions.push({
@@ -462,9 +357,7 @@ export async function reconcileStripeCatalog(
     }
 
     const prices = await client.listPrices(dimension.priceLookupKey);
-    for (const candidate of prices) {
-      assertResourceMode(candidate, "price", options.keyMode);
-    }
+    for (const candidate of prices) assertResourceMode(candidate, "price", options.keyMode);
     if (prices.length > 1) {
       throw new StripeCatalogDriftError(
         `Multiple Stripe prices use lookup_key ${dimension.priceLookupKey}; refusing to guess.`,
@@ -480,27 +373,15 @@ export async function reconcileStripeCatalog(
         id: `<${dimension.priceLookupKey}>`,
       });
       if (options.apply) {
-        if (!meter) throw new Error(`Cannot create ${dimension.key} price without its Stripe meter.`);
         price = await client.createPrice(
           dimension,
-          meter.id,
-          operationKey(
-            manifest,
-            "price",
-            dimension.priceLookupKey,
-            options.keyMode,
-          ),
+          operationKey(manifest, "price", dimension.priceLookupKey, options.keyMode),
         );
-        assertPriceImmutable(price, dimension, meter.id, options.keyMode);
+        assertPriceImmutable(price, dimension, options.keyMode);
         actions[actions.length - 1] = { ...actions[actions.length - 1], id: price.id };
       }
     } else {
-      if (!meter) {
-        throw new StripeCatalogDriftError(
-          `Price ${price.id} exists but meter ${dimension.meterEventName} is missing.`,
-        );
-      }
-      assertPriceImmutable(price, dimension, meter.id, options.keyMode);
+      assertPriceImmutable(price, dimension, options.keyMode);
       actions.push({
         dimension: dimension.key,
         resource: "price",
@@ -524,21 +405,6 @@ export async function reconcileStripeCatalog(
 
 function isMissingStripeResource(error: unknown) {
   return error instanceof Stripe.errors.StripeInvalidRequestError && error.code === "resource_missing";
-}
-
-function normalizeMeter(meter: Stripe.Billing.Meter): CatalogMeterRecord {
-  return {
-    id: meter.id,
-    livemode: meter.livemode,
-    status: meter.status,
-    displayName: meter.display_name,
-    eventName: meter.event_name,
-    aggregationFormula: meter.default_aggregation.formula,
-    customerMappingType: meter.customer_mapping.type,
-    customerPayloadKey: meter.customer_mapping.event_payload_key,
-    valuePayloadKey: meter.value_settings.event_payload_key,
-    eventTimeWindow: meter.event_time_window,
-  };
 }
 
 function normalizeProduct(product: Stripe.Product): CatalogProductRecord {
@@ -565,12 +431,16 @@ function normalizePrice(price: Stripe.Price): CatalogPriceRecord {
     billingScheme: price.billing_scheme,
     type: price.type,
     productId: typeof price.product === "string" ? price.product : price.product.id,
+    unitAmountCents: price.unit_amount,
     unitAmountDecimalCents: price.unit_amount_decimal?.toString() ?? null,
     currencyOptions: price.currency_options
       ? Object.fromEntries(
           Object.entries(price.currency_options).map(([currency, option]) => [
             currency,
-            { unitAmountDecimalCents: option.unit_amount_decimal?.toString() ?? null },
+            {
+              unitAmountCents: option.unit_amount,
+              unitAmountDecimalCents: option.unit_amount_decimal?.toString() ?? null,
+            },
           ]),
         )
       : null,
@@ -596,38 +466,6 @@ export class StripeSdkCatalogClient implements StripeCatalogClient {
 
   async retrieveAccountId() {
     return (await this.stripe.accounts.retrieve(null)).id;
-  }
-
-  async listMeters() {
-    const found: CatalogMeterRecord[] = [];
-    for (const status of ["active", "inactive"] as const) {
-      for await (const meter of this.stripe.billing.meters.list({ limit: 100, status })) {
-        found.push(normalizeMeter(meter));
-      }
-    }
-    return found;
-  }
-
-  async createMeter(dimension: StripeCatalogDimension, idempotencyKey: string) {
-    const meter = await this.stripe.billing.meters.create(
-      {
-        display_name: dimension.meterDisplayName,
-        event_name: dimension.meterEventName,
-        default_aggregation: { formula: "sum" },
-        customer_mapping: { type: "by_id", event_payload_key: "stripe_customer_id" },
-        value_settings: { event_payload_key: "value" },
-      },
-      { idempotencyKey },
-    );
-    return normalizeMeter(meter);
-  }
-
-  async updateMeter(meterId: string, dimension: StripeCatalogDimension) {
-    return normalizeMeter(
-      await this.stripe.billing.meters.update(meterId, {
-        display_name: dimension.meterDisplayName,
-      }),
-    );
   }
 
   async getProduct(productId: string) {
@@ -689,11 +527,7 @@ export class StripeSdkCatalogClient implements StripeCatalogClient {
     return [...found.values()];
   }
 
-  async createPrice(
-    dimension: StripeCatalogDimension,
-    meterId: string,
-    idempotencyKey: string,
-  ) {
+  async createPrice(dimension: StripeCatalogDimension, idempotencyKey: string) {
     return normalizePrice(
       await this.stripe.prices.create(
         {
@@ -707,11 +541,10 @@ export class StripeSdkCatalogClient implements StripeCatalogClient {
           product: dimension.productId,
           recurring: {
             interval: "month",
-            meter: meterId,
-            usage_type: "metered",
+            usage_type: "licensed",
           },
           tax_behavior: "unspecified",
-          unit_amount_decimal: Stripe.Decimal.from(dimension.unitAmountDecimalCents),
+          unit_amount: dimension.unitAmountCents,
         },
         { idempotencyKey },
       ),
@@ -725,10 +558,15 @@ function printResult(result: StripeCatalogResult) {
   console.log(`Fingerprint: ${result.fingerprint}`);
   console.log("");
   for (const action of result.actions) {
-    const verb = action.action === "unchanged" ? "unchanged" : result.applied ? action.action : `would ${action.action}`;
+    const verb =
+      action.action === "unchanged"
+        ? "unchanged"
+        : result.applied
+          ? action.action
+          : `would ${action.action}`;
     console.log(`- ${action.dimension} ${action.resource}: ${verb} (${action.id})`);
   }
-  console.log("\nRequired price environment variables:");
+  console.log("\nRequired price environment variable:");
   for (const [name, value] of Object.entries(result.priceEnvironment)) {
     console.log(`${name}=${value}`);
   }
@@ -740,8 +578,9 @@ function printResult(result: StripeCatalogResult) {
 function printHelp() {
   console.log(`Usage: npx tsx scripts/stripe-setup.ts [--apply]
 
-Reconciles the Habla teacher AI catalog in Stripe test/sandbox mode.
-The command is a read-only dry-run unless --apply is present.
+Reconciles the fixed TryHabla Teacher catalog in Stripe test/sandbox mode.
+The command is a read-only dry-run unless --apply is present. It creates one
+customer-facing Product named TryHabla and one $20 monthly licensed Price.
 
 Environment:
   STRIPE_TEST_SECRET_KEY   Required sk_test_, rk_test_, or rkcs_test_ key.
@@ -768,7 +607,7 @@ async function main() {
   const accountId = assertStripeCatalogAccountId(process.env.STRIPE_ACCOUNT_ID);
   const stripe = new Stripe(key, {
     apiVersion: STRIPE_API_VERSION,
-    appInfo: { name: "habla-stripe-catalog", version: "1" },
+    appInfo: { name: "tryhabla-stripe-catalog", version: "2" },
     maxNetworkRetries: 2,
     telemetry: false,
     timeout: 30_000,

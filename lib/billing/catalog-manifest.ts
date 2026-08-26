@@ -1,20 +1,16 @@
 import { createHash } from "node:crypto";
-import Stripe from "stripe";
 import { STRIPE_API_VERSION } from "@/lib/billing/config";
 import {
   TEACHER_AI_PRICE_BOOK,
   type TeacherAiPriceBook,
 } from "@/lib/teacher-ai-pricing";
 
-export type StripeCatalogDimensionKey = "successful_grade" | "audio_second";
+export type StripeCatalogDimensionKey = "teacher";
 
 export type StripeCatalogMetadata = Readonly<Record<string, string>>;
 
 export type StripeCatalogDimension = Readonly<{
   key: StripeCatalogDimensionKey;
-  meterDisplayName: string;
-  meterEventName: string;
-  billingUnit: "grade" | "second";
   productId: string;
   productName: string;
   productDescription: string;
@@ -22,148 +18,146 @@ export type StripeCatalogDimension = Readonly<{
   priceLookupKey: string;
   priceNickname: string;
   priceEnvironmentVariable: string;
-  unitAmountDecimalCents: string;
+  unitAmountCents: number;
   metadata: StripeCatalogMetadata;
 }>;
 
+export type StripeTeacherCatalogPriceBook = TeacherAiPriceBook;
+
 export type StripeCatalogManifest = Readonly<{
-  schemaVersion: 1;
+  schemaVersion: 2;
   apiVersion: typeof STRIPE_API_VERSION;
-  priceBookId: string;
-  priceBookStatus: TeacherAiPriceBook["status"];
+  priceBookId: StripeTeacherCatalogPriceBook["id"];
+  priceBookStatus: StripeTeacherCatalogPriceBook["status"];
   currency: "usd";
   publishedAt: string;
-  effectiveAt: string | null;
+  effectiveAt: string;
   fingerprint: string;
-  dimensions: readonly StripeCatalogDimension[];
+  dimensions: readonly [StripeCatalogDimension];
 }>;
 
-const HUNDRED = Stripe.Decimal.from("100");
-const SIXTY = Stripe.Decimal.from("60");
+export const STRIPE_TEACHER_CATALOG_PRICE_BOOK = TEACHER_AI_PRICE_BOOK;
 
-function usdToCents(value: number, label: string) {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new RangeError(`${label} must be a non-negative finite USD amount.`);
+function assertPriceBookContract(priceBook: StripeTeacherCatalogPriceBook) {
+  if (priceBook.id !== "tryhabla-teacher-usd-v3") {
+    throw new Error("Stripe setup requires price book tryhabla-teacher-usd-v3.");
   }
-  return Stripe.Decimal.from(value.toString()).mul(HUNDRED);
-}
-
-function productToken(priceBookId: string) {
-  const token = priceBookId
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  if (!token) throw new Error("The teacher AI price book ID cannot produce a Stripe identifier.");
-  return token;
+  if (priceBook.currency !== "USD") {
+    throw new Error("The TryHabla Teacher Stripe price book must use USD.");
+  }
+  if (priceBook.status !== "active") {
+    throw new Error("The TryHabla Teacher Stripe price book must be active.");
+  }
+  if (priceBook.monthlyPriceUsd !== 20 || priceBook.billingCadence !== "month") {
+    throw new Error("The TryHabla Teacher Stripe price must be $20 per month.");
+  }
+  if (
+    priceBook.plan !== "teacher" ||
+    priceBook.billingModel !== "licensed_allowance" ||
+    priceBook.includedAiReviews !== 300 ||
+    priceBook.maxAudioMinutesPerReview !== 5 ||
+    priceBook.overagePolicy !== "pause_ai" ||
+    priceBook.rollover !== false ||
+    priceBook.freeAllowance.reviews !== 30 ||
+    priceBook.freeAllowance.period !== "account_lifetime" ||
+    priceBook.freeAllowance.rollover !== false
+  ) {
+    throw new Error("The TryHabla Teacher allowance contract does not match catalog v3.");
+  }
+  if (!priceBook.publishedAt.trim() || !priceBook.effectiveAt.trim()) {
+    throw new Error("The TryHabla Teacher Stripe price book must be published and effective.");
+  }
 }
 
 function catalogFingerprint(
-  priceBook: TeacherAiPriceBook,
-  dimensions: readonly Omit<StripeCatalogDimension, "metadata">[],
+  priceBook: StripeTeacherCatalogPriceBook,
+  dimension: Omit<StripeCatalogDimension, "metadata">,
 ) {
-  const contract = {
-    schemaVersion: 1,
-    priceBook: {
-      id: priceBook.id,
-      currency: priceBook.currency,
-      status: priceBook.status,
-      publishedAt: priceBook.publishedAt,
-      effectiveAt: priceBook.effectiveAt,
-      baseSuccessfulGradeUsd: priceBook.baseSuccessfulGradeUsd,
-      audioMinuteUsd: priceBook.audioMinuteUsd,
-      successfulGradeIdentity: priceBook.successfulGradeIdentity,
-      feedbackIncluded: priceBook.feedbackIncluded,
-      freeCreditPolicy: priceBook.freeCreditPolicy,
-    },
-    dimensions: dimensions.map((dimension) => ({
-      key: dimension.key,
-      meterEventName: dimension.meterEventName,
-      billingUnit: dimension.billingUnit,
-      productId: dimension.productId,
-      priceLookupKey: dimension.priceLookupKey,
-      unitAmountDecimalCents: dimension.unitAmountDecimalCents,
-    })),
-  };
-  return createHash("sha256").update(JSON.stringify(contract)).digest("hex");
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        schemaVersion: 2,
+        priceBook: {
+          id: priceBook.id,
+          currency: priceBook.currency,
+          status: priceBook.status,
+          publishedAt: priceBook.publishedAt,
+          effectiveAt: priceBook.effectiveAt,
+          plan: priceBook.plan,
+          billingModel: priceBook.billingModel,
+          monthlyPriceUsd: priceBook.monthlyPriceUsd,
+          billingCadence: priceBook.billingCadence,
+          includedAiReviews: priceBook.includedAiReviews,
+          maxAudioMinutesPerReview: priceBook.maxAudioMinutesPerReview,
+          overagePolicy: priceBook.overagePolicy,
+          rollover: priceBook.rollover,
+          successfulReviewIdentity: priceBook.successfulReviewIdentity,
+          feedbackIncluded: priceBook.feedbackIncluded,
+        },
+        price: {
+          key: dimension.key,
+          productId: dimension.productId,
+          productName: dimension.productName,
+          productDescription: dimension.productDescription,
+          productUnitLabel: dimension.productUnitLabel,
+          lookupKey: dimension.priceLookupKey,
+          nickname: dimension.priceNickname,
+          environmentVariable: dimension.priceEnvironmentVariable,
+          unitAmountCents: dimension.unitAmountCents,
+          recurringInterval: "month",
+          usageType: "licensed",
+          quantity: 1,
+        },
+      }),
+    )
+    .digest("hex");
 }
 
 export function createStripeCatalogManifest(
-  priceBook: TeacherAiPriceBook = TEACHER_AI_PRICE_BOOK,
+  priceBook: StripeTeacherCatalogPriceBook = STRIPE_TEACHER_CATALOG_PRICE_BOOK,
 ): StripeCatalogManifest {
-  if (priceBook.currency !== "USD") {
-    throw new Error(`Stripe teacher AI setup supports USD only, received ${priceBook.currency}.`);
-  }
-  if (!priceBook.id.trim()) throw new Error("The teacher AI price book ID is required.");
-  if (
-    !Number.isSafeInteger(priceBook.freeCreditPolicy.maxQualifyingClasses) ||
-    priceBook.freeCreditPolicy.maxQualifyingClasses < 1
-  ) {
-    throw new Error("The teacher AI free-credit class cap must be a positive safe integer.");
-  }
+  assertPriceBookContract(priceBook);
+  const monthlyPriceCents = priceBook.monthlyPriceUsd * 100;
 
-  const token = productToken(priceBook.id);
-  const successfulGradeCents = usdToCents(
-    priceBook.baseSuccessfulGradeUsd,
-    "baseSuccessfulGradeUsd",
-  );
-  const audioSecondCents = usdToCents(priceBook.audioMinuteUsd, "audioMinuteUsd").div(
-    SIXTY,
-    12,
-    "half-up",
-  );
-  const dimensionsWithoutMetadata: readonly Omit<StripeCatalogDimension, "metadata">[] = [
-    {
-      key: "successful_grade",
-      meterDisplayName: "Habla successful AI grades",
-      meterEventName: "habla_ai_successful_grade",
-      billingUnit: "grade",
-      productId: `${token}_successful_grade`,
-      productName: "Habla AI successful grades",
-      productDescription: "Successful, unique AI grading results for Habla teachers.",
-      productUnitLabel: "grade",
-      priceLookupKey: `${token}_successful_grade_monthly`,
-      priceNickname: `${priceBook.id}: successful grade`,
-      priceEnvironmentVariable: "STRIPE_AI_GRADE_PRICE_ID",
-      unitAmountDecimalCents: successfulGradeCents.toString(),
-    },
-    {
-      key: "audio_second",
-      meterDisplayName: "Habla processed AI audio seconds",
-      meterEventName: "habla_ai_audio_seconds",
-      billingUnit: "second",
-      productId: `${token}_audio_second`,
-      productName: "Habla AI processed audio",
-      productDescription:
-        "Processed audio for Habla AI grading, billed by second at the published per-minute rate.",
-      productUnitLabel: "second",
-      priceLookupKey: `${token}_audio_second_monthly`,
-      priceNickname: `${priceBook.id}: audio second`,
-      priceEnvironmentVariable: "STRIPE_AI_AUDIO_SECONDS_PRICE_ID",
-      unitAmountDecimalCents: audioSecondCents.toString(),
-    },
-  ];
-
-  const fingerprint = catalogFingerprint(priceBook, dimensionsWithoutMetadata);
-  const dimensions = dimensionsWithoutMetadata.map((dimension) =>
-    Object.freeze({
-      ...dimension,
-      metadata: Object.freeze({
-        habla_catalog: "teacher_ai",
-        catalog_schema_version: "1",
-        catalog_fingerprint: fingerprint,
-        price_book_id: priceBook.id,
-        price_book_status: priceBook.status,
-        published_at: priceBook.publishedAt,
-        effective_at: priceBook.effectiveAt ?? "pending",
-        dimension: dimension.key,
-        billing_unit: dimension.billingUnit,
-        unit_amount_decimal_cents: dimension.unitAmountDecimalCents,
-      }),
+  const dimensionWithoutMetadata: Omit<StripeCatalogDimension, "metadata"> = {
+    key: "teacher",
+    productId: "tryhabla_teacher_usd_v3",
+    productName: "TryHabla",
+    productDescription:
+      `Teacher plan with ${priceBook.includedAiReviews} AI-reviewed recordings ` +
+      "per monthly billing period.",
+    productUnitLabel: "subscription",
+    priceLookupKey: "tryhabla_teacher_usd_v3_monthly",
+    priceNickname: `TryHabla Teacher - $${priceBook.monthlyPriceUsd} monthly`,
+    priceEnvironmentVariable: "STRIPE_TRYHABLA_TEACHER_PRICE_ID",
+    unitAmountCents: monthlyPriceCents,
+  };
+  const fingerprint = catalogFingerprint(priceBook, dimensionWithoutMetadata);
+  const dimension: StripeCatalogDimension = Object.freeze({
+    ...dimensionWithoutMetadata,
+    metadata: Object.freeze({
+      habla_catalog: "tryhabla_teacher",
+      catalog_schema_version: "2",
+      catalog_fingerprint: fingerprint,
+      price_book_id: priceBook.id,
+      price_book_status: priceBook.status,
+      published_at: priceBook.publishedAt,
+      effective_at: priceBook.effectiveAt,
+      dimension: dimensionWithoutMetadata.key,
+      plan: "teacher",
+      billing_model: "licensed",
+      billing_interval: "month",
+      unit_amount_cents: String(monthlyPriceCents),
+      checkout_quantity: "1",
+      included_ai_reviews: String(priceBook.includedAiReviews),
+      max_audio_minutes_per_review: String(priceBook.maxAudioMinutesPerReview),
+      overage_policy: priceBook.overagePolicy,
+      rollover: String(priceBook.rollover),
     }),
-  );
+  });
 
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     apiVersion: STRIPE_API_VERSION,
     priceBookId: priceBook.id,
     priceBookStatus: priceBook.status,
@@ -171,7 +165,7 @@ export function createStripeCatalogManifest(
     publishedAt: priceBook.publishedAt,
     effectiveAt: priceBook.effectiveAt,
     fingerprint,
-    dimensions: Object.freeze(dimensions),
+    dimensions: Object.freeze([dimension]) as readonly [StripeCatalogDimension],
   });
 }
 

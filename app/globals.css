@@ -6082,7 +6082,7 @@ html.dark .student-empty-quest {
   }
 }
 
-/* Pricing: free audio core with a usage-based AI configurator */
+/* Pricing: free audio core with fixed AI review allowances */
 .pricing-page {
   width: min(1180px, calc(100% - 2.2rem));
 }

@@ -7,39 +7,43 @@ describe("pricing page", () => {
 
     const markup = renderToStaticMarkup(await PricingPage());
 
-    expect(markup).toContain("Use the core classroom free during the teacher pilot");
-    expect(markup).toContain("Core audio is free in the current pilot");
+    expect(markup).toContain("Start free. Add AI when it saves you time.");
+    expect(markup).toContain("The complete audio classroom, plus a real AI trial");
     expect(markup).toContain("$0");
-    expect(markup).toContain("no core subscription during the pilot");
-    expect(markup).toContain("Preview the optional AI pricing model");
-    expect(markup).toContain("Preview the published AI rates");
-    expect(markup).toContain("one fewer than your active class count");
-    expect(markup).toContain("Estimated monthly price");
-    expect(markup).toContain("if optional AI billing is offered and activated");
-    expect(markup).toContain("Request teacher access");
+    expect(markup).toContain("30 successful AI reviews for the lifetime of your teacher account");
+    expect(markup).toContain("no card required");
+    expect(markup).toContain("Teacher");
+    expect(markup).toContain("$20");
+    expect(markup).toContain("300 successful AI reviews in each Stripe billing period");
+    expect(markup).toContain("full assignments for one class of 30 students");
+    expect(markup).toContain("full assignments across five classes of 30 students");
+    expect(markup).toContain("No automatic overages");
+    expect(markup).toContain("Start free");
     expect(markup).toContain("/teacher/register");
-    expect(markup).toContain("5¢");
-    expect(markup).toContain("1¢");
     expect(markup).toContain("AI feedback");
-    expect(markup).toContain("Included");
     expect(markup).toContain(
-      "All proceeds from Habla go toward my mom&#x27;s fight against endometrial cancer.",
+      "Revenue from Teacher helps me operate the service, keep the core classroom free, and support my family while my mom fights endometrial cancer.",
     );
     expect(markup).toContain('data-awareness-ribbon="peach"');
     expect(markup).toContain("Read my story");
-    expect(markup).toContain("View AI access options");
+    expect(markup).toContain("View Teacher billing");
     expect(markup).toContain("/billing");
     expect(markup).toContain("It does not purchase or activate AI access");
-    expect(markup).toContain("not a current charge, quote, or invoice");
-    expect(markup.toLowerCase()).not.toContain("prepaid");
-    expect(markup).toContain("District pricing is completely separate");
-    expect(markup).toContain("Contact Habla");
+    expect(markup).toContain("not a usage charge or invoice");
+    expect(markup).toContain("School Pilot - Contact us");
+    expect(markup).toContain("A founder-managed, manually provisioned teacher cohort.");
+    expect(markup).toContain("Need more AI reviews? Ask your school about a TryHabla School Pilot.");
+    expect(markup).toContain("Contact us");
     expect(markup).toContain("/feedback");
-    expect(markup).toContain("does not quote a district rollout or imply district approval");
+    expect(markup).toContain("does not imply a school admin console or district approval");
     expect(markup).not.toContain("$9/month");
     expect(markup).not.toContain("$89/year");
+    expect(markup).not.toContain("$99");
     expect(markup).not.toContain("June 2026");
     expect(markup).not.toContain("Coming soon for schools");
+    expect(markup.toLowerCase()).not.toContain("credit");
+    expect(markup.toLowerCase()).not.toContain("per successful grade");
+    expect(markup.toLowerCase()).not.toContain("per audio minute");
     expect(markup).not.toContain("OpenAI");
     expect(markup).not.toContain("provider retries");
     expect(markup).not.toContain("internal retries");
@@ -66,9 +70,13 @@ describe("billing page", () => {
     expect(markup).toContain("Core stays $0");
     expect(markup).toContain("Checking your billing access");
     expect(markup).toContain("Voluntary PayPal support is completed on PayPal");
-    expect(markup).toContain("If this page explicitly offers Stripe self-service");
+    expect(markup).toContain("30 successful AI reviews per teacher account");
+    expect(markup).toContain("$20 per month for 300 successful reviews");
+    expect(markup).toContain("no automatic overages");
+    expect(markup).toContain("If this page explicitly offers Teacher through Stripe");
     expect(markup).toContain("/pricing");
     expect(markup).not.toContain("recorded retail usage");
+    expect(markup).not.toContain("$99");
   });
 });
 
@@ -88,7 +96,11 @@ describe("public audience paths", () => {
     expect(markup).toContain("AI grades. Teachers stay in control.");
     expect(markup).toContain("edit the grade anytime");
     expect(markup).not.toContain("June 2026");
-    expect(markup).toContain("core audio classroom is free during the current teacher pilot");
+    expect(markup).toContain(
+      "Free includes the complete audio classroom and a lifetime allowance of 30 successful AI",
+    );
+    expect(markup).toContain("Teacher adds 300 reviews per Stripe billing period for $20");
+    expect(markup).toContain("founder-managed School Pilot");
     expect(markup).not.toContain("Habla points");
     expect(markup).not.toContain("badges");
   });
@@ -150,18 +162,23 @@ describe("about page", () => {
 });
 
 describe("faq pricing copy", () => {
-  it("keeps FAQ messaging aligned with free core and metered AI", async () => {
+  it("keeps FAQ messaging aligned with Free, Teacher, and School Pilot", async () => {
     const { default: FaqPage } = await import("@/app/faq/page");
 
     const markup = renderToStaticMarkup(await FaqPage());
 
     expect(markup).toContain("Access and district review");
-    expect(markup).toContain("core audio classroom is free during the current teacher pilot");
+    expect(markup).toContain(
+      "lifetime allowance of 30 successful AI reviews per teacher account",
+    );
     expect(markup).toContain("How does optional AI pricing work?");
-    expect(markup).toContain("monthly allowance is one fewer AI grade");
-    expect(markup).toContain("5 cents per successful grade plus 1 cent per audio minute");
-    expect(markup).toContain("feedback included");
-    expect(markup).toContain("Sign in to the billing page to see whether your account is explicitly offered a Stripe plan");
+    expect(markup).toContain(
+      "Teacher is $20 per month and includes 300 successful AI reviews in each Stripe billing period",
+    );
+    expect(markup).toContain("there are no automatic overages");
+    expect(markup).toContain("Ask about a School Pilot");
+    expect(markup).toContain("founder-managed, manually provisioned teacher cohort");
+    expect(markup).toContain("does not currently include a school admin console");
     expect(markup).toContain("Does AI save the grade automatically?");
     expect(markup).toContain("saves a whole-point score");
     expect(markup).toContain("Getting started");
@@ -169,6 +186,10 @@ describe("faq pricing copy", () => {
     expect(markup).toContain("production storage settings must be verified");
     expect(markup).not.toContain("June 2026");
     expect(markup).not.toContain("FERPA compliant");
+    expect(markup).not.toContain("$99");
+    expect(markup.toLowerCase()).not.toContain("credit");
+    expect(markup.toLowerCase()).not.toContain("per successful grade");
+    expect(markup.toLowerCase()).not.toContain("per audio minute");
     expect(markup.toLowerCase()).not.toContain("token");
   });
 });

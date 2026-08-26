@@ -25,12 +25,18 @@ export type BillingStatus = {
   subscriptionStatus: string | null;
   periodEnd: number | null;
   usage: {
-    successfulGrades: number;
-    audioSeconds: number;
-    qualifyingClasses: number;
-    monthlyFreeCredits: number;
-    freeCreditsUsed: number;
-    estimatedChargeUsd: number;
+    allowanceKind:
+      | "free_lifetime"
+      | "manual_lifetime"
+      | "teacher_period"
+      | "subscription_unavailable";
+    limit: number;
+    reservedReviews: number;
+    consumedReviews: number;
+    usedReviews: number;
+    remainingReviews: number;
+    periodStart: number | null;
+    periodEnd: number | null;
   };
 };
 
@@ -110,10 +116,10 @@ function issueAvailabilityNote(status: BillingStatus) {
     return "This Stripe subscription does not match Habla's current published AI price book. Manage the existing plan or contact billing support; do not start another checkout.";
   }
   if (status.accountIssue === "catalog_unverified") {
-    return "Habla is verifying the Stripe catalog against the published rates. Checkout stays unavailable until that verification passes.";
+    return "TryHabla is verifying the Stripe catalog against the published Teacher plan. Checkout stays unavailable until that verification passes.";
   }
   if (status.accountIssue === "billing_paused") {
-    return "New Stripe checkout and usage delivery are temporarily paused. Existing customers can still open Manage billing.";
+    return "New Stripe checkout and paid-plan access are temporarily paused. Existing customers can still open Manage billing.";
   }
   if (status.access === "active") {
     return null;
@@ -192,15 +198,16 @@ function stateCopy(status: BillingStatus) {
   }
   if (status.access === "active") {
     return {
-      heading: "AI billing is active",
-      description: "AI access is active and eligible usage is billed at the published Habla rates.",
+      heading: "Teacher is active",
+      description:
+        "$20 per month includes 300 successful AI reviews in each verified Stripe billing period, with no automatic overages.",
     };
   }
   if (status.access === "pilot") {
     return {
       heading: "AI pilot access is active",
       description:
-        "Your manual pilot access is separate from Stripe billing. The usage card is an estimate, not an amount due.",
+        "Your founder-managed pilot allowance is separate from Stripe billing and has no automatic overages.",
     };
   }
   if (status.accountIssue === "catalog_unverified") {
@@ -225,9 +232,9 @@ function stateCopy(status: BillingStatus) {
     };
   }
   return {
-    heading: "Choose an AI access option",
+    heading: "Start with 30 free AI reviews",
     description:
-      "AI billing is available only when this page explicitly offers Stripe Checkout. PayPal support never purchases or activates AI access.",
+      "Your one-time Free allowance works without a card. Choose Teacher for 300 reviews in each Stripe billing period; PayPal support never purchases AI access.",
   };
 }
 

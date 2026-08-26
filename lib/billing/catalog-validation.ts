@@ -12,7 +12,7 @@ import {
   type StripeAccountReadClient,
 } from "@/lib/billing/account-validation";
 import {
-  requireStripeUsageBillingConfig,
+  requireStripeSubscriptionBillingConfig,
   type StripeBillingEnv,
   type StripeCatalogConfig,
   type StripeKeyMode,
@@ -30,13 +30,9 @@ export type StripeCatalogValidationErrorCode =
   | "catalog_product_mode_mismatch"
   | "catalog_product_contract_mismatch"
   | "catalog_product_metadata_mismatch"
-  | "catalog_fingerprint_mismatch"
-  | "catalog_meter_read_failed"
-  | "catalog_meter_mode_mismatch"
-  | "catalog_meter_contract_mismatch"
-  | "catalog_meter_reused";
+  | "catalog_fingerprint_mismatch";
 
-type StripeCatalogResource = "manifest" | "price" | "product" | "meter";
+type StripeCatalogResource = "manifest" | "price" | "product";
 
 export class StripeCatalogValidationError extends Error {
   readonly code: StripeCatalogValidationErrorCode;
@@ -61,6 +57,11 @@ export class StripeCatalogValidationError extends Error {
   }
 }
 
+type StripeCurrencyOption = Readonly<{
+  unitAmountCents: number | null;
+  unitAmountDecimalCents: string | null;
+}>;
+
 export type StripeCatalogReadPrice = Readonly<{
   id: string;
   livemode: boolean;
@@ -71,10 +72,9 @@ export type StripeCatalogReadPrice = Readonly<{
   billingScheme: string;
   type: string;
   productId: string;
+  unitAmountCents: number | null;
   unitAmountDecimalCents: string | null;
-  currencyOptions: Readonly<
-    Record<string, Readonly<{ unitAmountDecimalCents: string | null }>>
-  > | null;
+  currencyOptions: Readonly<Record<string, StripeCurrencyOption>> | null;
   recurring: Readonly<{
     interval: string;
     intervalCount: number;
@@ -100,23 +100,9 @@ export type StripeCatalogReadProduct = Readonly<{
   metadata: Readonly<Record<string, string>>;
 }>;
 
-export type StripeCatalogReadMeter = Readonly<{
-  id: string;
-  livemode: boolean;
-  status: string;
-  displayName: string;
-  eventName: string;
-  aggregationFormula: string;
-  customerMappingType: string;
-  customerPayloadKey: string;
-  valuePayloadKey: string;
-  eventTimeWindow: string | null;
-}>;
-
 export interface StripeCatalogReadClient extends StripeAccountReadClient {
   retrievePrice(priceId: string): Promise<StripeCatalogReadPrice>;
   retrieveProduct(productId: string): Promise<StripeCatalogReadProduct>;
-  retrieveMeter(meterId: string): Promise<StripeCatalogReadMeter>;
 }
 
 export type StripeCatalogValidationResult = Readonly<{
@@ -157,6 +143,7 @@ function normalizePrice(price: Stripe.Price): StripeCatalogReadPrice {
     billingScheme: price.billing_scheme,
     type: price.type,
     productId: typeof price.product === "string" ? price.product : price.product.id,
+    unitAmountCents: price.unit_amount,
     unitAmountDecimalCents: price.unit_amount_decimal?.toString() ?? null,
     currencyOptions: price.currency_options
       ? Object.freeze(
@@ -164,6 +151,7 @@ function normalizePrice(price: Stripe.Price): StripeCatalogReadPrice {
             Object.entries(price.currency_options).map(([currency, option]) => [
               currency,
               Object.freeze({
+                unitAmountCents: option.unit_amount,
                 unitAmountDecimalCents: option.unit_amount_decimal?.toString() ?? null,
               }),
             ]),
@@ -200,21 +188,6 @@ function normalizeProduct(product: Stripe.Product): StripeCatalogReadProduct {
   };
 }
 
-function normalizeMeter(meter: Stripe.Billing.Meter): StripeCatalogReadMeter {
-  return {
-    id: meter.id,
-    livemode: meter.livemode,
-    status: meter.status,
-    displayName: meter.display_name,
-    eventName: meter.event_name,
-    aggregationFormula: meter.default_aggregation.formula,
-    customerMappingType: meter.customer_mapping.type,
-    customerPayloadKey: meter.customer_mapping.event_payload_key,
-    valuePayloadKey: meter.value_settings.event_payload_key,
-    eventTimeWindow: meter.event_time_window,
-  };
-}
-
 function createReadClient(config: StripeCatalogConfig): StripeCatalogReadClient {
   const stripe = getStripeClient(config);
   return {
@@ -228,9 +201,6 @@ function createReadClient(config: StripeCatalogConfig): StripeCatalogReadClient 
     },
     async retrieveProduct(productId) {
       return normalizeProduct(await stripe.products.retrieve(productId));
-    },
-    async retrieveMeter(meterId) {
-      return normalizeMeter(await stripe.billing.meters.retrieve(meterId));
     },
   };
 }
@@ -252,8 +222,12 @@ function metadataMatches(
   actual: Readonly<Record<string, string>>,
   expected: Readonly<Record<string, string>>,
 ) {
-  const actualEntries = Object.entries(actual).sort(([left], [right]) => left.localeCompare(right));
-  const expectedEntries = Object.entries(expected).sort(([left], [right]) => left.localeCompare(right));
+  const actualEntries = Object.entries(actual).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  const expectedEntries = Object.entries(expected).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
   return JSON.stringify(actualEntries) === JSON.stringify(expectedEntries);
 }
 
@@ -265,6 +239,15 @@ function assertFingerprint(
 ) {
   if (metadata.catalog_fingerprint !== manifest.fingerprint) {
     validationError("catalog_fingerprint_mismatch", resource, dimension, "fingerprint");
+  }
+}
+
+function decimalEquals(value: string | null, expected: number) {
+  if (value === null) return false;
+  try {
+    return Stripe.Decimal.from(value).eq(Stripe.Decimal.from(String(expected)));
+  } catch {
+    return false;
   }
 }
 
@@ -283,30 +266,29 @@ function assertPrice(
     validationError("catalog_price_metadata_mismatch", "price", dimension.key, "metadata");
   }
   const recurring = price.recurring;
-  const contractMatches =
-    price.id === configuredPriceId &&
-    price.active === true &&
-    price.lookupKey === dimension.priceLookupKey &&
-    price.nickname === dimension.priceNickname &&
-    price.currency === manifest.currency &&
-    price.billingScheme === "per_unit" &&
-    price.type === "recurring" &&
-    price.productId === dimension.productId &&
-    recurring?.interval === "month" &&
-    recurring.intervalCount === 1 &&
-    recurring.usageType === "metered" &&
-    typeof recurring.meterId === "string" &&
-    recurring.meterId.length > 0 &&
-    recurring.trialPeriodDays === null &&
-    (price.taxBehavior ?? "unspecified") === "unspecified" &&
-    price.customUnitAmount === null &&
-    price.tiersMode === null &&
-    price.transformQuantity === null;
-  if (!contractMatches) {
+  if (
+    price.id !== configuredPriceId ||
+    price.active !== true ||
+    price.lookupKey !== dimension.priceLookupKey ||
+    price.nickname !== dimension.priceNickname ||
+    price.currency !== manifest.currency ||
+    price.billingScheme !== "per_unit" ||
+    price.type !== "recurring" ||
+    price.productId !== dimension.productId ||
+    recurring?.interval !== "month" ||
+    recurring.intervalCount !== 1 ||
+    recurring.usageType !== "licensed" ||
+    recurring.meterId !== null ||
+    recurring.trialPeriodDays !== null ||
+    (price.taxBehavior ?? "unspecified") !== "unspecified" ||
+    price.customUnitAmount !== null ||
+    price.tiersMode !== null ||
+    price.transformQuantity !== null
+  ) {
     validationError("catalog_price_contract_mismatch", "price", dimension.key, "contract");
   }
   if (
-    price.currencyOptions === null ||
+    price.currencyOptions !== null &&
     Object.keys(price.currencyOptions).some((currency) => currency !== manifest.currency)
   ) {
     validationError(
@@ -316,38 +298,23 @@ function assertPrice(
       "currency_options",
     );
   }
-  const defaultCurrencyOption = price.currencyOptions[manifest.currency];
-  if (defaultCurrencyOption) {
-    try {
-      if (
-        defaultCurrencyOption.unitAmountDecimalCents === null ||
-        !Stripe.Decimal.from(defaultCurrencyOption.unitAmountDecimalCents).eq(
-          Stripe.Decimal.from(dimension.unitAmountDecimalCents),
-        )
-      ) {
-        validationError("catalog_price_rate_mismatch", "price", dimension.key, "rate");
-      }
-    } catch (error) {
-      if (error instanceof StripeCatalogValidationError) throw error;
-      validationError("catalog_price_rate_mismatch", "price", dimension.key, "rate");
-    }
-  }
-  if (price.unitAmountDecimalCents === null) {
+  const defaultCurrencyOption = price.currencyOptions?.[manifest.currency];
+  if (
+    defaultCurrencyOption &&
+    (defaultCurrencyOption.unitAmountCents !== dimension.unitAmountCents ||
+      !decimalEquals(
+        defaultCurrencyOption.unitAmountDecimalCents,
+        dimension.unitAmountCents,
+      ))
+  ) {
     validationError("catalog_price_rate_mismatch", "price", dimension.key, "rate");
   }
-  try {
-    if (
-      !Stripe.Decimal.from(price.unitAmountDecimalCents).eq(
-        Stripe.Decimal.from(dimension.unitAmountDecimalCents),
-      )
-    ) {
-      validationError("catalog_price_rate_mismatch", "price", dimension.key, "rate");
-    }
-  } catch (error) {
-    if (error instanceof StripeCatalogValidationError) throw error;
+  if (
+    price.unitAmountCents !== dimension.unitAmountCents ||
+    !decimalEquals(price.unitAmountDecimalCents, dimension.unitAmountCents)
+  ) {
     validationError("catalog_price_rate_mismatch", "price", dimension.key, "rate");
   }
-  return recurring.meterId;
 }
 
 function assertProduct(
@@ -375,34 +342,10 @@ function assertProduct(
   }
 }
 
-function assertMeter(
-  meter: StripeCatalogReadMeter,
-  expectedMeterId: string,
-  dimension: StripeCatalogDimension,
-  keyMode: StripeKeyMode,
-) {
-  if (meter.livemode !== expectedLiveMode(keyMode)) {
-    validationError("catalog_meter_mode_mismatch", "meter", dimension.key, "mode");
-  }
-  if (
-    meter.id !== expectedMeterId ||
-    meter.status !== "active" ||
-    meter.displayName !== dimension.meterDisplayName ||
-    meter.eventName !== dimension.meterEventName ||
-    meter.aggregationFormula !== "sum" ||
-    meter.customerMappingType !== "by_id" ||
-    meter.customerPayloadKey !== "stripe_customer_id" ||
-    meter.valuePayloadKey !== "value" ||
-    meter.eventTimeWindow !== null
-  ) {
-    validationError("catalog_meter_contract_mismatch", "meter", dimension.key, "contract");
-  }
-}
-
 async function readRemote<T>(
   read: () => Promise<T>,
   code: StripeCatalogValidationErrorCode,
-  resource: "price" | "product" | "meter",
+  resource: "price" | "product",
   dimension: StripeCatalogDimensionKey,
 ) {
   try {
@@ -412,25 +355,17 @@ async function readRemote<T>(
   }
 }
 
-function configuredPriceId(
-  config: StripeCatalogConfig,
-  dimension: StripeCatalogDimensionKey,
-) {
-  return dimension === "successful_grade" ? config.priceIds.aiGrade : config.priceIds.audioMinute;
-}
-
 function assertManifest(manifest: StripeCatalogManifest, config: StripeCatalogConfig) {
   const keys = manifest.dimensions.map((dimension) => dimension.key);
   if (
-    manifest.schemaVersion !== 1 ||
+    manifest.schemaVersion !== 2 ||
     manifest.apiVersion !== config.apiVersion ||
+    manifest.priceBookId !== STRIPE_CATALOG_MANIFEST.priceBookId ||
     manifest.priceBookStatus !== "active" ||
     manifest.currency !== "usd" ||
-    !/^[a-f0-9]{64}$/.test(manifest.fingerprint) ||
-    keys.length !== 2 ||
-    new Set(keys).size !== 2 ||
-    !keys.includes("successful_grade") ||
-    !keys.includes("audio_second")
+    manifest.fingerprint !== STRIPE_CATALOG_MANIFEST.fingerprint ||
+    keys.length !== 1 ||
+    keys[0] !== "teacher"
   ) {
     validationError("catalog_manifest_invalid", "manifest", undefined, "contract");
   }
@@ -444,8 +379,7 @@ function cacheKey(config: StripeCatalogConfig, manifest: StripeCatalogManifest) 
         config.apiVersion,
         config.keyMode,
         config.accountId,
-        config.priceIds.aiGrade,
-        config.priceIds.audioMinute,
+        config.priceIds.teacher,
         config.automaticTaxEnabled ? "tax_on" : "tax_off",
         manifest.fingerprint,
       ].join("\0"),
@@ -464,10 +398,7 @@ function pruneCache(now: number) {
   }
 }
 
-/**
- * Reads and validates the configured Stripe catalog exactly. This function never creates,
- * updates, archives, or deletes a Stripe resource. Only successful checks are cached.
- */
+/** Reads and validates the configured fixed-price Stripe catalog without mutation. */
 export async function assertConfiguredStripeCatalog(
   config: StripeCatalogConfig,
   options: AssertConfiguredStripeCatalogOptions = {},
@@ -491,39 +422,22 @@ export async function assertConfiguredStripeCatalog(
     cacheTtlMs: options.cacheTtlMs,
     now: options.now,
   });
-  const checked = await Promise.all(
-    manifest.dimensions.map(async (dimension) => {
-      const priceId = configuredPriceId(config, dimension.key);
-      const price = await readRemote(
-        () => client.retrievePrice(priceId),
-        "catalog_price_read_failed",
-        "price",
-        dimension.key,
-      );
-      const meterId = assertPrice(price, priceId, dimension, manifest, config.keyMode);
-      const [product, meter] = await Promise.all([
-        readRemote(
-          () => client.retrieveProduct(dimension.productId),
-          "catalog_product_read_failed",
-          "product",
-          dimension.key,
-        ),
-        readRemote(
-          () => client.retrieveMeter(meterId),
-          "catalog_meter_read_failed",
-          "meter",
-          dimension.key,
-        ),
-      ]);
-      assertProduct(product, dimension, manifest, config.keyMode);
-      assertMeter(meter, meterId, dimension, config.keyMode);
-      return { dimension: dimension.key, meterId } as const;
-    }),
+  const dimension = manifest.dimensions[0];
+  const priceId = config.priceIds.teacher;
+  const price = await readRemote(
+    () => client.retrievePrice(priceId),
+    "catalog_price_read_failed",
+    "price",
+    dimension.key,
   );
-
-  if (new Set(checked.map((item) => item.meterId)).size !== checked.length) {
-    validationError("catalog_meter_reused", "meter", undefined, "identity");
-  }
+  assertPrice(price, priceId, dimension, manifest, config.keyMode);
+  const product = await readRemote(
+    () => client.retrieveProduct(dimension.productId),
+    "catalog_product_read_failed",
+    "product",
+    dimension.key,
+  );
+  assertProduct(product, dimension, manifest, config.keyMode);
 
   const result: StripeCatalogValidationResult = Object.freeze({
     valid: true,
@@ -532,7 +446,7 @@ export async function assertConfiguredStripeCatalog(
     keyMode: config.keyMode,
     priceBookId: manifest.priceBookId,
     fingerprint: manifest.fingerprint,
-    dimensions: Object.freeze(checked.map((item) => item.dimension)),
+    dimensions: Object.freeze([dimension.key]),
   });
   if (useCache) {
     pruneCache(now);
@@ -543,18 +457,28 @@ export async function assertConfiguredStripeCatalog(
   return result;
 }
 
-/** Configuration plus remote-catalog readiness for usage entitlement and metering. */
-export async function isStripeUsageRuntimeReady(
+/** Configuration plus remote-catalog readiness for licensed subscription entitlement. */
+export async function isStripeSubscriptionRuntimeReady(
   env: StripeBillingEnv = process.env,
   options: AssertConfiguredStripeCatalogOptions = {},
 ) {
   try {
-    const config = requireStripeUsageBillingConfig(env);
+    const config = requireStripeSubscriptionBillingConfig(env);
     await assertConfiguredStripeCatalog(config, options);
     return true;
   } catch {
     return false;
   }
+}
+
+/** @deprecated Meter-event billing is retired and always reports not ready. */
+export async function isStripeUsageRuntimeReady(
+  _env: StripeBillingEnv = process.env,
+  _options: AssertConfiguredStripeCatalogOptions = {},
+) {
+  void _env;
+  void _options;
+  return false;
 }
 
 export function clearStripeCatalogValidationCacheForTests() {

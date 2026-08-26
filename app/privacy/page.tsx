@@ -60,7 +60,7 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong>Billing information, only when paid features are used:</strong> billing
-              status, usage totals, and identifiers returned by the configured payment provider.
+              status, AI review allowance totals, and identifiers returned by the configured payment provider.
               Payment providers handle payment credentials on their own sites or checkout pages.
             </li>
           </ul>
@@ -97,7 +97,7 @@ export default function PrivacyPage() {
           <ul>
             <li>Authenticate users and provide the teacher and student classroom workflows.</li>
             <li>Store, play back, grade, and display speaking submissions.</li>
-            <li>Operate optional AI grading and metering when those features are enabled.</li>
+            <li>Operate optional AI grading and enforce AI review allowances when those features are enabled.</li>
             <li>Prevent abuse, enforce limits, troubleshoot problems, and secure the service.</li>
             <li>Respond to support messages and understand basic pilot activity.</li>
           </ul>

@@ -1,9 +1,13 @@
 export const STRIPE_API_VERSION = "2026-07-29.dahlia" as const;
 
 export const STRIPE_PRICE_ENV_KEYS = Object.freeze({
-  aiGrade: "STRIPE_AI_GRADE_PRICE_ID",
-  audioMinute: "STRIPE_AI_AUDIO_SECONDS_PRICE_ID",
+  teacher: "STRIPE_TRYHABLA_TEACHER_PRICE_ID",
 } as const);
+
+const OBSOLETE_STRIPE_PRICE_ENV_KEYS = Object.freeze([
+  "STRIPE_AI_GRADE_PRICE_ID",
+  "STRIPE_AI_AUDIO_SECONDS_PRICE_ID",
+] as const);
 
 export type StripeBillingEnv = Readonly<Record<string, string | undefined>>;
 export type StripeKeyMode = "test" | "live";
@@ -29,21 +33,22 @@ export type StripeWebhookConfig = StripeClientConfig &
 export type StripeCatalogConfig = StripeClientConfig &
   Readonly<{
     priceIds: Readonly<{
-      aiGrade: string;
-      audioMinute: string;
+      teacher: string;
     }>;
     automaticTaxEnabled: boolean;
   }>;
 
-export type StripeUsageBillingConfig = StripeWebhookConfig &
+export type StripeSubscriptionBillingConfig = StripeWebhookConfig &
   StripeCatalogConfig &
   Readonly<{
-    /** Compatibility marker for existing billing consumers. */
     enabled: true;
-    usageBillingEnabled: true;
+    subscriptionBillingEnabled: true;
   }>;
 
-export type StripeCheckoutConfig = StripeUsageBillingConfig &
+/** @deprecated Metered billing is retired. Use StripeSubscriptionBillingConfig. */
+export type StripeUsageBillingConfig = StripeSubscriptionBillingConfig;
+
+export type StripeCheckoutConfig = StripeSubscriptionBillingConfig &
   Readonly<{
     checkoutEnabled: true;
   }>;
@@ -87,18 +92,20 @@ export type StripeCatalogAvailability =
       automaticTaxEnabled: boolean;
     }>
   | StripeUnavailable;
-export type StripeUsageBillingAvailability =
+export type StripeSubscriptionBillingAvailability =
   | StripeAvailable<{
       keyMode: StripeKeyMode;
       automaticTaxEnabled: boolean;
-      usageBillingEnabled: true;
+      subscriptionBillingEnabled: true;
     }>
   | StripeUnavailable;
+/** @deprecated Metered billing is retired. Use StripeSubscriptionBillingAvailability. */
+export type StripeUsageBillingAvailability = StripeSubscriptionBillingAvailability;
 export type StripeCheckoutAvailability =
   | StripeAvailable<{
       keyMode: StripeKeyMode;
       automaticTaxEnabled: boolean;
-      usageBillingEnabled: true;
+      subscriptionBillingEnabled: true;
       checkoutEnabled: true;
     }>
   | StripeUnavailable;
@@ -130,10 +137,12 @@ export type StripeCatalogConfigResult = StripeConfigResult<
   StripeCatalogConfig,
   StripeCatalogAvailability
 >;
-export type StripeUsageBillingConfigResult = StripeConfigResult<
-  StripeUsageBillingConfig,
-  StripeUsageBillingAvailability
+export type StripeSubscriptionBillingConfigResult = StripeConfigResult<
+  StripeSubscriptionBillingConfig,
+  StripeSubscriptionBillingAvailability
 >;
+/** @deprecated Metered billing is retired. Use StripeSubscriptionBillingConfigResult. */
+export type StripeUsageBillingConfigResult = StripeSubscriptionBillingConfigResult;
 export type StripeCheckoutConfigResult = StripeConfigResult<
   StripeCheckoutConfig,
   StripeCheckoutAvailability
@@ -215,9 +224,24 @@ function legacyBillingFlagIssue(env: StripeBillingEnv) {
   const legacy = booleanSetting(env, "STRIPE_BILLING_ENABLED", false);
   if (legacy.issue) return legacy.issue;
   if (legacy.value) {
-    return "STRIPE_BILLING_ENABLED is obsolete; migrate to STRIPE_USAGE_BILLING_ENABLED and STRIPE_CHECKOUT_ENABLED.";
+    return "STRIPE_BILLING_ENABLED is obsolete; migrate to STRIPE_SUBSCRIPTION_BILLING_ENABLED and STRIPE_CHECKOUT_ENABLED.";
   }
   return undefined;
+}
+
+function obsoleteUsageBillingFlagIssue(env: StripeBillingEnv) {
+  const raw = configuredValue(env, "STRIPE_USAGE_BILLING_ENABLED");
+  if (!raw) return undefined;
+  const parsed = booleanSetting(env, "STRIPE_USAGE_BILLING_ENABLED", false);
+  if (parsed.issue) return parsed.issue;
+  return "STRIPE_USAGE_BILLING_ENABLED is obsolete; remove it and use STRIPE_SUBSCRIPTION_BILLING_ENABLED.";
+}
+
+function obsoletePriceEnvironmentIssues(env: StripeBillingEnv) {
+  return OBSOLETE_STRIPE_PRICE_ENV_KEYS.filter((key) => configuredValue(env, key)).map(
+    (key) =>
+      `${key} is obsolete; remove both retired metered Price variables before enabling Stripe billing.`,
+  );
 }
 
 function vercelStripeModeIssue(
@@ -394,10 +418,10 @@ export function parseStripeCatalogConfig(env: StripeBillingEnv): StripeCatalogCo
   const client = parseStripeClientConfig(env);
   const automaticTax = booleanSetting(env, "STRIPE_AUTOMATIC_TAX_ENABLED", false);
   const priceIds = {
-    aiGrade: configuredValue(env, STRIPE_PRICE_ENV_KEYS.aiGrade),
-    audioMinute: configuredValue(env, STRIPE_PRICE_ENV_KEYS.audioMinute),
+    teacher: configuredValue(env, STRIPE_PRICE_ENV_KEYS.teacher),
   };
   const issues = client.ok ? [] : [...client.availability.issues];
+  issues.push(...obsoletePriceEnvironmentIssues(env));
   if (automaticTax.issue) issues.push(automaticTax.issue);
   if (automaticTax.value) {
     issues.push(
@@ -410,12 +434,6 @@ export function parseStripeCatalogConfig(env: StripeBillingEnv): StripeCatalogCo
     else if (!value.startsWith("price_")) issues.push(`${environmentKey} must start with price_.`);
   }
   const configuredPriceIds = Object.values(priceIds).filter(Boolean);
-  if (
-    configuredPriceIds.length === Object.keys(priceIds).length &&
-    new Set(configuredPriceIds).size !== configuredPriceIds.length
-  ) {
-    issues.push("Stripe metered price IDs must be distinct.");
-  }
   if (!client.ok || issues.length > 0) {
     const whollyMissing =
       !configuredValue(env, "STRIPE_SECRET_KEY") && configuredPriceIds.length === 0;
@@ -447,26 +465,27 @@ export function parseStripeCatalogConfig(env: StripeBillingEnv): StripeCatalogCo
   };
 }
 
-/** Pure usage-runtime parsing. Remote Stripe catalog validation is deliberately separate. */
-export function parseStripeUsageBillingConfig(
+/** Pure licensed-subscription parsing. Remote Stripe catalog validation is separate. */
+export function parseStripeSubscriptionBillingConfig(
   env: StripeBillingEnv,
-): StripeUsageBillingConfigResult {
-  const usage = booleanSetting(env, "STRIPE_USAGE_BILLING_ENABLED", false);
-  const flagIssues = uniqueIssues([usage.issue, legacyBillingFlagIssue(env)]);
+): StripeSubscriptionBillingConfigResult {
+  const subscription = booleanSetting(env, "STRIPE_SUBSCRIPTION_BILLING_ENABLED", false);
+  const flagIssues = uniqueIssues([
+    subscription.issue,
+    legacyBillingFlagIssue(env),
+    obsoleteUsageBillingFlagIssue(env),
+  ]);
   if (flagIssues.length > 0) {
     return {
       ok: false,
-      availability: unavailable(usage.value, "invalid_configuration", flagIssues),
+      availability: unavailable(subscription.value, "invalid_configuration", flagIssues),
     };
   }
-  if (!usage.value) return { ok: false, availability: disabled() };
+  if (!subscription.value) return { ok: false, availability: disabled() };
 
   const webhook = parseStripeWebhookConfig(env);
   const catalog = parseStripeCatalogConfig(env);
-  const recoveryIssue = configuredValue(env, "CRON_SECRET")
-    ? undefined
-    : requiredIssue("CRON_SECRET");
-  if (!webhook.ok || !catalog.ok || recoveryIssue) {
+  if (!webhook.ok || !catalog.ok) {
     return {
       ok: false,
       availability: unavailable(
@@ -475,17 +494,16 @@ export function parseStripeUsageBillingConfig(
         uniqueIssues([
           ...(webhook.ok ? [] : webhook.availability.issues),
           ...(catalog.ok ? [] : catalog.availability.issues),
-          recoveryIssue,
         ]),
       ),
     };
   }
 
-  const config: StripeUsageBillingConfig = Object.freeze({
+  const config: StripeSubscriptionBillingConfig = Object.freeze({
     ...catalog.config,
     webhookSecret: webhook.config.webhookSecret,
     enabled: true,
-    usageBillingEnabled: true,
+    subscriptionBillingEnabled: true,
   });
   return {
     ok: true,
@@ -495,16 +513,45 @@ export function parseStripeUsageBillingConfig(
       available: true,
       keyMode: config.keyMode,
       automaticTaxEnabled: config.automaticTaxEnabled,
-      usageBillingEnabled: true,
+      subscriptionBillingEnabled: true,
       issues: [] as const,
     }),
   };
 }
 
-/** Pure Checkout-acquisition parsing. Checkout can only run on a valid usage runtime. */
+/**
+ * @deprecated Meter-event billing is retired. This parser always fails closed so
+ * legacy callers cannot emit usage against the licensed Teacher subscription.
+ */
+export function parseStripeUsageBillingConfig(
+  env: StripeBillingEnv,
+): StripeUsageBillingConfigResult {
+  const legacy = booleanSetting(env, "STRIPE_USAGE_BILLING_ENABLED", false);
+  if (legacy.issue) {
+    return {
+      ok: false,
+      availability: unavailable(false, "invalid_configuration", [legacy.issue]),
+    };
+  }
+  if (legacy.value) {
+    return {
+      ok: false,
+      availability: unavailable(true, "invalid_configuration", [
+        "STRIPE_USAGE_BILLING_ENABLED is obsolete; metered delivery is disabled for the licensed Teacher plan.",
+      ]),
+    };
+  }
+  return { ok: false, availability: disabled() };
+}
+
+/** Pure Checkout parsing. Checkout requires the licensed-subscription runtime. */
 export function parseStripeCheckoutConfig(env: StripeBillingEnv): StripeCheckoutConfigResult {
   const checkout = booleanSetting(env, "STRIPE_CHECKOUT_ENABLED", false);
-  const flagIssues = uniqueIssues([checkout.issue, legacyBillingFlagIssue(env)]);
+  const flagIssues = uniqueIssues([
+    checkout.issue,
+    legacyBillingFlagIssue(env),
+    obsoleteUsageBillingFlagIssue(env),
+  ]);
   if (flagIssues.length > 0) {
     return {
       ok: false,
@@ -513,12 +560,12 @@ export function parseStripeCheckoutConfig(env: StripeBillingEnv): StripeCheckout
   }
   if (!checkout.value) return { ok: false, availability: disabled() };
 
-  const usage = parseStripeUsageBillingConfig(env);
-  if (!usage.ok) {
+  const subscription = parseStripeSubscriptionBillingConfig(env);
+  if (!subscription.ok) {
     const issues =
-      usage.availability.reason === "disabled"
-        ? ["STRIPE_CHECKOUT_ENABLED=true requires STRIPE_USAGE_BILLING_ENABLED=true."]
-        : [...usage.availability.issues];
+      subscription.availability.reason === "disabled"
+        ? ["STRIPE_CHECKOUT_ENABLED=true requires STRIPE_SUBSCRIPTION_BILLING_ENABLED=true."]
+        : [...subscription.availability.issues];
     return {
       ok: false,
       availability: unavailable(true, "invalid_configuration", issues),
@@ -526,7 +573,7 @@ export function parseStripeCheckoutConfig(env: StripeBillingEnv): StripeCheckout
   }
 
   const config: StripeCheckoutConfig = Object.freeze({
-    ...usage.config,
+    ...subscription.config,
     checkoutEnabled: true,
   });
   return {
@@ -537,7 +584,7 @@ export function parseStripeCheckoutConfig(env: StripeBillingEnv): StripeCheckout
       available: true,
       keyMode: config.keyMode,
       automaticTaxEnabled: config.automaticTaxEnabled,
-      usageBillingEnabled: true,
+      subscriptionBillingEnabled: true,
       checkoutEnabled: true,
       issues: [] as const,
     }),
@@ -603,12 +650,26 @@ export function requireStripeCatalogConfig(
   return requireConfig(parseStripeCatalogConfig(env));
 }
 
+export function getStripeSubscriptionBillingAvailability(
+  env: StripeBillingEnv = process.env,
+): StripeSubscriptionBillingAvailability {
+  return parseStripeSubscriptionBillingConfig(env).availability;
+}
+
+export function requireStripeSubscriptionBillingConfig(
+  env: StripeBillingEnv = process.env,
+): StripeSubscriptionBillingConfig {
+  return requireConfig(parseStripeSubscriptionBillingConfig(env));
+}
+
+/** @deprecated Meter-event billing is retired and this capability fails closed. */
 export function getStripeUsageBillingAvailability(
   env: StripeBillingEnv = process.env,
 ): StripeUsageBillingAvailability {
   return parseStripeUsageBillingConfig(env).availability;
 }
 
+/** @deprecated Meter-event billing is retired and this capability fails closed. */
 export function requireStripeUsageBillingConfig(
   env: StripeBillingEnv = process.env,
 ): StripeUsageBillingConfig {
@@ -627,15 +688,12 @@ export function requireStripeCheckoutConfig(
   return requireConfig(parseStripeCheckoutConfig(env));
 }
 
-/** @deprecated Use StripeUsageBillingConfig or a narrower capability config. */
-export type StripeBillingConfig = StripeUsageBillingConfig;
-/** @deprecated Use StripeUsageBillingAvailability. */
-export type StripeBillingAvailability = StripeUsageBillingAvailability;
-/** @deprecated Use StripeUsageBillingConfigResult. */
-export type StripeBillingConfigResult = StripeUsageBillingConfigResult;
-/** @deprecated Use parseStripeUsageBillingConfig. */
-export const parseStripeBillingConfig = parseStripeUsageBillingConfig;
-/** @deprecated Use getStripeUsageBillingAvailability. */
-export const getStripeBillingAvailability = getStripeUsageBillingAvailability;
-/** @deprecated Use requireStripeUsageBillingConfig. */
-export const requireStripeBillingConfig = requireStripeUsageBillingConfig;
+/** Compatibility alias for the licensed subscription billing configuration. */
+export type StripeBillingConfig = StripeSubscriptionBillingConfig;
+/** Compatibility alias for the licensed subscription billing availability. */
+export type StripeBillingAvailability = StripeSubscriptionBillingAvailability;
+/** Compatibility alias for the licensed subscription billing result. */
+export type StripeBillingConfigResult = StripeSubscriptionBillingConfigResult;
+export const parseStripeBillingConfig = parseStripeSubscriptionBillingConfig;
+export const getStripeBillingAvailability = getStripeSubscriptionBillingAvailability;
+export const requireStripeBillingConfig = requireStripeSubscriptionBillingConfig;

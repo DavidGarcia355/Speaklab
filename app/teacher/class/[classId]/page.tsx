@@ -80,10 +80,36 @@ type AiAttempt = {
   confidence: "high" | "medium" | "low";
   warnings: string[];
   teacherAttention: string;
-  transcriptionProvider: string;
-  gradingProvider: string;
   errorMessage: string;
   gradeApplied?: boolean;
+};
+type AiReviewAllowance = {
+  status:
+    | "free_lifetime"
+    | "manual_lifetime"
+    | "teacher_period"
+    | "subscription_unavailable";
+  limit: number;
+  reserved: number;
+  consumed: number;
+  used: number;
+  remaining: number;
+  periodStart: number | null;
+  periodEnd: number | null;
+};
+type BulkAiPreflight = {
+  ungradedCount: number;
+  remaining: number;
+  fits: boolean;
+  estimatedSeconds: number;
+  allowance: AiReviewAllowance | null;
+};
+type BulkAiResult = {
+  total: number;
+  completed: number;
+  graded: number;
+  skipped: number;
+  failed: number;
 };
 type Tone = "warning" | "success" | "neutral";
 type AssignmentView = AssignmentSummary & {
@@ -145,6 +171,36 @@ function formatDateTime(ts: number) {
 
 function pluralize(count: number, singular: string, plural?: string) {
   return count === 1 ? `${count} ${singular}` : `${count} ${plural ?? `${singular}s`}`;
+}
+
+function bulkAiLimitTitle(preflight: BulkAiPreflight) {
+  if (preflight.allowance?.status === "subscription_unavailable") {
+    return "AI billing needs attention";
+  }
+  if (
+    preflight.allowance &&
+    preflight.ungradedCount > preflight.allowance.remaining
+  ) {
+    return "Not enough AI reviews in this allowance";
+  }
+  return "Not enough AI grading left today";
+}
+
+function bulkAiLimitDescription(preflight: BulkAiPreflight) {
+  const allowance = preflight.allowance;
+  if (allowance?.status === "subscription_unavailable") {
+    return "Your billing period could not be verified. Refresh billing or contact support before using another AI review. Recording, playback, and manual grading remain available.";
+  }
+  if (allowance && preflight.ungradedCount > allowance.remaining) {
+    const nextStep =
+      allowance.status === "teacher_period"
+        ? "Need more AI reviews? Ask your school about a TryHabla School Pilot."
+        : allowance.status === "free_lifetime"
+          ? "Choose Teacher for 300 AI reviews per Stripe billing period."
+          : "Contact us to scope a TryHabla School Pilot.";
+    return `This run needs ${preflight.ungradedCount} AI reviews, but ${allowance.remaining} remain in your current allowance. ${nextStep} Recording, playback, and manual grading remain available.`;
+  }
+  return `This needs ${preflight.ungradedCount} AI generations but only ${preflight.remaining} remain today. Grade some by hand, or try again tomorrow when the limit resets.`;
 }
 
 function autoResizeTextarea(element: HTMLTextAreaElement) {
@@ -263,19 +319,6 @@ export default function ClassDetailPage() {
   const [aiBulkGradingEnabled, setAiBulkGradingEnabled] = useState(false);
   const [localAiTestMode, setLocalAiTestMode] = useState(false);
 
-  type BulkAiPreflight = {
-    ungradedCount: number;
-    remaining: number;
-    fits: boolean;
-    estimatedSeconds: number;
-  };
-  type BulkAiResult = {
-    total: number;
-    completed: number;
-    graded: number;
-    skipped: number;
-    failed: number;
-  };
   const [bulkAiPreflight, setBulkAiPreflight] = useState<BulkAiPreflight | null>(null);
   const [bulkAiChecking, setBulkAiChecking] = useState(false);
   const [bulkAiRunning, setBulkAiRunning] = useState(false);
@@ -1598,7 +1641,7 @@ export default function ClassDetailPage() {
                             <div className="notice info">
                               <p className="meta" style={{ marginBottom: "0.35rem" }}>
                                 <strong>{localAiTestMode ? "Local AI test mode" : "AI grade details"}</strong>{" "}
-                                {aiSuggestion.gradingProvider === "mock" ? "Mock result" : "Review and edit anytime"}
+                                {localAiTestMode ? "Mock result" : "Review and edit anytime"}
                               </p>
                               <p className="meta" style={{ marginBottom: "0.35rem" }}>
                                 <span className="status-badge status-warning">
@@ -1841,12 +1884,12 @@ export default function ClassDetailPage() {
         open={bulkAiPreflight !== null}
         title={
           bulkAiPreflight && !bulkAiPreflight.fits
-            ? "Not enough AI grading left today"
+            ? bulkAiLimitTitle(bulkAiPreflight)
             : `AI grade ${bulkAiPreflight?.ungradedCount ?? 0} submission${bulkAiPreflight?.ungradedCount === 1 ? "" : "s"}?`
         }
         description={
           bulkAiPreflight && !bulkAiPreflight.fits
-            ? `This needs ${bulkAiPreflight.ungradedCount} AI generations but only ${bulkAiPreflight.remaining} remain today. Grade some by hand, or try again tomorrow when the limit resets.`
+            ? bulkAiLimitDescription(bulkAiPreflight)
             : `Every eligible submission gets an AI score, rubric breakdown, and feedback saved automatically and visible to that student immediately. You can review and edit every grade afterward. This takes about ${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60))} minute${Math.max(1, Math.round((bulkAiPreflight?.estimatedSeconds ?? 0) / 60)) === 1 ? "" : "s"}.`
         }
         confirmLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "OK" : "Grade with AI"}

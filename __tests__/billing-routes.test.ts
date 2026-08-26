@@ -6,9 +6,7 @@ const mocks = vi.hoisted(() => ({
   requireTeacherEmail: vi.fn(),
   getStripeBillingAccountByTeacherEmail: vi.fn(),
   getStripeBillingAccountByCustomerId: vi.fn(),
-  getUserIsPaid: vi.fn(),
-  getAiBillingMonthlySummary: vi.fn(),
-  getAiBillingUtcMonth: vi.fn(),
+  getAiReviewAllowanceSummary: vi.fn(),
   isStripeBillingStorageReady: vi.fn(),
   replaceStripeBillingCustomerMappingForRecovery: vi.fn(),
   projectCurrentStripeEntitledSubscription: vi.fn(),
@@ -20,13 +18,13 @@ const mocks = vi.hoisted(() => ({
   recordProcessedStripeWebhookEvent: vi.fn(),
   getStripeClientAvailability: vi.fn(),
   getStripePortalAvailability: vi.fn(),
-  getStripeUsageBillingAvailability: vi.fn(),
+  getStripeSubscriptionBillingAvailability: vi.fn(),
   getStripeCheckoutAvailability: vi.fn(),
-  isStripeUsageRuntimeReady: vi.fn(),
+  isStripeSubscriptionRuntimeReady: vi.fn(),
   isStripePortalRuntimeReady: vi.fn(),
   requireStripeClientConfig: vi.fn(),
   requireStripePortalConfig: vi.fn(),
-  requireStripeUsageBillingConfig: vi.fn(),
+  requireStripeSubscriptionBillingConfig: vi.fn(),
   requireStripeCheckoutConfig: vi.fn(),
   requireStripeWebhookConfig: vi.fn(),
   requireStripeCatalogConfig: vi.fn(),
@@ -58,9 +56,7 @@ vi.mock("@/lib/authz", () => ({
 vi.mock("@/lib/db", () => ({
   getStripeBillingAccountByTeacherEmail: mocks.getStripeBillingAccountByTeacherEmail,
   getStripeBillingAccountByCustomerId: mocks.getStripeBillingAccountByCustomerId,
-  getUserIsPaid: mocks.getUserIsPaid,
-  getAiBillingMonthlySummary: mocks.getAiBillingMonthlySummary,
-  getAiBillingUtcMonth: mocks.getAiBillingUtcMonth,
+  getAiReviewAllowanceSummary: mocks.getAiReviewAllowanceSummary,
   isStripeBillingStorageReady: mocks.isStripeBillingStorageReady,
   replaceStripeBillingCustomerMappingForRecovery:
     mocks.replaceStripeBillingCustomerMappingForRecovery,
@@ -97,13 +93,15 @@ vi.mock("@/lib/billing", async (importOriginal) => {
     ...actual,
     getStripeClientAvailability: mocks.getStripeClientAvailability,
     getStripePortalAvailability: mocks.getStripePortalAvailability,
-    getStripeUsageBillingAvailability: mocks.getStripeUsageBillingAvailability,
+    getStripeSubscriptionBillingAvailability:
+      mocks.getStripeSubscriptionBillingAvailability,
     getStripeCheckoutAvailability: mocks.getStripeCheckoutAvailability,
-    isStripeUsageRuntimeReady: mocks.isStripeUsageRuntimeReady,
+    isStripeSubscriptionRuntimeReady: mocks.isStripeSubscriptionRuntimeReady,
     isStripePortalRuntimeReady: mocks.isStripePortalRuntimeReady,
     requireStripeClientConfig: mocks.requireStripeClientConfig,
     requireStripePortalConfig: mocks.requireStripePortalConfig,
-    requireStripeUsageBillingConfig: mocks.requireStripeUsageBillingConfig,
+    requireStripeSubscriptionBillingConfig:
+      mocks.requireStripeSubscriptionBillingConfig,
     requireStripeCheckoutConfig: mocks.requireStripeCheckoutConfig,
     requireStripeWebhookConfig: mocks.requireStripeWebhookConfig,
     requireStripeCatalogConfig: mocks.requireStripeCatalogConfig,
@@ -117,7 +115,7 @@ vi.mock("@/lib/billing", async (importOriginal) => {
 
 const config = {
   enabled: true as const,
-  usageBillingEnabled: true as const,
+  subscriptionBillingEnabled: true as const,
   checkoutEnabled: true as const,
   apiVersion: "2026-07-29.dahlia" as const,
   secretKey: "sk_test_habla",
@@ -127,30 +125,37 @@ const config = {
   portalConfigurationId: "bpc_habla_v1",
   paymentMethodConfigurationId: "pmc_habla_card_only",
   priceIds: {
-    aiGrade: "price_ai_grade",
-    audioMinute: "price_audio_minute",
+    teacher: "price_tryhabla_teacher",
   },
   automaticTaxEnabled: false,
 };
 
 const BILLING_CONTRACT_ID = getStripeBillingContractId(config);
 
-const emptySummary = {
+const freeAllowance = {
   teacherEmail: "teacher@example.com",
-  billingMonth: "2026-08",
-  qualifyingClassHighWater: 0,
-  earnedCredits: 0,
-  usedCredits: 0,
-  remainingCredits: 0,
-  successfulResults: 0,
-  freeCreditResults: 0,
-  billableResults: 0,
-  billableBaseUnits: 0,
-  billableDurationSeconds: 0,
-  billableOutputTokens: 0,
-  pendingResults: 0,
-  reportedResults: 0,
-  failedResults: 0,
+  status: "free_lifetime" as const,
+  limit: 30,
+  reserved: 0,
+  consumed: 0,
+  used: 0,
+  remaining: 30,
+  stripeSubscriptionId: null,
+  periodStart: null,
+  periodEnd: null,
+};
+
+const teacherAllowance = {
+  teacherEmail: "teacher@example.com",
+  status: "teacher_period" as const,
+  limit: 300,
+  reserved: 2,
+  consumed: 123,
+  used: 125,
+  remaining: 175,
+  stripeSubscriptionId: "sub_teacher",
+  periodStart: 1_700_000_000_000,
+  periodEnd: 1_702_592_000_000,
 };
 
 function account(overrides: Record<string, unknown> = {}) {
@@ -159,6 +164,8 @@ function account(overrides: Record<string, unknown> = {}) {
     stripeCustomerId: "cus_teacher",
     stripeSubscriptionId: "sub_teacher",
     subscriptionStatus: "active",
+    subscriptionPeriodStart: 1_700_000_000_000,
+    subscriptionPeriodEnd: 1_702_592_000_000,
     priceBookId: STRIPE_CATALOG_MANIFEST.priceBookId,
     catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
     stripeAccountId: config.accountId,
@@ -214,8 +221,13 @@ function validSubscription(overrides: Record<string, unknown> = {}) {
     },
     items: {
       data: [
-        { price: { id: "price_ai_grade" }, tax_rates: [] },
-        { price: { id: "price_audio_minute" }, tax_rates: [] },
+        {
+          price: { id: config.priceIds.teacher },
+          quantity: 1,
+          current_period_start: 1_700_000_000,
+          current_period_end: 1_702_592_000,
+          tax_rates: [],
+        },
       ],
       has_more: false,
     },
@@ -237,8 +249,7 @@ function checkoutSession(overrides: Record<string, unknown> = {}) {
     expires_at: nowSeconds + 3_600,
     line_items: {
       data: [
-        { price: { id: "price_ai_grade" } },
-        { price: { id: "price_audio_minute" } },
+        { price: { id: config.priceIds.teacher }, quantity: 1 },
       ],
       has_more: false,
     },
@@ -298,12 +309,12 @@ beforeEach(() => {
     paymentMethodConfigurationId: "pmc_habla_card_only",
     issues: [],
   });
-  mocks.getStripeUsageBillingAvailability.mockReturnValue({
+  mocks.getStripeSubscriptionBillingAvailability.mockReturnValue({
     enabled: true,
     available: true,
     keyMode: "test",
     automaticTaxEnabled: false,
-    usageBillingEnabled: true,
+    subscriptionBillingEnabled: true,
     issues: [],
   });
   mocks.getStripeCheckoutAvailability.mockReturnValue({
@@ -311,15 +322,15 @@ beforeEach(() => {
     available: true,
     keyMode: "test",
     automaticTaxEnabled: false,
-    usageBillingEnabled: true,
+    subscriptionBillingEnabled: true,
     checkoutEnabled: true,
     issues: [],
   });
-  mocks.isStripeUsageRuntimeReady.mockResolvedValue(true);
+  mocks.isStripeSubscriptionRuntimeReady.mockResolvedValue(true);
   mocks.isStripePortalRuntimeReady.mockResolvedValue(true);
   mocks.requireStripeClientConfig.mockReturnValue(config);
   mocks.requireStripePortalConfig.mockReturnValue(config);
-  mocks.requireStripeUsageBillingConfig.mockReturnValue(config);
+  mocks.requireStripeSubscriptionBillingConfig.mockReturnValue(config);
   mocks.requireStripeCheckoutConfig.mockReturnValue(config);
   mocks.requireStripeWebhookConfig.mockReturnValue(config);
   mocks.requireStripeCatalogConfig.mockReturnValue(config);
@@ -330,7 +341,7 @@ beforeEach(() => {
     keyMode: "test",
     priceBookId: STRIPE_CATALOG_MANIFEST.priceBookId,
     fingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
-    dimensions: ["successful_grade", "audio_second"],
+    dimensions: ["teacher"],
   });
   mocks.assertConfiguredStripePortal.mockResolvedValue({
     valid: true,
@@ -368,9 +379,7 @@ beforeEach(() => {
   }));
   mocks.getStripeBillingAccountByTeacherEmail.mockResolvedValue(null);
   mocks.getStripeBillingAccountByCustomerId.mockResolvedValue(account());
-  mocks.getUserIsPaid.mockResolvedValue(false);
-  mocks.getAiBillingMonthlySummary.mockResolvedValue(emptySummary);
-  mocks.getAiBillingUtcMonth.mockReturnValue("2026-08");
+  mocks.getAiReviewAllowanceSummary.mockResolvedValue(freeAllowance);
   mocks.isStripeBillingStorageReady.mockResolvedValue(true);
   mocks.replaceStripeBillingCustomerMappingForRecovery.mockResolvedValue(account());
   mocks.projectCurrentStripeEntitledSubscription.mockResolvedValue(account());
@@ -398,29 +407,7 @@ beforeEach(() => {
 describe("billing status route", () => {
   it("returns the exact billing contract and grants verified runtime-backed access", async () => {
     mocks.getStripeBillingAccountByTeacherEmail.mockResolvedValue(account());
-    mocks.getAiBillingMonthlySummary.mockResolvedValue({
-      ...emptySummary,
-      qualifyingClassHighWater: 3,
-      earnedCredits: 2,
-      usedCredits: 1,
-      remainingCredits: 1,
-      successfulResults: 5,
-      freeCreditResults: 1,
-      billableResults: 4,
-      billableBaseUnits: 4,
-      billableDurationSeconds: 120,
-      billableOutputTokens: 1_000,
-    });
-    mocks.subscriptionsRetrieve.mockResolvedValue({
-      id: "sub_teacher",
-      items: {
-        data: [
-          { current_period_end: 2_000 },
-          { current_period_end: 1_900 },
-          { current_period_end: 2_000 },
-        ],
-      },
-    });
+    mocks.getAiReviewAllowanceSummary.mockResolvedValue(teacherAllowance);
     const { GET } = await import("@/app/api/billing/status/route");
     const response = await GET(jsonRequest("/api/billing/status"));
 
@@ -436,24 +423,30 @@ describe("billing status route", () => {
       accountIssue: null,
       priceBook: {
         id: STRIPE_CATALOG_MANIFEST.priceBookId,
-        effectiveAt: "2026-08-21",
+        effectiveAt: "2026-08-26",
       },
       access: "active",
       subscriptionStatus: "active",
-      periodEnd: 1_900_000,
+      periodEnd: 1_702_592_000_000,
       usage: {
-        successfulGrades: 5,
-        audioSeconds: 120,
-        qualifyingClasses: 3,
-        monthlyFreeCredits: 2,
-        freeCreditsUsed: 1,
-        estimatedChargeUsd: 0.22,
+        allowanceKind: "teacher_period",
+        limit: 300,
+        reservedReviews: 2,
+        consumedReviews: 123,
+        usedReviews: 125,
+        remainingReviews: 175,
+        periodStart: 1_700_000_000_000,
+        periodEnd: 1_702_592_000_000,
       },
     });
+    expect(mocks.getAiReviewAllowanceSummary).toHaveBeenCalledWith({
+      teacherEmail: "teacher@example.com",
+    });
+    expect(mocks.subscriptionsRetrieve).not.toHaveBeenCalled();
   });
 
-  it("keeps Portal and manual pilot access available while usage billing is paused", async () => {
-    mocks.getStripeUsageBillingAvailability.mockReturnValue({
+  it("keeps Portal and manual pilot access available while subscription billing is paused", async () => {
+    mocks.getStripeSubscriptionBillingAvailability.mockReturnValue({
       enabled: false,
       available: false,
       reason: "disabled",
@@ -465,8 +458,22 @@ describe("billing status route", () => {
       reason: "disabled",
       issues: [],
     });
-    mocks.getStripeBillingAccountByTeacherEmail.mockResolvedValue(account());
-    mocks.getUserIsPaid.mockResolvedValue(true);
+    mocks.getStripeBillingAccountByTeacherEmail.mockResolvedValue(
+      account({
+        stripeSubscriptionId: "",
+        subscriptionStatus: "",
+        subscriptionPeriodStart: 0,
+        subscriptionPeriodEnd: 0,
+        priceBookId: "",
+        catalogFingerprint: "",
+      }),
+    );
+    mocks.getAiReviewAllowanceSummary.mockResolvedValue({
+      ...freeAllowance,
+      status: "manual_lifetime",
+      limit: 300,
+      remaining: 300,
+    });
     const { GET } = await import("@/app/api/billing/status/route");
     const response = await GET(jsonRequest("/api/billing/status"));
 
@@ -477,31 +484,39 @@ describe("billing status route", () => {
       portalAvailable: true,
       checkoutAvailable: false,
       mode: "test",
-      accountIssue: "billing_paused",
+      accountIssue: null,
       access: "pilot",
-      subscriptionStatus: "active",
+      subscriptionStatus: null,
     });
-    expect(mocks.isStripeUsageRuntimeReady).not.toHaveBeenCalled();
+    expect(mocks.isStripeSubscriptionRuntimeReady).not.toHaveBeenCalled();
     expect(mocks.isStripePortalRuntimeReady).toHaveBeenCalledTimes(1);
   });
 
-  it("fails usage access and Checkout closed on quarantined legacy rows while preserving Portal", async () => {
+  it("fails closed when an active Stripe row has no authoritative allowance", async () => {
     mocks.getStripeBillingAccountByTeacherEmail.mockResolvedValue(account());
-    mocks.isStripeBillingStorageReady.mockResolvedValue(false);
+    mocks.getAiReviewAllowanceSummary.mockResolvedValue({
+      ...freeAllowance,
+      status: "subscription_unavailable",
+      limit: 0,
+      remaining: 0,
+      stripeSubscriptionId: "sub_teacher",
+      periodStart: 1_700_000_000_000,
+      periodEnd: 1_702_592_000_000,
+    });
     const { GET } = await import("@/app/api/billing/status/route");
 
     const response = await GET(jsonRequest("/api/billing/status"));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      runtimeAvailable: false,
+      runtimeAvailable: true,
       portalAvailable: true,
       checkoutAvailable: false,
       accountIssue: "billing_paused",
       access: "inactive",
       subscriptionStatus: "active",
     });
-    expect(mocks.isStripeBillingStorageReady).toHaveBeenCalledTimes(1);
+    expect(mocks.isStripeBillingStorageReady).not.toHaveBeenCalled();
     expect(mocks.isStripePortalRuntimeReady).toHaveBeenCalledTimes(1);
   });
 
@@ -549,7 +564,7 @@ describe("billing status route", () => {
     expect(mocks.isStripePortalRuntimeReady).not.toHaveBeenCalled();
   });
 
-  it("surfaces a usage/account mode mismatch and never grants Stripe access", async () => {
+  it("surfaces a subscription/account mode mismatch and never grants Stripe access", async () => {
     mocks.getStripeBillingAccountByTeacherEmail.mockResolvedValue(
       account({ livemode: true }),
     );
@@ -650,7 +665,7 @@ describe("billing status route", () => {
       reason: "not_configured",
       issues: ["missing"],
     });
-    mocks.getStripeUsageBillingAvailability.mockReturnValue({
+    mocks.getStripeSubscriptionBillingAvailability.mockReturnValue({
       enabled: false,
       available: false,
       reason: "disabled",
@@ -662,7 +677,12 @@ describe("billing status route", () => {
       reason: "disabled",
       issues: [],
     });
-    mocks.getUserIsPaid.mockResolvedValue(true);
+    mocks.getAiReviewAllowanceSummary.mockResolvedValue({
+      ...freeAllowance,
+      status: "manual_lifetime",
+      limit: 300,
+      remaining: 300,
+    });
     const { GET } = await import("@/app/api/billing/status/route");
     const response = await GET(jsonRequest("/api/billing/status"));
 
@@ -762,11 +782,10 @@ describe("billing Checkout and Portal routes", () => {
         },
       },
       line_items: [
-        { price: "price_ai_grade" },
-        { price: "price_audio_minute" },
+        { price: config.priceIds.teacher, quantity: 1 },
       ],
     });
-    expect(params.line_items.every((item: object) => !("quantity" in item))).toBe(true);
+    expect(params.line_items).toHaveLength(1);
     expect(requestOptions.idempotencyKey).not.toContain("teacher@example.com");
   });
 
@@ -1356,6 +1375,8 @@ describe("Stripe webhook route", () => {
       stripeAccountId: config.accountId,
       billingContractId: BILLING_CONTRACT_ID,
       livemode: false,
+      subscriptionPeriodStart: 1_700_000_000_000,
+      subscriptionPeriodEnd: 1_702_592_000_000,
       observedEventCreated: 700,
       expectedAccount: {
         stripeSubscriptionId: "",
@@ -1372,6 +1393,79 @@ describe("Stripe webhook route", () => {
       eventType: "checkout.session.completed",
       stripeEventCreated: 700,
     });
+  });
+
+  it("accepts concurrent matching Subscription creation and Checkout completion", async () => {
+    const unprojectedAccount = account({
+      stripeSubscriptionId: "",
+      subscriptionStatus: "",
+      priceBookId: "",
+      catalogFingerprint: "",
+      stripeEventCreated: 100,
+      projectionRevision: 1,
+    });
+    const subscription = validSubscription();
+    mocks.getStripeBillingAccountByCustomerId.mockResolvedValue(unprojectedAccount);
+    mocks.getStripeBillingAccountByTeacherEmail.mockResolvedValue(unprojectedAccount);
+    mocks.subscriptionsRetrieve.mockResolvedValue(subscription);
+    mocks.subscriptionsList.mockResolvedValue({ data: [subscription], has_more: false });
+    mocks.projectCurrentStripeEntitledSubscription.mockResolvedValue(
+      account({ stripeEventCreated: 701, projectionRevision: 2 }),
+    );
+    mocks.constructWebhookEvent.mockImplementation((rawBody: string) =>
+      rawBody === "subscription-created"
+        ? {
+            id: "evt_subscription_created_race",
+            livemode: false,
+            type: "customer.subscription.created",
+            created: 700,
+            data: { object: subscription },
+          }
+        : {
+            id: "evt_checkout_completed_race",
+            livemode: false,
+            type: "checkout.session.completed",
+            created: 701,
+            data: {
+              object: {
+                id: "cs_concurrent",
+                customer: "cus_teacher",
+                subscription: "sub_teacher",
+                client_reference_id: "teacher@example.com",
+                payment_method_types: ["card"],
+                metadata: {
+                  habla_app: "tryhabla",
+                  teacher_email: "teacher@example.com",
+                  price_book_id: STRIPE_CATALOG_MANIFEST.priceBookId,
+                  catalog_fingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
+                  payment_method_policy: "card_only_v1",
+                  stripe_account_id: config.accountId,
+                  billing_contract_id: BILLING_CONTRACT_ID,
+                },
+              },
+            },
+          },
+    );
+    const { POST } = await import("@/app/api/billing/webhook/route");
+
+    const responses = await Promise.all([
+      POST(webhookRequest("subscription-created")),
+      POST(webhookRequest("checkout-completed")),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect(mocks.projectCurrentStripeEntitledSubscription).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.projectCurrentStripeEntitledSubscription.mock.calls.map(
+        ([projection]) => projection.expectedAccount,
+      ),
+    ).toEqual([unprojectedAccount, unprojectedAccount].map((snapshot) => ({
+      stripeSubscriptionId: snapshot.stripeSubscriptionId,
+      subscriptionStatus: snapshot.subscriptionStatus,
+      stripeEventCreated: snapshot.stripeEventCreated,
+      projectionRevision: snapshot.projectionRevision,
+    })));
+    expect(mocks.recordProcessedStripeWebhookEvent).toHaveBeenCalledTimes(2);
   });
 
   it("leaves a delayed Checkout event retryable instead of replacing a newer Customer mapping", async () => {
@@ -1474,6 +1568,8 @@ describe("Stripe webhook route", () => {
       stripeAccountId: config.accountId,
       billingContractId: BILLING_CONTRACT_ID,
       livemode: false,
+      subscriptionPeriodStart: 1_700_000_000_000,
+      subscriptionPeriodEnd: 1_702_592_000_000,
       observedEventCreated: 700,
       expectedAccount: {
         stripeSubscriptionId: "sub_old",
@@ -1544,6 +1640,8 @@ describe("Stripe webhook route", () => {
       stripeAccountId: config.accountId,
       billingContractId: BILLING_CONTRACT_ID,
       livemode: false,
+      subscriptionPeriodStart: 1_700_000_000_000,
+      subscriptionPeriodEnd: 1_702_592_000_000,
       observedEventCreated: 700,
       expectedAccount: {
         stripeSubscriptionId: "sub_old",
@@ -2021,7 +2119,7 @@ describe("Stripe webhook route", () => {
     consoleError.mockRestore();
   });
 
-  it("fails closed when an active subscription does not contain exactly two configured prices", async () => {
+  it("fails closed when an active subscription is not exactly one Teacher item at quantity one", async () => {
     mocks.constructWebhookEvent.mockReturnValue({
       id: "evt_wrong_prices",
       livemode: false,
@@ -2032,7 +2130,15 @@ describe("Stripe webhook route", () => {
     mocks.subscriptionsRetrieve.mockResolvedValue(
       validSubscription({
         items: {
-          data: [{ price: { id: "price_ai_grade" } }],
+          data: [
+            {
+              price: { id: config.priceIds.teacher },
+              quantity: 2,
+              current_period_start: 1_700_000_000,
+              current_period_end: 1_702_592_000,
+              tax_rates: [],
+            },
+          ],
           has_more: false,
         },
       }),
@@ -2061,8 +2167,13 @@ describe("Stripe webhook route", () => {
       {
         items: {
           data: [
-            { price: { id: "price_ai_grade" }, tax_rates: [{ id: "txr_unapproved" }] },
-            { price: { id: "price_audio_minute" }, tax_rates: [] },
+            {
+              price: { id: config.priceIds.teacher },
+              quantity: 1,
+              current_period_start: 1_700_000_000,
+              current_period_end: 1_702_592_000,
+              tax_rates: [{ id: "txr_unapproved" }],
+            },
           ],
           has_more: false,
         },

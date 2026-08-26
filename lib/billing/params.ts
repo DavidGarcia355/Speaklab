@@ -98,10 +98,7 @@ export function buildCheckoutSessionParams(
     adaptive_pricing: { enabled: false },
     success_url: absoluteHttpUrl(input.successUrl, "successUrl"),
     cancel_url: absoluteHttpUrl(input.cancelUrl, "cancelUrl"),
-    line_items: [
-      { price: input.config.priceIds.aiGrade },
-      { price: input.config.priceIds.audioMinute },
-    ],
+    line_items: [{ price: input.config.priceIds.teacher, quantity: 1 }],
     consent_collection: { terms_of_service: "required" },
     metadata,
     subscription_data: { metadata },

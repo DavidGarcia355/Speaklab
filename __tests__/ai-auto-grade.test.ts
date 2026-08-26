@@ -19,9 +19,13 @@ const mocks = vi.hoisted(() => {
     finalizeAiGradeDelivery: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
     markAiGradingAttemptNotApplicable: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     withholdAiGradingAttemptResult: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
+    reserveAiReviewAllowance: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+    releaseAiReviewAllowanceReservation: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
+    getReusableAiReviewAttempt: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
     createAiGradingAttempt: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
     hasAudioTooLongFailure: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     fetchAuthorizedAudioBuffer: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+    reserveGenerationBudget: vi.fn<(...args: unknown[]) => Promise<boolean>>(),
     toPublicAiError: vi.fn<(...args: unknown[]) => unknown>(),
     transcribeAudio: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
     runDirectAudioGradingPipeline: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
@@ -30,7 +34,6 @@ const mocks = vi.hoisted(() => {
     estimateTranscriptionCostMicrousd: vi.fn<(...args: unknown[]) => unknown>(),
     routeAudioGrading: vi.fn<(...args: unknown[]) => unknown>(),
     createDatabaseGradingStore: vi.fn<() => unknown>(),
-    recordDeliveredAiUsageSafely: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
     store,
   };
 });
@@ -39,14 +42,17 @@ vi.mock("@/lib/db", () => ({
   finalizeAiGradeDelivery: mocks.finalizeAiGradeDelivery,
   markAiGradingAttemptNotApplicable: mocks.markAiGradingAttemptNotApplicable,
   withholdAiGradingAttemptResult: mocks.withholdAiGradingAttemptResult,
+  reserveAiReviewAllowance: mocks.reserveAiReviewAllowance,
+  releaseAiReviewAllowanceReservation: mocks.releaseAiReviewAllowanceReservation,
+  getReusableAiReviewAttempt: mocks.getReusableAiReviewAttempt,
   createAiGradingAttempt: mocks.createAiGradingAttempt,
   hasAudioTooLongFailure: mocks.hasAudioTooLongFailure,
 }));
-vi.mock("@/lib/billing", () => ({
-  recordDeliveredAiUsageSafely: mocks.recordDeliveredAiUsageSafely,
-}));
 vi.mock("@/lib/ai/audio", () => ({
   fetchAuthorizedAudioBuffer: mocks.fetchAuthorizedAudioBuffer,
+}));
+vi.mock("@/lib/ai/budget", () => ({
+  reserveGenerationBudget: mocks.reserveGenerationBudget,
 }));
 vi.mock("@/lib/ai/errors", () => ({ toPublicAiError: mocks.toPublicAiError }));
 vi.mock("@/lib/ai/providers", () => ({ transcribeAudio: mocks.transcribeAudio }));
@@ -256,9 +262,10 @@ function expectAppliedWholePointGrade() {
   expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledWith({
     attemptId: "attempt-1",
     ownerEmail: "teacher@example.com",
-    priceBookId: "habla-teacher-ai-usd-v2",
-    billingCandidate: true,
+    priceBookId: "tryhabla-teacher-usd-v3",
+    billingCandidate: false,
     allowUnmeteredAccess: false,
+    reviewReservationId: "air_test",
   });
 }
 
@@ -272,6 +279,8 @@ describe("automatic AI grade persistence", () => {
       contentType: "audio/wav",
       storageMode: "private-blob",
     });
+    mocks.reserveGenerationBudget.mockReset();
+    mocks.reserveGenerationBudget.mockResolvedValue(true);
     mocks.transcribeAudio.mockResolvedValue({
       transcript: "The answer explains the claim with supporting evidence.",
       detectedLanguage: "en",
@@ -290,7 +299,25 @@ describe("automatic AI grade persistence", () => {
     mocks.markAiGradingAttemptNotApplicable.mockResolvedValue(true);
     mocks.withholdAiGradingAttemptResult.mockReset();
     mocks.withholdAiGradingAttemptResult.mockResolvedValue(true);
-    mocks.recordDeliveredAiUsageSafely.mockResolvedValue({ status: "disabled", usage: null });
+    mocks.reserveAiReviewAllowance.mockReset();
+    mocks.reserveAiReviewAllowance.mockResolvedValue({
+      reservationStatus: "reserved",
+      reservationId: "air_test",
+      teacherEmail: "teacher@example.com",
+      status: "free_lifetime",
+      limit: 30,
+      reserved: 1,
+      consumed: 0,
+      used: 1,
+      remaining: 29,
+      stripeSubscriptionId: null,
+      periodStart: null,
+      periodEnd: null,
+    });
+    mocks.releaseAiReviewAllowanceReservation.mockReset();
+    mocks.releaseAiReviewAllowanceReservation.mockResolvedValue(true);
+    mocks.getReusableAiReviewAttempt.mockReset();
+    mocks.getReusableAiReviewAttempt.mockResolvedValue(null);
     mocks.createAiGradingAttempt.mockImplementation(async (input) => ({
       id: "attempt-1",
       createdAt: 1,
@@ -350,13 +377,13 @@ describe("automatic AI grade persistence", () => {
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ billingRequired: false, durationSeconds: 30 }),
     );
-    expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith({
+    expect(mocks.reserveAiReviewAllowance).toHaveBeenCalledWith({
       teacherEmail: "teacher@example.com",
-      cacheKey: expect.stringMatching(/^[a-f0-9]{64}$/),
-      attemptId: "attempt-1",
-      submissionId: "submission-1",
-      durationSeconds: 30,
-      occurredAt: 1,
+      semanticKey: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(mocks.releaseAiReviewAllowanceReservation).toHaveBeenCalledWith({
+      reservationId: "air_test",
+      teacherEmail: "teacher@example.com",
     });
   });
 
@@ -383,9 +410,10 @@ describe("automatic AI grade persistence", () => {
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ billingRequired: false }),
     );
-    expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith(
-      expect.objectContaining({ cacheKey: expect.stringMatching(/^[a-f0-9]{64}$/) }),
-    );
+    expect(mocks.reserveAiReviewAllowance).toHaveBeenCalledWith({
+      teacherEmail: "teacher@example.com",
+      semanticKey: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
   });
 
   it("uses stable assignment and recording identity across grading-cache changes", async () => {
@@ -465,7 +493,7 @@ describe("automatic AI grade persistence", () => {
     expect(deliveryKeys[3]).not.toBe(deliveryKeys[0]);
   });
 
-  it("delivers an unmetered grade only when the atomic finalizer authorizes it", async () => {
+  it("delivers a reserved review only when the atomic finalizer authorizes it", async () => {
     mocks.finalizeAiGradeDelivery.mockResolvedValue({
       status: "applied",
       billingRequired: false,
@@ -487,10 +515,12 @@ describe("automatic AI grade persistence", () => {
 
     expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
     expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledOnce();
-    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+    expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ reviewReservationId: "air_test" }),
+    );
   });
 
-  it("bills direct audio from final-call AUDIO tokens instead of model-reported duration", async () => {
+  it("records direct-audio duration from final-call AUDIO tokens", async () => {
     mocks.routeAudioGrading.mockReturnValue({
       strategy: "gemini_direct",
       model: gradingConfig.audioModel,
@@ -514,12 +544,12 @@ describe("automatic AI grade persistence", () => {
     expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ billingRequired: false, durationSeconds: 10 }),
     );
-    expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith(
-      expect.objectContaining({ durationSeconds: 10 }),
+    expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ reviewReservationId: "air_test" }),
     );
   });
 
-  it("bills only the base result when final-call AUDIO usage metadata is missing", async () => {
+  it("records zero provider-measured duration when final-call AUDIO metadata is missing", async () => {
     mocks.routeAudioGrading.mockReturnValue({
       strategy: "gemini_direct",
       model: gradingConfig.audioModel,
@@ -544,8 +574,8 @@ describe("automatic AI grade persistence", () => {
       expect.objectContaining({ billingRequired: false, durationSeconds: 0 }),
     );
     expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledOnce();
-    expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith(
-      expect.objectContaining({ durationSeconds: 0 }),
+    expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ reviewReservationId: "air_test" }),
     );
   });
 
@@ -573,13 +603,16 @@ describe("automatic AI grade persistence", () => {
       gradeApplied: false,
     });
     expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
-    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+    expect(mocks.releaseAiReviewAllowanceReservation).toHaveBeenCalledWith({
+      reservationId: "air_test",
+      teacherEmail: "teacher@example.com",
+    });
   });
 
   it.each([
     ["prompt injection", "Possible prompt injection detected in the transcript."],
     ["model disagreement", "The grading models materially disagreed."],
-  ])("keeps a %s result as an unbilled review-only attempt", async (_case, reviewReason) => {
+  ])("keeps a %s result as a consumed review-only attempt", async (_case, reviewReason) => {
     mocks.routeAudioGrading.mockReturnValue({
       strategy: "gemini_direct",
       model: gradingConfig.audioModel,
@@ -611,10 +644,14 @@ describe("automatic AI grade persistence", () => {
       expect.objectContaining({ autoApplicable: false }),
     );
     expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
-    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+    expect(mocks.markAiGradingAttemptNotApplicable).toHaveBeenCalledWith({
+      attemptId: "attempt-1",
+      ownerEmail: "teacher@example.com",
+      reviewReservationId: "air_test",
+    });
   });
 
-  it("keeps a low-confidence caution result as an unbilled review-only attempt", async () => {
+  it("keeps a low-confidence caution result as a consumed review-only attempt", async () => {
     mocks.routeAudioGrading.mockReturnValue({
       strategy: "transcribe_then_grade",
       model: gradingConfig.defaultModel,
@@ -647,10 +684,14 @@ describe("automatic AI grade persistence", () => {
       }),
     );
     expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
-    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+    expect(mocks.markAiGradingAttemptNotApplicable).toHaveBeenCalledWith({
+      attemptId: "attempt-1",
+      ownerEmail: "teacher@example.com",
+      reviewReservationId: "air_test",
+    });
   });
 
-  it("keeps a poor-transcript result as an unbilled review-only attempt", async () => {
+  it("keeps a poor-transcript result as a consumed review-only attempt", async () => {
     mocks.routeAudioGrading.mockReturnValue({
       strategy: "transcribe_then_grade",
       model: gradingConfig.defaultModel,
@@ -686,10 +727,14 @@ describe("automatic AI grade persistence", () => {
       }),
     );
     expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
-    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+    expect(mocks.markAiGradingAttemptNotApplicable).toHaveBeenCalledWith({
+      attemptId: "attempt-1",
+      ownerEmail: "teacher@example.com",
+      reviewReservationId: "air_test",
+    });
   });
 
-  it("keeps transcript-only grading of audio evidence as an unbilled review-only attempt", async () => {
+  it("keeps transcript-only grading of audio evidence as a consumed review-only attempt", async () => {
     mocks.routeAudioGrading.mockReturnValue({
       strategy: "transcribe_then_grade",
       model: gradingConfig.defaultModel,
@@ -719,7 +764,11 @@ describe("automatic AI grade persistence", () => {
       }),
     );
     expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
-    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+    expect(mocks.markAiGradingAttemptNotApplicable).toHaveBeenCalledWith({
+      attemptId: "attempt-1",
+      ownerEmail: "teacher@example.com",
+      reviewReservationId: "air_test",
+    });
   });
 
   it("does not overwrite a grade already present on the submission snapshot", async () => {
@@ -740,14 +789,17 @@ describe("automatic AI grade persistence", () => {
 
     expect(outcome).toMatchObject({
       status: "failed",
-      code: "result_not_delivered",
+      code: "submission_already_graded",
     });
     expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
-    expect(mocks.withholdAiGradingAttemptResult).toHaveBeenCalledOnce();
-    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+    expect(mocks.withholdAiGradingAttemptResult).not.toHaveBeenCalled();
+    expect(mocks.releaseAiReviewAllowanceReservation).toHaveBeenCalledWith({
+      reservationId: "air_test",
+      teacherEmail: "teacher@example.com",
+    });
   });
 
-  it("does not bill when a teacher grade wins the atomic apply race", async () => {
+  it("releases the allowance when a teacher grade wins the atomic apply race", async () => {
     mocks.routeAudioGrading.mockReturnValue({
       strategy: "gemini_direct",
       model: gradingConfig.audioModel,
@@ -777,7 +829,10 @@ describe("automatic AI grade persistence", () => {
       expect.objectContaining({ billingRequired: false }),
     );
     expect(mocks.withholdAiGradingAttemptResult).toHaveBeenCalledOnce();
-    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+    expect(mocks.releaseAiReviewAllowanceReservation).toHaveBeenCalledWith({
+      reservationId: "air_test",
+      teacherEmail: "teacher@example.com",
+    });
   });
 
   it("never marks usage billable while broad unmetered access is enabled", async () => {
@@ -801,12 +856,14 @@ describe("automatic AI grade persistence", () => {
       expect.objectContaining({
         billingCandidate: false,
         allowUnmeteredAccess: true,
+        reviewReservationId: undefined,
       }),
     );
-    expect(mocks.recordDeliveredAiUsageSafely).not.toHaveBeenCalled();
+    expect(mocks.reserveAiReviewAllowance).not.toHaveBeenCalled();
+    expect(mocks.releaseAiReviewAllowanceReservation).not.toHaveBeenCalled();
   });
 
-  it("bills the first delivered cache hit and retains its full audio duration", async () => {
+  it("consumes one review for the first delivered cache hit and retains its duration", async () => {
     mocks.routeAudioGrading.mockReturnValue({
       strategy: "gemini_direct",
       model: gradingConfig.audioModel,
@@ -829,9 +886,9 @@ describe("automatic AI grade persistence", () => {
 
     expect(outcome).toMatchObject({ status: "completed", gradeApplied: true });
     expect(mocks.finalizeAiGradeDelivery).toHaveBeenCalledWith(
-      expect.objectContaining({ billingCandidate: true }),
+      expect.objectContaining({ billingCandidate: false, reviewReservationId: "air_test" }),
     );
-    expect(mocks.recordDeliveredAiUsageSafely).toHaveBeenCalledWith(
+    expect(mocks.createAiGradingAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ durationSeconds: 30 }),
     );
   });

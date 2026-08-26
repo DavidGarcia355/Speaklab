@@ -127,3 +127,32 @@ export function subscriptionPeriodEndMs(subscription: Stripe.Subscription) {
     .filter((value): value is number => Number.isSafeInteger(value) && value > 0);
   return itemEnds.length > 0 ? Math.min(...itemEnds) * 1_000 : null;
 }
+
+/**
+ * Entitlement projections require every configured subscription item to agree
+ * on one current period. A missing, paginated, malformed, or mixed period is
+ * not safe to turn into renewable AI capacity.
+ */
+export function requireSubscriptionPeriodBoundsMs(subscription: Stripe.Subscription) {
+  if (subscription.items.has_more || subscription.items.data.length === 0) {
+    throw new Error("Stripe subscription period could not be verified completely.");
+  }
+  const periods = subscription.items.data.map((item) => {
+    const start = item.current_period_start;
+    const end = item.current_period_end;
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start <= 0 ||
+      end <= start
+    ) {
+      throw new Error("Stripe subscription item has an invalid current period.");
+    }
+    return { start: start * 1_000, end: end * 1_000 };
+  });
+  const [{ start, end }] = periods;
+  if (periods.some((period) => period.start !== start || period.end !== end)) {
+    throw new Error("Stripe subscription items do not share one current period.");
+  }
+  return { periodStart: start, periodEnd: end };
+}

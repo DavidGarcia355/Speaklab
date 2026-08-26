@@ -52,9 +52,9 @@ export default function AboutPage() {
             support her as much as I can.
           </p>
           <p className="meta">
-            The current core pilot is free. Proceeds from any optional AI plan that is later offered
-            will go toward my mom&apos;s fight. If Habla helps your classroom, supporting her directly
-            helps me keep building while standing beside her.
+            The core classroom is free. Revenue from Teacher helps me operate Habla, keep building,
+            and support my family while my mom fights cancer. If Habla helps your classroom,
+            supporting her directly also helps me keep building while standing beside her.
           </p>
           <div className="actions">
             <a

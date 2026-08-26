@@ -14,19 +14,21 @@ const baseStatus: BillingStatus = {
   mode: "live",
   accountIssue: null,
   priceBook: {
-    id: "habla-teacher-ai-usd-v2",
-    effectiveAt: "2026-08-21",
+    id: "tryhabla-teacher-usd-v3",
+    effectiveAt: "2026-08-26",
   },
   access: "inactive",
   subscriptionStatus: null,
   periodEnd: null,
   usage: {
-    successfulGrades: 0,
-    audioSeconds: 0,
-    qualifyingClasses: 0,
-    monthlyFreeCredits: 0,
-    freeCreditsUsed: 0,
-    estimatedChargeUsd: 0,
+    allowanceKind: "free_lifetime",
+    limit: 30,
+    reservedReviews: 0,
+    consumedReviews: 0,
+    usedReviews: 0,
+    remainingReviews: 30,
+    periodStart: null,
+    periodEnd: null,
   },
 };
 
@@ -44,7 +46,7 @@ describe("billing presentation", () => {
     const presentation = deriveBillingPresentation(status());
 
     expect(presentation).toMatchObject({
-      heading: "Choose an AI access option",
+      heading: "Start with 30 free AI reviews",
       showCheckout: true,
       showPortal: false,
       showPayPal: false,
@@ -90,7 +92,7 @@ describe("billing presentation", () => {
     });
     expect(presentation).toMatchObject({
       subscribed: true,
-      heading: "AI billing is active",
+      heading: "Teacher is active",
       showCheckout: false,
       showPortal: true,
       portalIsPrimary: true,

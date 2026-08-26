@@ -129,10 +129,12 @@ Do not use production student data or production credentials for local testing.
 
 ### Choosing teacher access
 
-`AI_ACCESS_MODE=paid` keeps the existing manual `users.is_paid` entitlement. An admin can grant
-that entitlement from the teacher roster. `AI_ACCESS_MODE=all` makes AI free to every authenticated
-teacher, subject to global quotas and the monthly budget reservation. Use `AI_TEACHER_DENYLIST`
-as a comma-separated emergency suspension list in either mode.
+`AI_ACCESS_MODE=paid` enables the 30-review Free lifetime allowance, explicit manual pilot grants,
+and exact verified Teacher subscriptions. An admin can create or revoke a manual grant from the
+teacher roster; authentication allowlists do not grant AI access. `AI_ACCESS_MODE=all` bypasses
+customer allowances for every authenticated teacher, subject to global quotas and the monthly
+provider-budget reservation. Use `AI_TEACHER_DENYLIST` as a comma-separated emergency suspension
+list in either mode.
 
 ### Getting an API key
 
@@ -166,15 +168,16 @@ have different response-format contracts and need adapter tests with synthetic a
 
 Layered protections, in the order a request hits them:
 
-1. **Access gate** — `AI_ACCESS_MODE=paid` accepts a manual pilot grant or an exact verified active Stripe subscription; `all` enables every authenticated teacher. `AI_TEACHER_DENYLIST` remains an emergency block.
+1. **Access gate** — `AI_ACCESS_MODE=paid` uses Free, explicit manual pilot, or exact verified Teacher allowance; `all` is an explicit operator bypass. `AI_TEACHER_DENYLIST` remains an emergency block.
 2. **Cooldown** — `AI_GENERATION_COOLDOWN_SECONDS` (default 3s) blocks rapid re-clicks.
 3. **Per-submission cap** — `AI_MAX_GENERATIONS_PER_SUBMISSION` (default 10) bounds regeneration on one recording.
 4. **Per-teacher daily cap** — `AI_DAILY_TEACHER_LIMIT` (default 20/day).
 5. **App-wide daily cap** — `AI_DAILY_GLOBAL_LIMIT` (default 500/day) bounds total spend across every teacher combined,
    independent of how many paid accounts exist. Size it to your budget: generations × ~$0.012 ≈ daily $ exposure
    (500/day ≈ $6/day ≈ $180/month worst case at normal per-call cost).
-6. **Atomic monthly reservation** — every real-provider request reserves `AI_RESERVED_COST_USD_PER_GENERATION` before calling OpenAI. Reservations, including failures, cannot exceed `AI_MONTHLY_BUDGET_USD` for the UTC calendar month.
-7. **Audio-duration circuit breaker** — the transcription call now requests `verbose_json` from OpenAI and reads back
+6. **Atomic review allowance** — a new semantic review reserves Free, manual, or Teacher capacity before provider-budget or provider work. Caps and exact retries consume no provider budget.
+7. **Atomic monthly provider reservation** — every admitted real-provider request reserves `AI_RESERVED_COST_USD_PER_GENERATION` before calling OpenAI. Reservations, including provider failures, cannot exceed `AI_MONTHLY_BUDGET_USD` for the UTC calendar month.
+8. **Audio-duration circuit breaker** — the transcription call now requests `verbose_json` from OpenAI and reads back
    the real audio duration. If it exceeds `AI_MAX_AUDIO_SECONDS`, the attempt is recorded as failed
    (`errorCode: "audio_too_long"`) and returns `413` instead of proceeding to grading. A submission that's already
    failed this way is rejected immediately on the next attempt (`hasAudioTooLongFailure`), so a single oversized or

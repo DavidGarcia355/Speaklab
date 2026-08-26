@@ -4,79 +4,43 @@ import {
   STRIPE_CATALOG_MANIFEST,
   getStripeBillingContractId,
   getStripeCheckoutAvailability,
-  getStripeClient,
   getStripeClientAvailability,
   getStripePortalAvailability,
-  getStripeUsageBillingAvailability,
+  getStripeSubscriptionBillingAvailability,
   isStripePortalRuntimeReady,
-  isStripeUsageRuntimeReady,
-  requireStripeClientConfig,
+  isStripeSubscriptionRuntimeReady,
   requireStripePortalConfig,
-  requireStripeUsageBillingConfig,
+  requireStripeSubscriptionBillingConfig,
 } from "@/lib/billing";
 import {
-  getAiBillingMonthlySummary,
-  getAiBillingUtcMonth,
+  getAiReviewAllowanceSummary,
   getStripeBillingAccountByTeacherEmail,
-  isStripeBillingStorageReady,
-  getUserIsPaid,
   type StripeBillingAccountRow,
 } from "@/lib/db";
 import { withApiHandler } from "@/lib/http";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
-import { getAiCheckoutAvailability, subscriptionPeriodEndMs } from "@/app/api/billing/_shared";
+import { getAiCheckoutAvailability } from "@/app/api/billing/_shared";
 
 export const runtime = "nodejs";
 
 const ENTITLED_SUBSCRIPTION_STATUSES = new Set(["active"]);
 const TERMINAL_SUBSCRIPTION_STATUSES = new Set(["canceled", "incomplete_expired"]);
 
-function estimatedRetailChargeUsd(input: {
-  baseUnits: number;
-  durationSeconds: number;
-}) {
-  const baseMicros = Math.round(
-    input.baseUnits * TEACHER_AI_PRICE_BOOK.baseSuccessfulGradeUsd * 1_000_000,
-  );
-  const audioMicros = Math.round(
-    (input.durationSeconds / 60) * TEACHER_AI_PRICE_BOOK.audioMinuteUsd * 1_000_000,
-  );
-  return (baseMicros + audioMicros) / 1_000_000;
-}
-
-async function loadSubscriptionPeriodEnd(
-  account: StripeBillingAccountRow | null,
-  clientConfigured: boolean,
-) {
-  if (!clientConfigured || !account?.stripeSubscriptionId) return null;
-  try {
-    const config = requireStripeClientConfig();
-    if (account.stripeAccountId !== config.accountId) return null;
-    const subscription = await getStripeClient(config).subscriptions.retrieve(
-      account.stripeSubscriptionId,
-    );
-    return subscriptionPeriodEndMs(subscription);
-  } catch {
-    // Status remains useful from the signed local webhook projection when Stripe is unavailable.
-    return null;
-  }
-}
-
 function accountIssue(
   account: StripeBillingAccountRow | null,
   runtimeAvailable: boolean,
-  usageKeyMode: "test" | "live" | null,
-  usageAccountId: string | null,
+  subscriptionKeyMode: "test" | "live" | null,
+  subscriptionAccountId: string | null,
   billingContractId: string | null,
 ) {
   if (!account) return null;
   if (
-    usageKeyMode &&
-    account.livemode !== (usageKeyMode === "live")
+    subscriptionKeyMode &&
+    account.livemode !== (subscriptionKeyMode === "live")
   ) {
     return "mode_mismatch" as const;
   }
-  if (usageAccountId && account.stripeAccountId !== usageAccountId) {
+  if (subscriptionAccountId && account.stripeAccountId !== subscriptionAccountId) {
     return "account_mismatch" as const;
   }
   if (billingContractId && account.billingContractId !== billingContractId) {
@@ -132,56 +96,43 @@ export async function GET(request: Request) {
     const teacherEmail = await requireTeacherEmail();
     const clientAvailability = getStripeClientAvailability();
     const portalAvailability = getStripePortalAvailability();
-    const usageAvailability = getStripeUsageBillingAvailability();
+    const subscriptionAvailability = getStripeSubscriptionBillingAvailability();
     const checkoutAvailability = getStripeCheckoutAvailability();
     const aiCheckout = getAiCheckoutAvailability(teacherEmail);
-    const usageConfig = usageAvailability.available
-      ? requireStripeUsageBillingConfig()
+    const subscriptionConfig = subscriptionAvailability.available
+      ? requireStripeSubscriptionBillingConfig()
       : null;
-    const billingContractId = usageConfig
-      ? getStripeBillingContractId(usageConfig)
+    const billingContractId = subscriptionConfig
+      ? getStripeBillingContractId(subscriptionConfig)
       : null;
-    const summaryScope = usageAvailability.available
-      ? {
-          priceBookId: STRIPE_CATALOG_MANIFEST.priceBookId,
-          catalogFingerprint: STRIPE_CATALOG_MANIFEST.fingerprint,
-          billingContractId: billingContractId!,
-          livemode: usageAvailability.keyMode === "live",
-        }
-      : null;
-    const [account, manualAccess, summary, runtimeAvailable] = await Promise.all([
+    const [account, allowance, runtimeAvailable] = await Promise.all([
       getStripeBillingAccountByTeacherEmail(teacherEmail),
-      getUserIsPaid(teacherEmail),
-      summaryScope
-        ? getAiBillingMonthlySummary(
-            teacherEmail,
-            getAiBillingUtcMonth(),
-            summaryScope,
-          )
-        : Promise.resolve(null),
-      usageAvailability.available
-        ? Promise.all([
-            isStripeUsageRuntimeReady(),
-            isStripeBillingStorageReady(),
-          ]).then((checks) => checks.every(Boolean))
+      getAiReviewAllowanceSummary({ teacherEmail }),
+      subscriptionAvailability.available
+        ? isStripeSubscriptionRuntimeReady()
         : Promise.resolve(false),
     ]);
 
     const normalizedSubscriptionStatus = account?.subscriptionStatus.trim().toLowerCase() || null;
-    const issue = accountIssue(
+    const projectedAccountIssue = accountIssue(
       account,
       runtimeAvailable,
-      usageAvailability.available ? usageAvailability.keyMode : null,
-      usageConfig?.accountId ?? null,
+      subscriptionAvailability.available ? subscriptionAvailability.keyMode : null,
+      subscriptionConfig?.accountId ?? null,
       billingContractId,
     );
+    const issue =
+      allowance.status === "subscription_unavailable"
+        ? (projectedAccountIssue ?? "billing_paused")
+        : projectedAccountIssue;
     const stripeAccess =
       normalizedSubscriptionStatus &&
       ENTITLED_SUBSCRIPTION_STATUSES.has(normalizedSubscriptionStatus) &&
       issue === null
         ? normalizedSubscriptionStatus
         : null;
-    const access = stripeAccess ?? (manualAccess ? "pilot" : "inactive");
+    const access =
+      stripeAccess ?? (allowance.status === "manual_lifetime" ? "pilot" : "inactive");
     const portalAccountModeMatches =
       portalAvailability.available &&
       (!account?.stripeCustomerId ||
@@ -207,7 +158,10 @@ export async function GET(request: Request) {
       aiCheckout,
     });
     const checkoutAvailable = unavailableReason === null;
-    const periodEnd = await loadSubscriptionPeriodEnd(account, clientAvailability.available);
+    const periodEnd =
+      account && account.subscriptionPeriodEnd > 0
+        ? account.subscriptionPeriodEnd
+        : null;
 
     return NextResponse.json({
       clientConfigured: clientAvailability.available,
@@ -225,15 +179,14 @@ export async function GET(request: Request) {
       subscriptionStatus: normalizedSubscriptionStatus,
       periodEnd,
       usage: {
-        successfulGrades: summary?.successfulResults ?? 0,
-        audioSeconds: summary?.billableDurationSeconds ?? 0,
-        qualifyingClasses: summary?.qualifyingClassHighWater ?? 0,
-        monthlyFreeCredits: summary?.earnedCredits ?? 0,
-        freeCreditsUsed: summary?.usedCredits ?? 0,
-        estimatedChargeUsd: estimatedRetailChargeUsd({
-          baseUnits: summary?.billableBaseUnits ?? 0,
-          durationSeconds: summary?.billableDurationSeconds ?? 0,
-        }),
+        allowanceKind: allowance.status,
+        limit: allowance.limit,
+        reservedReviews: allowance.reserved,
+        consumedReviews: allowance.consumed,
+        usedReviews: allowance.used,
+        remainingReviews: allowance.remaining,
+        periodStart: allowance.periodStart,
+        periodEnd: allowance.periodEnd,
       },
     });
   });

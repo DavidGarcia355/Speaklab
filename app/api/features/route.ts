@@ -24,9 +24,6 @@ export async function GET(request: Request) {
     return NextResponse.json({
       aiGradingEnabled: aiReady,
       aiBulkGradingEnabled: aiReady && config.bulkEnabled,
-      aiTranscriptionProvider: config.transcriptionProvider,
-      aiGradingProvider: config.gradingProvider,
-      aiAccessMode: config.accessMode,
       localAiTestMode: isLocalMockAi(config),
       localAuthBypassEnabled:
         process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true",

@@ -26,6 +26,7 @@ import {
   billingIdempotencyKey,
   canonicalBillingUrl,
   requireAiCheckoutForApi,
+  requireSubscriptionPeriodBoundsMs,
   requireStripeCheckoutConfigForApi,
   requireStripePortalConfigForApi,
   stripeObjectId,
@@ -50,20 +51,18 @@ function sessionSubscriptionId(session: Stripe.Checkout.Session) {
 
 function subscriptionUsesConfiguredHablaPrice(
   subscription: Stripe.Subscription,
-  priceIds: Readonly<{ aiGrade: string; audioMinute: string }>,
+  priceIds: Readonly<{ teacher: string }>,
 ) {
-  const configured = new Set(Object.values(priceIds));
-  return subscription.items.data.some((item) => configured.has(item.price.id));
+  return subscription.items.data.some((item) => item.price.id === priceIds.teacher);
 }
 
 function checkoutSessionUsesConfiguredHablaPrice(
   session: Stripe.Checkout.Session,
-  priceIds: Readonly<{ aiGrade: string; audioMinute: string }>,
+  priceIds: Readonly<{ teacher: string }>,
 ) {
-  const configured = new Set(Object.values(priceIds));
   return (
     session.line_items?.data.some((item) =>
-      item.price?.id ? configured.has(item.price.id) : false,
+      item.price?.id === priceIds.teacher,
     ) ?? false
   );
 }
@@ -81,18 +80,15 @@ function isHablaCheckoutCandidate(
 }
 
 function hasExactCheckoutLineItems(session: Stripe.Checkout.Session, config: {
-  priceIds: Readonly<{ aiGrade: string; audioMinute: string }>;
+  priceIds: Readonly<{ teacher: string }>;
 }) {
   const lineItems = session.line_items;
   if (!lineItems || lineItems.has_more) return false;
-  const actual = lineItems.data
-    .map((item) => item.price?.id ?? null)
-    .filter((priceId): priceId is string => Boolean(priceId));
-  const expected = [config.priceIds.aiGrade, config.priceIds.audioMinute];
+  const item = lineItems.data[0];
   return (
-    actual.length === expected.length &&
-    new Set(actual).size === expected.length &&
-    expected.every((priceId) => actual.includes(priceId))
+    lineItems.data.length === 1 &&
+    item?.price?.id === config.priceIds.teacher &&
+    item.quantity === 1
   );
 }
 
@@ -102,7 +98,7 @@ function isExactCheckoutSession(
     teacherEmail: string;
     customerId: string;
     keyMode: "test" | "live";
-    priceIds: Readonly<{ aiGrade: string; audioMinute: string }>;
+    priceIds: Readonly<{ teacher: string }>;
     automaticTaxEnabled: boolean;
     accountId: string;
     billingContractId: string;
@@ -252,12 +248,11 @@ function hasExactSubscriptionContract(
     billingContractId: string;
     livemode: boolean;
     automaticTaxEnabled: boolean;
-    priceIds: Readonly<{ aiGrade: string; audioMinute: string }>;
+    priceIds: Readonly<{ teacher: string }>;
   },
 ) {
   const customerId = stripeObjectId(subscription.customer, "cus_");
-  const actualPriceIds = subscription.items.data.map((item) => item.price.id);
-  const expectedPriceIds = Object.values(input.priceIds);
+  const item = subscription.items.data[0];
   return (
     subscription.status.trim().toLowerCase() === "active" &&
     customerId === input.customerId &&
@@ -269,9 +264,9 @@ function hasExactSubscriptionContract(
     (subscription.default_tax_rates?.length ?? 0) === 0 &&
     subscription.items.data.every((item) => (item.tax_rates?.length ?? 0) === 0) &&
     subscription.items.has_more !== true &&
-    actualPriceIds.length === expectedPriceIds.length &&
-    new Set(actualPriceIds).size === expectedPriceIds.length &&
-    expectedPriceIds.every((priceId) => actualPriceIds.includes(priceId)) &&
+    subscription.items.data.length === 1 &&
+    item?.price.id === input.priceIds.teacher &&
+    item.quantity === 1 &&
     hasExactBillingMetadata(subscription.metadata, input)
   );
 }
@@ -297,6 +292,7 @@ async function projectRecoveredSubscription(input: {
       input.account.stripeSubscriptionId !== input.subscription.id,
   );
   if (input.exactActiveContract) {
+    const period = requireSubscriptionPeriodBoundsMs(input.subscription);
     const projected =
       mappedDiffers &&
       TERMINAL_SUBSCRIPTION_STATUSES.has(
@@ -311,6 +307,8 @@ async function projectRecoveredSubscription(input: {
             stripeAccountId: input.account.stripeAccountId,
             billingContractId: input.account.billingContractId,
             livemode: input.account.livemode,
+            subscriptionPeriodStart: period.periodStart,
+            subscriptionPeriodEnd: period.periodEnd,
             observedEventCreated,
             expectedAccount: accountSnapshot(input.account),
           })
@@ -323,6 +321,8 @@ async function projectRecoveredSubscription(input: {
             stripeAccountId: input.account.stripeAccountId,
             billingContractId: input.account.billingContractId,
             livemode: input.account.livemode,
+            subscriptionPeriodStart: period.periodStart,
+            subscriptionPeriodEnd: period.periodEnd,
             observedEventCreated,
             expectedAccount: accountSnapshot(input.account),
           });

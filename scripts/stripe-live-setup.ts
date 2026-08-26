@@ -92,9 +92,20 @@ export function authorizeStripeLiveSetup(input: Readonly<{
   }
   requireExactBoolean(input.env, "STRIPE_ALLOW_LIVE", true);
   requireExactBoolean(input.env, "STRIPE_LIVE_SETUP_APPROVED", true);
-  requireExactBoolean(input.env, "STRIPE_USAGE_BILLING_ENABLED", false);
+  requireExactBoolean(input.env, "STRIPE_SUBSCRIPTION_BILLING_ENABLED", false);
   requireExactBoolean(input.env, "STRIPE_CHECKOUT_ENABLED", false);
   requireExactBoolean(input.env, "STRIPE_AUTOMATIC_TAX_ENABLED", false);
+  if (configuredValue(input.env, "STRIPE_USAGE_BILLING_ENABLED")) {
+    throw new Error("STRIPE_USAGE_BILLING_ENABLED is obsolete and must be removed.");
+  }
+  for (const key of [
+    "STRIPE_AI_GRADE_PRICE_ID",
+    "STRIPE_AI_AUDIO_SECONDS_PRICE_ID",
+  ] as const) {
+    if (configuredValue(input.env, key)) {
+      throw new Error(`${key} is obsolete and must be removed before v3 setup.`);
+    }
+  }
 
   if (!input.flags.allowLiveReadOnly) {
     throw new Error(
@@ -300,7 +311,7 @@ function printHelp() {
   --confirm-price-book ${STRIPE_CATALOG_MANIFEST.priceBookId} \\
   [--apply --allow-live-apply]
 
-Plans or provisions Habla's exact live Stripe catalog, card-only Payment Method
+Plans or provisions TryHabla's exact live Stripe catalog, card-only Payment Method
 Configuration, and Customer Portal. The command is read-only unless both --apply
 and --allow-live-apply are present. It never creates Customers or subscriptions.
 If the card-only configuration must first be created or repaired, Portal mutation
@@ -312,7 +323,7 @@ Required environment:
   STRIPE_LIVE_SETUP_APPROVED=true
   STRIPE_LIVE_SETUP_SECRET_KEY=sk_live_... or rk_live_...
   STRIPE_ACCOUNT_ID=acct_...
-  STRIPE_USAGE_BILLING_ENABLED=false
+  STRIPE_SUBSCRIPTION_BILLING_ENABLED=false
   STRIPE_CHECKOUT_ENABLED=false
   STRIPE_AUTOMATIC_TAX_ENABLED=false
 `);
