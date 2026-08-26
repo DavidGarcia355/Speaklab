@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import ExternalBrowserNotice from "@/app/components/ExternalBrowserNotice";
 import DismissibleCauseBand from "@/app/components/DismissibleCauseBand";
-import GoogleSignInLink from "@/app/components/GoogleSignInLink";
+import SignInLink from "@/app/components/SignInLink";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
 import ThemeToggle from "@/app/components/ThemeToggle";
 import { APP_NAME } from "@/app/constants";
@@ -69,12 +69,12 @@ export default function Home() {
 
       <section className="home-choice-hero">
         <div className="home-choice-copy">
-          <GoogleSignInLink className="home-hero-brand" callbackUrl="/teacher">
+          <SignInLink className="home-hero-brand" callbackUrl="/teacher">
             <span className="home-hero-brand-mark" aria-hidden="true">
               H
             </span>
             <span>{APP_NAME}</span>
-          </GoogleSignInLink>
+          </SignInLink>
           <p className="pill home-hero-eyebrow">
             <Sparkles size={15} aria-hidden="true" />
             Built for speaking classrooms

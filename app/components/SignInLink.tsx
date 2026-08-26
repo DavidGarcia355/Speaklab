@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { isInAppBrowser } from "@/lib/in-app-browser";
 
-type GoogleSignInLinkProps = {
+type SignInLinkProps = {
   callbackUrl: string;
   className: string;
   children: ReactNode;
@@ -17,15 +17,15 @@ function joinClassNames(...values: Array<string | undefined>) {
   return values.filter(Boolean).join(" ");
 }
 
-export default function GoogleSignInLink({
+export default function SignInLink({
   callbackUrl,
   className,
   children,
   fallbackClassName,
   wrapperClassName,
-  message = "Open in Safari or Chrome to sign in",
-  openLabel = "Open this page in Safari or Chrome",
-}: GoogleSignInLinkProps) {
+  message = "Open this page in a current standalone browser to sign in",
+  openLabel = "Open in Chrome, Edge, Firefox, or Safari",
+}: SignInLinkProps) {
   const [browserState, setBrowserState] = useState({
     blocked: false,
     currentUrl: callbackUrl,

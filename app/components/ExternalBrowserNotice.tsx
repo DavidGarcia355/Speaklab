@@ -29,7 +29,9 @@ export default function ExternalBrowserNotice({ className = "" }: ExternalBrowse
   return (
     <div className={`notice warning network-notice external-browser-notice ${className}`.trim()}>
       <p className="network-notice-copy external-browser-notice-copy">
-        <strong>Sign-in requires an external browser.</strong> Facebook and other in-app browsers block Google sign-in for security. Please open this page in Safari or Chrome to continue.
+        <strong>Sign-in requires a standalone browser.</strong> Embedded browsers inside social and
+        classroom apps can block secure sign-in. Open this page in a current version of Chrome,
+        Edge, Firefox, or Safari to continue.
       </p>
       <button
         type="button"

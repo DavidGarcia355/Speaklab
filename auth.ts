@@ -5,21 +5,40 @@ import { trackActivity } from "@/lib/activity";
 import { getUserRoleByEmail, upsertGoogleUserAndGetRole } from "@/lib/db";
 
 const ALLOWED_PROVIDERS = new Set(["google", "azure-ad"]);
+const microsoftClientId = process.env.AUTH_MICROSOFT_ID?.trim() ?? "";
+const microsoftClientSecret = process.env.AUTH_MICROSOFT_SECRET?.trim() ?? "";
+const microsoftTenantId = process.env.AUTH_MICROSOFT_TENANT_ID?.trim() || "common";
+const microsoftAuthConfigured = Boolean(microsoftClientId && microsoftClientSecret);
+
+if (Boolean(microsoftClientId) !== Boolean(microsoftClientSecret)) {
+  console.error(
+    "Microsoft sign-in is disabled: AUTH_MICROSOFT_ID and AUTH_MICROSOFT_SECRET must both be configured."
+  );
+}
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.AUTH_SECRET,
+  theme: {
+    colorScheme: "auto",
+    logo: "/tryhabla-auth-logo.svg",
+    brandColor: "#1374ad",
+    buttonText: "#ffffff",
+  },
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID ?? "",
       clientSecret: process.env.AUTH_GOOGLE_SECRET ?? "",
     }),
-    ...(process.env.AUTH_MICROSOFT_ID
+    ...(microsoftAuthConfigured
       ? [
-          AzureAD({
-            clientId: process.env.AUTH_MICROSOFT_ID,
-            clientSecret: process.env.AUTH_MICROSOFT_SECRET ?? "",
-            tenantId: process.env.AUTH_MICROSOFT_TENANT_ID || "common",
-          }),
+          {
+            ...AzureAD({
+              clientId: microsoftClientId,
+              clientSecret: microsoftClientSecret,
+              tenantId: microsoftTenantId,
+            }),
+            name: "Microsoft",
+          },
         ]
       : []),
   ],

@@ -17,9 +17,9 @@ This inventory reflects repository behavior. It does not verify production Verce
 | `AUTH_GOOGLE_ID` | Google OAuth client ID. | Yes | Server | Auth/API env validation fails. |
 | `AUTH_GOOGLE_SECRET` | Google OAuth client secret. | Yes | Server | Auth/API env validation fails. |
 | `AUTH_SECRET` | NextAuth signing secret. | Yes | Server | Auth/API env validation fails. |
-| `AUTH_MICROSOFT_ID` | Enables optional Microsoft/Azure AD sign-in. | Optional | Server | Microsoft provider is not registered. |
-| `AUTH_MICROSOFT_SECRET` | Microsoft OAuth secret. | Required only with Microsoft provider. | Server | Microsoft sign-in will not work if provider is enabled without a valid secret. |
-| `AUTH_MICROSOFT_TENANT_ID` | Microsoft tenant. Defaults to `common`. | Optional | Server | Uses `common`. |
+| `AUTH_MICROSOFT_ID` | Enables optional Microsoft 365 sign-in when paired with `AUTH_MICROSOFT_SECRET`. | Optional | Server | Microsoft provider is not registered. |
+| `AUTH_MICROSOFT_SECRET` | Microsoft OAuth secret. Must be paired with `AUTH_MICROSOFT_ID`. | Optional | Server | A partial pair is rejected and Microsoft remains disabled. |
+| `AUTH_MICROSOFT_TENANT_ID` | Microsoft tenant. Use `organizations` for work/school accounts, `common` for work/school plus personal accounts, or a specific school tenant ID. | Optional | Server | Uses `common`. |
 
 ## Database
 

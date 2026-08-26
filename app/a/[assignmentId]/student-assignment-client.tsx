@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, CircleDot, LoaderCircle, Mic } from "lucide-react";
 import AudioPlayer from "@/app/components/AudioPlayer";
 import BrandBar from "@/app/components/BrandBar";
-import GoogleSignInLink from "@/app/components/GoogleSignInLink";
+import SignInLink from "@/app/components/SignInLink";
 import { STUDENT_AI_GRADING_DISCLOSURE } from "@/lib/ai/student-provenance";
 import PageTitle from "@/app/components/PageTitle";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
@@ -14,6 +14,7 @@ import {
   describeMicrophoneAccessFailure,
   RECORDER_RUNTIME_FAILURE_MESSAGE,
   RECORDER_START_FAILURE_MESSAGE,
+  selectSupportedAudioMimeType,
   stopMediaStreamTracks,
 } from "@/lib/media-recorder-safety";
 import {
@@ -164,14 +165,7 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 function getSupportedAudioMimeType() {
-  const options = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg;codecs=opus",
-  ];
-
-  return options.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+  return selectSupportedAudioMimeType((mimeType) => MediaRecorder.isTypeSupported(mimeType));
 }
 
 export default function StudentAssignmentClient({
@@ -297,7 +291,9 @@ export default function StudentAssignmentClient({
       typeof MediaRecorder === "undefined"
     ) {
       setMicSupported(false);
-      setErrorMsg("This browser does not support audio recording. Please use Safari or Chrome.");
+      setErrorMsg(
+        "This browser does not support audio recording. Open the link in a current version of Chrome, Edge, Firefox, or Safari."
+      );
     }
   }, []);
 
@@ -696,13 +692,13 @@ export default function StudentAssignmentClient({
             ) : (
               <div className="auth-signin-prompt">
                 <p className="meta">Sign in with your school account to submit your recording.</p>
-                <GoogleSignInLink
+                <SignInLink
                   className="btn btn-primary"
                   callbackUrl={callbackUrl}
                   wrapperClassName="auth-webview-guard-full"
                 >
                   Sign in to submit
-                </GoogleSignInLink>
+                </SignInLink>
               </div>
             )}
 

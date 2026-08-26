@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import BrandBar from "@/app/components/BrandBar";
-import GoogleSignInLink from "@/app/components/GoogleSignInLink";
+import SignInLink from "@/app/components/SignInLink";
 import PageTitle from "@/app/components/PageTitle";
 
 type RegistrationState = "checking" | "available" | "invite-only" | "signed-out";
@@ -121,9 +121,9 @@ export default function TeacherRegisterPage() {
           )}
         </div>
         <div className="actions" style={{ marginTop: "0.5rem" }}>
-          <GoogleSignInLink className="btn btn-ghost" callbackUrl="/teacher/register">
-            {registrationState === "signed-out" ? "Sign in to check access" : "Use another Google account"}
-          </GoogleSignInLink>
+          <SignInLink className="btn btn-ghost" callbackUrl="/teacher/register">
+            {registrationState === "signed-out" ? "Sign in to check access" : "Use another account"}
+          </SignInLink>
         </div>
       </section>
     </main>

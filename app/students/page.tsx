@@ -9,7 +9,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
-import GoogleSignInLink from "@/app/components/GoogleSignInLink";
+import SignInLink from "@/app/components/SignInLink";
 import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
@@ -59,10 +59,10 @@ export default function StudentsPage() {
             for grades and feedback. TryHabla keeps the steps clear so you can focus on speaking.
           </p>
           <div className="student-primary-action">
-            <GoogleSignInLink className="btn btn-primary" callbackUrl="/student">
+            <SignInLink className="btn btn-primary" callbackUrl="/student">
               Log in as student
               <ArrowRight size={17} aria-hidden="true" />
-            </GoogleSignInLink>
+            </SignInLink>
             <Link className="student-text-link" href="/">
               Back home
             </Link>

@@ -9,7 +9,7 @@ import {
   TimerReset,
 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
-import GoogleSignInLink from "@/app/components/GoogleSignInLink";
+import SignInLink from "@/app/components/SignInLink";
 import { createPublicMetadata } from "@/lib/public-metadata";
 
 export const metadata = createPublicMetadata({
@@ -69,9 +69,9 @@ export default function TeachersPage() {
             Request pilot access
             <ArrowRight size={17} aria-hidden="true" />
           </Link>
-          <GoogleSignInLink className="btn btn-ghost" callbackUrl="/teacher">
+          <SignInLink className="btn btn-ghost" callbackUrl="/teacher">
             Log in
-          </GoogleSignInLink>
+          </SignInLink>
         </div>
       </section>
 
@@ -96,10 +96,10 @@ export default function TeachersPage() {
             time, and expand only when the workflow earns it.
           </p>
         </div>
-        <GoogleSignInLink className="btn btn-primary" callbackUrl="/teacher">
+        <SignInLink className="btn btn-primary" callbackUrl="/teacher">
           Open teacher dashboard
           <ArrowRight size={17} aria-hidden="true" />
-        </GoogleSignInLink>
+        </SignInLink>
       </section>
     </main>
   );
