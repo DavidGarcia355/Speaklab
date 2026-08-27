@@ -62,9 +62,11 @@ powershell -ExecutionPolicy Bypass -File scripts/sync-vercel-env.ps1 -EnvFile .e
 ```
 
 The sync script manages `TEACHER_ALLOWLIST` and
-`ALLOW_TEACHER_SELF_REGISTRATION`. When either is omitted or blank, it clears
-the corresponding Vercel value; production teacher self-registration therefore
-stays closed unless you deliberately set the gate to `true`.
+`ALLOW_TEACHER_SELF_REGISTRATION`. TryHabla's public production configuration
+must explicitly set `ALLOW_TEACHER_SELF_REGISTRATION=true`; the sync refuses a
+missing value or `false` unless the deployment is deliberately marked private.
+Preview syncs may omit a control to clear it. Redeploy after changing either
+value.
 
 7. Redeploy:
 

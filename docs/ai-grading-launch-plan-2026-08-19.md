@@ -1,5 +1,10 @@
 # AI grading launch audit and plan — 2026-08-19
 
+> Historical planning document. Do not use its closed-registration pilot setting
+> for the public product. Public TryHabla production now requires
+> `ALLOW_TEACHER_SELF_REGISTRATION=true`; invite-only deployments may explicitly
+> set it to `false`.
+
 ## Executive decision
 
 The application is now safer to deploy with AI grading still disabled. Single-submission grading is prepared for an approved OpenAI pilot; synchronous bulk grading is separately disabled by default.

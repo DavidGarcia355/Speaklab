@@ -1,7 +1,8 @@
 param(
   [string]$EnvFile = ".env.local",
   [string[]]$Targets = @("preview"),
-  [switch]$IncludeOptionalClientEnv
+  [switch]$IncludeOptionalClientEnv,
+  [switch]$PrivateDeployment
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,9 +28,9 @@ $requiredKeys = @(
   "NEXTAUTH_URL"
 )
 
-# These controls are safe when absent: registration stays closed and no email is
-# allowlisted. They are still managed so an omitted local value clears any stale
-# Vercel value instead of silently preserving broader production access.
+# Preview deployments may omit these controls and remain closed. Production
+# requires an explicit registration policy so a public Start free release cannot
+# silently sync an invite-only runtime configuration.
 $managedOptionalServerKeys = @(
   "TEACHER_ALLOWLIST",
   "ALLOW_TEACHER_SELF_REGISTRATION"
@@ -64,6 +65,24 @@ foreach ($key in $requiredKeys) {
 }
 if ($missing.Count -gt 0) {
   Write-Error "Missing required env values in ${EnvFile}: $($missing -join ', ')"
+}
+
+if ($Targets -contains "production") {
+  $registrationKey = "ALLOW_TEACHER_SELF_REGISTRATION"
+  if (-not $values.ContainsKey($registrationKey) -or [string]::IsNullOrWhiteSpace($values[$registrationKey])) {
+    Write-Error "$registrationKey must be explicit for production: true for public TryHabla, or false with -PrivateDeployment."
+  }
+
+  $registrationValue = $values[$registrationKey].Trim().ToLowerInvariant()
+  if ($registrationValue -notin @("true", "false")) {
+    Write-Error "$registrationKey must be either true or false."
+  }
+  if ($registrationValue -eq "false" -and -not $PrivateDeployment) {
+    Write-Error "$registrationKey=false requires -PrivateDeployment because public TryHabla advertises Start free."
+  }
+  if ($registrationValue -eq "true" -and $PrivateDeployment) {
+    Write-Error "$registrationKey=true conflicts with -PrivateDeployment; set it to false for invite-only access."
+  }
 }
 
 foreach ($target in $Targets) {

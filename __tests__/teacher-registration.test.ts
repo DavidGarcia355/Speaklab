@@ -113,6 +113,33 @@ describe("teacher registration controls", () => {
     await expect(response.json()).resolves.toMatchObject({ teacherRegistrationAvailable: true });
   });
 
+  it("reports availability when public production self-registration is enabled", async () => {
+    process.env.ALLOW_TEACHER_SELF_REGISTRATION = "true";
+    const { GET } = await import("@/app/api/auth/role/route");
+
+    const response = await GET(getRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      role: "student",
+      teacherRegistrationAvailable: true,
+    });
+  });
+
+  it("creates a teacher account in the public production configuration", async () => {
+    process.env.ALLOW_TEACHER_SELF_REGISTRATION = "true";
+    const { POST } = await import("@/app/api/auth/role/route");
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.setUserRoleTeacher).toHaveBeenCalledWith("new-teacher@example.com");
+    expect(mocks.enqueueTeacherSignedUpAlert).toHaveBeenCalledWith({
+      teacherEmail: "new-teacher@example.com",
+      source: "direct",
+    });
+  });
+
   it("blocks production teacher self-upgrade by default", async () => {
     const { POST } = await import("@/app/api/auth/role/route");
 

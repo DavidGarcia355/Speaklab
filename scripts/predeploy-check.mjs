@@ -1,6 +1,10 @@
 import { spawnSync } from "node:child_process";
+import nextEnv from "@next/env";
+import { assertTeacherRegistrationReleasePolicy } from "./teacher-registration-release-policy.mjs";
 
 const allowDirty = process.argv.includes("--allow-dirty");
+const privateDeployment = process.argv.includes("--private-deployment");
+const { loadEnvConfig } = nextEnv;
 
 function git(args) {
   const result = spawnSync("git", args, {
@@ -20,6 +24,9 @@ function fail(message) {
 }
 
 try {
+  loadEnvConfig(process.cwd(), false);
+  assertTeacherRegistrationReleasePolicy({ privateDeployment });
+
   const root = git(["rev-parse", "--show-toplevel"]);
   const topLevel = process.cwd().replaceAll("\\", "/").toLowerCase();
   if (root.replaceAll("\\", "/").toLowerCase() !== topLevel) {

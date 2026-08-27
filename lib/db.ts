@@ -453,6 +453,20 @@ export const AI_REVIEW_FREE_LIFETIME_LIMIT = 30;
 export const AI_REVIEW_MANUAL_LIFETIME_LIMIT = 300;
 export const AI_REVIEW_TEACHER_PERIOD_LIMIT = 300;
 
+export type AiReviewLifetimeBonusGrant = {
+  teacherEmail: string;
+  grantKey: string;
+  units: number;
+  reason: string;
+  grantedBy: string;
+  createdAt: number;
+};
+
+export type AiReviewLifetimeBonusGrantResult = AiReviewLifetimeBonusGrant & {
+  created: boolean;
+  totalBonusUnits: number;
+};
+
 export type AiReviewAllowanceKind =
   | "free_lifetime"
   | "manual_lifetime"
@@ -1081,6 +1095,16 @@ async function ensureInitialized() {
           released_at INTEGER,
           UNIQUE(teacher_email, semantic_key)
         )`,
+        `CREATE TABLE IF NOT EXISTS ai_review_lifetime_bonus_grants_v1 (
+          teacher_email TEXT NOT NULL COLLATE NOCASE
+            CHECK (teacher_email = LOWER(TRIM(teacher_email))),
+          grant_key TEXT NOT NULL,
+          units INTEGER NOT NULL CHECK (units > 0),
+          reason TEXT NOT NULL CHECK (TRIM(reason) <> ''),
+          granted_by TEXT NOT NULL CHECK (TRIM(granted_by) <> ''),
+          created_at INTEGER NOT NULL CHECK (created_at >= 0),
+          PRIMARY KEY(teacher_email, grant_key)
+        )`,
         `CREATE TABLE IF NOT EXISTS ai_billing_credit_periods (
           teacher_email TEXT NOT NULL COLLATE NOCASE,
           billing_month TEXT NOT NULL,
@@ -1246,6 +1270,7 @@ async function ensureInitialized() {
         "CREATE INDEX IF NOT EXISTS idx_stripe_billing_accounts_subscription ON stripe_billing_accounts(stripe_subscription_id)",
         "CREATE INDEX IF NOT EXISTS idx_stripe_webhook_events_processed ON stripe_webhook_events(processed_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_ai_review_allowance_scope ON ai_review_allowance_reservations_v1(teacher_email, scope_key, status)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_review_lifetime_bonus_teacher ON ai_review_lifetime_bonus_grants_v1(teacher_email, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_ai_billing_period_teacher_month ON ai_billing_credit_periods(teacher_email, billing_month)",
         "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_pending ON ai_billing_usage(status, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_teacher_month ON ai_billing_usage(teacher_email, billing_month, created_at)",
@@ -2111,15 +2136,24 @@ export async function getAdminAlertPeriodAggregate(input: {
         FROM period_successful_ai
         WHERE durationSeconds > 0
       ),
-      free_exhausted AS (
-        SELECT LOWER(teacher_email) as teacherEmail, MAX(consumed_at) as exhaustedAt
-        FROM ai_review_allowance_reservations_v1
-        WHERE allowance_kind = 'free_lifetime'
-          AND status = 'consumed'
-          AND consumed_at IS NOT NULL
-          AND LOWER(teacher_email) NOT IN (SELECT email FROM internal_accounts)
+      free_lifetime_bonus_totals AS (
+        SELECT LOWER(teacher_email) as teacherEmail, SUM(units) as bonusUnits
+        FROM ai_review_lifetime_bonus_grants_v1
         GROUP BY LOWER(teacher_email)
-        HAVING COUNT(*) >= ${AI_REVIEW_FREE_LIFETIME_LIMIT}
+      ),
+      free_exhausted AS (
+        SELECT
+          LOWER(reservation.teacher_email) as teacherEmail,
+          MAX(reservation.consumed_at) as exhaustedAt
+        FROM ai_review_allowance_reservations_v1 reservation
+        LEFT JOIN free_lifetime_bonus_totals bonus
+          ON bonus.teacherEmail = LOWER(reservation.teacher_email)
+        WHERE reservation.allowance_kind = 'free_lifetime'
+          AND reservation.status = 'consumed'
+          AND reservation.consumed_at IS NOT NULL
+          AND LOWER(reservation.teacher_email) NOT IN (SELECT email FROM internal_accounts)
+        GROUP BY LOWER(reservation.teacher_email)
+        HAVING COUNT(*) >= ${AI_REVIEW_FREE_LIFETIME_LIMIT} + COALESCE(MAX(bonus.bonusUnits), 0)
       ),
       period_revenue_events AS (
         SELECT event_type as eventType, safe_payload_json as payload
@@ -5290,6 +5324,119 @@ export async function getUserHasAiAccess(email: string): Promise<boolean> {
   return getStripeSubscriptionGrantsAiAccess(normalized);
 }
 
+/**
+ * Appends an auditable courtesy allowance to the Free lifetime bucket.
+ *
+ * The email intentionally has no users-table dependency, so an operator can
+ * provision a grant before the teacher's first successful sign-in. Retrying an
+ * identical grant is a no-op; reusing its key for different audit data fails
+ * closed instead of silently changing the original grant.
+ */
+async function grantAiReviewLifetimeBonusAtomic(input: {
+  teacherEmail: string;
+  grantKey: string;
+  units: number;
+  reason: string;
+  grantedBy: string;
+  now?: number;
+}): Promise<AiReviewLifetimeBonusGrantResult> {
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const grantKey = requireTrimmedValue("grantKey", input.grantKey);
+  if (!Number.isSafeInteger(input.units) || input.units <= 0) {
+    throw new RangeError("units must be a positive safe integer.");
+  }
+  const units = input.units;
+  const reason = requireTrimmedValue("reason", input.reason);
+  const grantedBy = requireTrimmedValue("grantedBy", input.grantedBy);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  await ensureInitialized();
+  const transaction = await db.transaction("write");
+  try {
+    const insertion = await transaction.execute({
+      sql: `INSERT INTO ai_review_lifetime_bonus_grants_v1 (
+        teacher_email, grant_key, units, reason, granted_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(teacher_email, grant_key) DO NOTHING`,
+      args: [teacherEmail, grantKey, units, reason, grantedBy, now],
+    });
+    const existingResult = await transaction.execute({
+      sql: `SELECT
+        teacher_email as teacherEmail,
+        grant_key as grantKey,
+        units,
+        reason,
+        granted_by as grantedBy,
+        created_at as createdAt
+      FROM ai_review_lifetime_bonus_grants_v1
+      WHERE teacher_email = ? AND grant_key = ?
+      LIMIT 1`,
+      args: [teacherEmail, grantKey],
+    });
+    const row = existingResult.rows[0];
+    if (!row) {
+      throw new Error("AI review lifetime bonus grant was not persisted.");
+    }
+    if (
+      toNumber(row.units) !== units
+      || toStringValue(row.reason) !== reason
+      || toStringValue(row.grantedBy) !== grantedBy
+    ) {
+      throw new Error(
+        "AI review lifetime bonus grant key already exists with different payload.",
+      );
+    }
+    const totalResult = await transaction.execute({
+      sql: `SELECT COALESCE(SUM(units), 0) as totalBonusUnits
+      FROM ai_review_lifetime_bonus_grants_v1
+      WHERE teacher_email = ?`,
+      args: [teacherEmail],
+    });
+    const totalBonusUnits = requireNonNegativeInteger(
+      "totalBonusUnits",
+      toNumber(totalResult.rows[0]?.totalBonusUnits),
+    );
+    await transaction.commit();
+    return {
+      teacherEmail: toStringValue(row.teacherEmail),
+      grantKey: toStringValue(row.grantKey),
+      units: toNumber(row.units),
+      reason: toStringValue(row.reason),
+      grantedBy: toStringValue(row.grantedBy),
+      createdAt: toNumber(row.createdAt),
+      created: toNumber(insertion.rowsAffected) === 1,
+      totalBonusUnits,
+    };
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+let aiReviewLifetimeBonusGrantQueue: Promise<void> = Promise.resolve();
+
+export async function grantAiReviewLifetimeBonus(input: {
+  teacherEmail: string;
+  grantKey: string;
+  units: number;
+  reason: string;
+  grantedBy: string;
+  now?: number;
+}): Promise<AiReviewLifetimeBonusGrantResult> {
+  const preceding = aiReviewLifetimeBonusGrantQueue;
+  let releaseQueue!: () => void;
+  aiReviewLifetimeBonusGrantQueue = new Promise<void>((resolve) => {
+    releaseQueue = resolve;
+  });
+  await preceding;
+  try {
+    return await grantAiReviewLifetimeBonusAtomic(input);
+  } finally {
+    releaseQueue();
+  }
+}
+
 const AI_REVIEW_RESERVATION_LEASE_MS = 15 * 60 * 1_000;
 const TERMINAL_STRIPE_SUBSCRIPTION_STATUSES = new Set([
   "canceled",
@@ -5398,11 +5545,25 @@ async function resolveAiReviewAllowanceInTransaction(input: {
       periodEnd: null,
     };
   }
+  const bonusResult = await input.transaction.execute({
+    sql: `SELECT COALESCE(SUM(units), 0) as bonusUnits
+    FROM ai_review_lifetime_bonus_grants_v1
+    WHERE teacher_email = ?`,
+    args: [input.teacherEmail],
+  });
+  const bonusUnits = requireNonNegativeInteger(
+    "AI review lifetime bonus units",
+    toNumber(bonusResult.rows[0]?.bonusUnits),
+  );
+  const freeLifetimeLimit = AI_REVIEW_FREE_LIFETIME_LIMIT + bonusUnits;
+  if (!Number.isSafeInteger(freeLifetimeLimit)) {
+    throw new RangeError("AI review lifetime allowance exceeds the safe integer range.");
+  }
   return {
     status: "free_lifetime",
     allowanceKind: "free_lifetime",
     scopeKey: "free_lifetime",
-    limit: AI_REVIEW_FREE_LIFETIME_LIMIT,
+    limit: freeLifetimeLimit,
     stripeSubscriptionId: null,
     periodStart: null,
     periodEnd: null,
@@ -5510,7 +5671,7 @@ export async function getConsumedFreeAiReviewCount(teacherEmail: string): Promis
         AND status = 'consumed'`,
     [normalized],
   );
-  return Math.min(AI_REVIEW_FREE_LIFETIME_LIMIT, toNumber(result.rows[0]?.count));
+  return toNumber(result.rows[0]?.count);
 }
 
 /**

@@ -14,7 +14,7 @@ TryHabla helps language teachers create speaking assignments, collect student au
 
 ## Authentication
 
-TryHabla uses NextAuth with Google OAuth in the base setup. Microsoft/Azure AD OAuth is optional when configured. Teacher routes require a `teacher` role. Production teacher self-registration is closed unless `ALLOW_TEACHER_SELF_REGISTRATION=true`, the user is already a teacher, or the email is in `TEACHER_ALLOWLIST`.
+TryHabla uses NextAuth with Google OAuth in the base setup. Microsoft/Azure AD OAuth is optional when configured. Teacher routes require a `teacher` role. Public TryHabla production sets `ALLOW_TEACHER_SELF_REGISTRATION=true`; an intentionally invite-only deployment can set it to `false` and use `TEACHER_ALLOWLIST` for approved teachers.
 
 ## Data Collected
 

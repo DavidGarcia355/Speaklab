@@ -112,7 +112,7 @@ blocker.
 | Name | Purpose | Required | Scope | Absent behavior |
 | --- | --- | --- | --- | --- |
 | `TEACHER_ALLOWLIST` | Comma-separated emails promoted by default and allowed to self-register in production. This grants the teacher role only, never AI allowance. | Optional | Server | No allowlisted teachers. |
-| `ALLOW_TEACHER_SELF_REGISTRATION` | Opens production teacher self-registration when `true`. | Optional | Server | Production self-registration is closed except allowlist/existing teachers. |
+| `ALLOW_TEACHER_SELF_REGISTRATION` | Opens production teacher self-registration when `true`. Public TryHabla production must set this to `true`; `false` is reserved for deliberately invite-only deployments. | Public production | Server | Production self-registration is closed except allowlist/existing teachers. |
 | `ENFORCE_STUDENT_DOMAIN` | Restricts submissions to configured domain. | Optional | Server | Domain restriction disabled. |
 | `STUDENT_DOMAIN` | Required student email domain when enforcement is on. | Optional | Server | Falls back to teacher email domain when enforcement is on. |
 | `REQUIRE_ROSTER_FOR_SUBMISSIONS` | Requires student email to be on class roster before submitting. | Optional | Server | Public assignment-link workflow remains available to signed-in students. |
