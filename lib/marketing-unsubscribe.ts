@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@libsql/client";
+import { isInternalTestEmail } from "@/lib/internal-accounts";
 
 function createDbClient() {
   const url = process.env.TURSO_DATABASE_URL?.trim() || "";
@@ -112,4 +113,25 @@ export async function isMarketingEmailUnsubscribed(emailInput: string) {
     args: [email],
   });
   return result.rows.length > 0;
+}
+
+export async function listMarketingRecipientsBefore(cutoffMs: number) {
+  await ensureInitialized();
+  const result = await db.execute({
+    sql: `SELECT u.email
+      FROM users u
+      LEFT JOIN marketing_email_unsubscribes m
+        ON LOWER(m.email) = LOWER(u.email)
+      WHERE u.role = 'teacher'
+        AND u.created_at < ?
+        AND m.email IS NULL
+      ORDER BY u.created_at ASC, u.email ASC`,
+    args: [cutoffMs],
+  });
+
+  const emails = result.rows
+    .map((row) => normalizeMarketingEmail(String(row.email || "")))
+    .filter((email) => isReasonableEmail(email) && !isInternalTestEmail(email));
+
+  return [...new Set(emails)];
 }
