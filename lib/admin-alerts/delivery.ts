@@ -18,12 +18,13 @@ import {
 } from "@/lib/admin-alerts/config";
 import { getAdminAlertDestinations, parseAdminAlertEvent } from "@/lib/admin-alerts/events";
 import { formatAdminAlertForDiscord } from "@/lib/admin-alerts/format";
+import {
+  discordBotErrorStatus,
+  isDiscordBotDeliveryConfigured,
+  sendDiscordBotAlert,
+} from "@/lib/admin-alerts/discord-bot";
 
 const DELIVERY_TIMEOUT_MS = 5_000;
-// One row can consume the 5s Discord timeout plus a 5s database acknowledgement.
-// Eight sequential rows therefore have an ~85s worst-case claim-to-finish budget
-// including the initial claim. A three-minute lease leaves over 2x headroom while
-// still recovering abandoned work promptly.
 const DELIVERY_LEASE_MS = 3 * 60_000;
 export const MAX_ADMIN_ALERT_DELIVERY_BATCH = ADMIN_ALERT_OUTBOX_MAX_CLAIM;
 const MAX_DELIVERY_ATTEMPTS = 6;
@@ -43,6 +44,11 @@ type DeliveryErrorCode =
   | "discord_client_rejected"
   | "discord_server_error"
   | "discord_unexpected_status"
+  | "discord_bot_missing"
+  | "discord_bot_timeout"
+  | "discord_bot_network_error"
+  | "discord_bot_request_failed"
+  | "discord_guild_ambiguous"
   | "lease_lost";
 
 type AttemptResult =
@@ -116,6 +122,29 @@ function validateStoredAlert(row: AdminAlertOutboxRow) {
   return event;
 }
 
+function botErrorResult(error: unknown): AttemptResult {
+  const details = discordBotErrorStatus(error);
+  if (!details) {
+    return { ok: false, code: "discord_bot_request_failed", retryable: true };
+  }
+  const code = details.code as DeliveryErrorCode;
+  if (details.status === 429) {
+    return {
+      ok: false,
+      code: "discord_rate_limited",
+      retryable: true,
+      retryAfterMs: details.retryAfterMs,
+    };
+  }
+  if (details.status === 409) {
+    return { ok: false, code: "discord_guild_ambiguous", retryable: false };
+  }
+  if (details.status >= 400 && details.status < 500) {
+    return { ok: false, code, retryable: false };
+  }
+  return { ok: false, code, retryable: true, retryAfterMs: details.retryAfterMs };
+}
+
 async function attemptDiscordDelivery(input: {
   row: AdminAlertOutboxRow;
   environment: AdminAlertEnvironment;
@@ -127,6 +156,26 @@ async function attemptDiscordDelivery(input: {
   } catch {
     return { ok: false, code: "payload_invalid", retryable: false };
   }
+
+  const payload = formatAdminAlertForDiscord({
+    event,
+    environment: input.environment,
+    occurredAt: input.row.createdAt,
+  });
+
+  if (isDiscordBotDeliveryConfigured()) {
+    try {
+      await sendDiscordBotAlert({
+        destination: input.row.destination,
+        payload,
+        fetchImpl: input.fetchImpl,
+      });
+      return { ok: true };
+    } catch (error) {
+      return botErrorResult(error);
+    }
+  }
+
   let webhookUrl: string;
   try {
     webhookUrl = resolveDiscordWebhookUrl(input.row.destination, input.environment);
@@ -136,11 +185,7 @@ async function attemptDiscordDelivery(input: {
     }
     return { ok: false, code: "webhook_invalid", retryable: true };
   }
-  const body = JSON.stringify(formatAdminAlertForDiscord({
-    event,
-    environment: input.environment,
-    occurredAt: input.row.createdAt,
-  }));
+  const body = JSON.stringify(payload);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
   try {
