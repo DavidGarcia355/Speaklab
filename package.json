@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/predeploy-check.mjs --registration-only && next build",
+    "build:private": "node scripts/predeploy-check.mjs --registration-only --private-deployment && next build",
     "start": "next start",
     "dev:local": "node scripts/local-dev.mjs start",
     "dev:status": "node scripts/local-dev.mjs status",
@@ -28,8 +29,11 @@
     "test": "vitest run",
     "typecheck": "next typegen && tsc --noEmit",
     "check": "npm run lint && npm run test && npm run typecheck && npm run build",
+    "check:private": "npm run lint && npm run test && npm run typecheck && npm run build:private",
     "release:check": "node scripts/predeploy-check.mjs && npm run check",
-    "release:check:worktree": "node scripts/predeploy-check.mjs --allow-dirty && npm run check"
+    "release:check:worktree": "node scripts/predeploy-check.mjs --allow-dirty && npm run check",
+    "release:check:private": "node scripts/predeploy-check.mjs --private-deployment && npm run check:private",
+    "release:check:private:worktree": "node scripts/predeploy-check.mjs --private-deployment --allow-dirty && npm run check:private"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^4.0.56",

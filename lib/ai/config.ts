@@ -1,4 +1,5 @@
 import "server-only";
+import { isTeacherSelfRegistrationEnabled } from "@/lib/teacher-registration-policy.mjs";
 
 export type AiProvider = "mock" | "openai" | "ollama";
 export type AiAccessMode = "paid" | "all";
@@ -145,7 +146,7 @@ export function assertAiTranscriptionProviderConfig(config: AiConfig) {
   if (
     !config.isDev &&
     config.accessMode === "all" &&
-    process.env.ALLOW_TEACHER_SELF_REGISTRATION === "true"
+    isTeacherSelfRegistrationEnabled()
   ) {
     throw new Error(
       "AI_ACCESS_MODE=all cannot be combined with open teacher self-registration in production."
@@ -169,7 +170,7 @@ export function isAiAccessConfigurationSafe(config = getAiConfig()) {
   return !(
     !config.isDev &&
     config.accessMode === "all" &&
-    process.env.ALLOW_TEACHER_SELF_REGISTRATION === "true"
+    isTeacherSelfRegistrationEnabled()
   );
 }
 

@@ -1,0 +1,62 @@
+.guard {
+  min-width: 0;
+}
+
+.message,
+.instructions,
+.copyStatus {
+  margin: 0;
+}
+
+.instructions {
+  max-width: 48ch;
+}
+
+.urlGroup {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.urlLabel {
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.url {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  padding: 0.65rem 0.72rem;
+  overflow-wrap: anywhere;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.55rem;
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  user-select: all;
+}
+
+.copyButton {
+  justify-self: start;
+}
+
+.copyStatus {
+  min-height: 1.25rem;
+  max-width: 48ch;
+}
+
+:global(html.dark) .urlLabel {
+  color: #aeb8c5;
+}
+
+:global(html.dark) .url {
+  border-color: #343b46;
+  background: #11151a;
+  color: #e5e7eb;
+}

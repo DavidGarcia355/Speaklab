@@ -1,4 +1,14 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  copyTextToClipboard,
+  EmbeddedBrowserSignInFallback,
+  getCopyLinkFeedback,
+  reportWebviewAuthEvent,
+  runCopyLinkAction,
+  type CopyLinkState,
+} from "@/app/components/SignInLink";
 import {
   AUTH_BROWSER_REQUIRED_VALUE,
   buildExternalBrowserRedirectUrl,
@@ -63,6 +73,127 @@ describe("in-app browser detection", () => {
     ],
   ])("allows normal %s browsers", (_browser, userAgent) => {
     expect(isInAppBrowser(userAgent)).toBe(false);
+  });
+});
+
+describe("embedded browser sign-in help", () => {
+  const canonicalRegistrationUrl = "https://tryhabla.com/teacher/register";
+
+  it("shows Facebook visitors a canonical link without another in-app navigation link", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        EmbeddedBrowserSignInFallback,
+        {
+          className: "btn btn-primary",
+          externalBrowserUrl: canonicalRegistrationUrl,
+          message: "Google sign-in cannot open inside Facebook or another app's browser.",
+          externalBrowserInstructions:
+            "Tap the menu in this app → Open in browser. Then sign in to create your free teacher account.",
+        },
+        "Sign in to start free"
+      )
+    );
+
+    expect(markup).toContain(canonicalRegistrationUrl);
+    expect(markup).toContain("Open in browser");
+    expect(markup).toContain('type="button"');
+    expect(markup).toContain('aria-live="polite"');
+    expect(markup).toContain("Copy link");
+    expect(markup).not.toContain('target="_blank"');
+    expect(markup).not.toContain("/api/auth/signin");
+  });
+
+  it("moves the copy UX through copying and copied states", async () => {
+    const states: CopyLinkState[] = [];
+    const copyText = vi.fn(async () => true);
+
+    const copied = await runCopyLinkAction({
+      url: canonicalRegistrationUrl,
+      setState: (state) => states.push(state),
+      copyText,
+    });
+
+    expect(copied).toBe(true);
+    expect(copyText).toHaveBeenCalledWith(canonicalRegistrationUrl);
+    expect(states).toEqual(["copying", "copied"]);
+    expect(getCopyLinkFeedback("copied")).toEqual({
+      buttonLabel: "Copied",
+      statusMessage: "Link copied. Paste it into your browser to continue.",
+    });
+  });
+
+  it("falls back to selection copying when an embedded browser rejects Clipboard API", async () => {
+    const textArea = {
+      value: "",
+      readOnly: false,
+      setAttribute: vi.fn(),
+      style: {} as CSSStyleDeclaration,
+      focus: vi.fn(),
+      select: vi.fn(),
+      setSelectionRange: vi.fn(),
+      remove: vi.fn(),
+    };
+    const previouslyFocused = { focus: vi.fn() };
+    const activeDocument = {
+      activeElement: previouslyFocused,
+      body: { appendChild: vi.fn() },
+      createElement: vi.fn(() => textArea),
+      execCommand: vi.fn(() => true),
+    } as unknown as Document;
+    const clipboard = {
+      writeText: vi.fn(async () => {
+        throw new Error("Clipboard is unavailable in this webview");
+      }),
+    };
+
+    const copied = await copyTextToClipboard(canonicalRegistrationUrl, {
+      clipboard,
+      document: activeDocument,
+    });
+
+    expect(copied).toBe(true);
+    expect(clipboard.writeText).toHaveBeenCalledWith(canonicalRegistrationUrl);
+    expect(textArea.value).toBe(canonicalRegistrationUrl);
+    expect(textArea.select).toHaveBeenCalled();
+    expect(activeDocument.execCommand).toHaveBeenCalledWith("copy");
+    expect(textArea.remove).toHaveBeenCalled();
+    expect(previouslyFocused.focus).toHaveBeenCalled();
+  });
+
+  it("gives manual-copy guidance when clipboard access fails", async () => {
+    const states: CopyLinkState[] = [];
+
+    const copied = await runCopyLinkAction({
+      url: canonicalRegistrationUrl,
+      setState: (state) => states.push(state),
+      copyText: vi.fn(async () => false),
+    });
+
+    expect(copied).toBe(false);
+    expect(states).toEqual(["copying", "failed"]);
+    expect(getCopyLinkFeedback("failed")).toEqual({
+      buttonLabel: "Try copying again",
+      statusMessage: "Copy failed. Press and hold the URL to copy it manually.",
+    });
+  });
+
+  it("reports only the privacy-safe event and route with keepalive", () => {
+    const send = vi.fn(async () => undefined);
+
+    reportWebviewAuthEvent("webview_help_shown", {
+      route: "/teacher/register",
+      fetch: send,
+    });
+
+    expect(send).toHaveBeenCalledWith("/api/auth-diagnostics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "webview_help_shown",
+        route: "/teacher/register",
+      }),
+      keepalive: true,
+    });
   });
 });
 

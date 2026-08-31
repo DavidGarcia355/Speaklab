@@ -27,6 +27,7 @@ import { INTERNAL_TEST_EMAILS } from "@/lib/internal-accounts";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 import { processedAssignmentFingerprint } from "@/lib/ai/recording-identity";
 import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapter";
+import type { FeedbackDiagnosticContext } from "@/lib/feedback-context";
 import type { Rubric, RubricScore } from "@/lib/validation";
 
 const QUERY_TIMEOUT_MS = 5000;
@@ -136,6 +137,7 @@ export type FeedbackRow = {
   school: string;
   role: string;
   message: string;
+  context: FeedbackDiagnosticContext | null;
   createdAt: number;
 };
 
@@ -687,6 +689,7 @@ async function ensureColumn(
     | "assignments"
     | "submissions"
     | "submission_transcripts"
+    | "feedback_messages"
     | "users"
     | "stripe_billing_accounts"
     | "ai_grading_attempts"
@@ -888,6 +891,7 @@ async function ensureInitialized() {
           school TEXT NOT NULL,
           role TEXT NOT NULL,
           message TEXT NOT NULL,
+          context_json TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL
         )`,
         `CREATE TABLE IF NOT EXISTS users (
@@ -1324,6 +1328,7 @@ async function ensureInitialized() {
       await ensureColumn("submissions", "rubric_scores", "TEXT");
       await ensureColumn("submissions", "grade_source", "TEXT NOT NULL DEFAULT 'teacher'");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
+      await ensureColumn("feedback_messages", "context_json", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn(
         "ai_review_allowance_reservations_v1",
         "source_kind",
@@ -4122,6 +4127,7 @@ export async function createFeedbackMessage(input: {
   school: string;
   role: string;
   message: string;
+  context?: FeedbackDiagnosticContext | null;
 }): Promise<FeedbackRow> {
   const item: FeedbackRow = {
     id: makeId("fb"),
@@ -4130,19 +4136,29 @@ export async function createFeedbackMessage(input: {
     school: input.school,
     role: input.role,
     message: input.message,
+    context: input.context ?? null,
     createdAt: Date.now(),
   };
   await query(
-    `INSERT INTO feedback_messages (id, name, email, school, role, message, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [item.id, item.name, item.email, item.school, item.role, item.message, item.createdAt]
+    `INSERT INTO feedback_messages (id, name, email, school, role, message, context_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      item.id,
+      item.name,
+      item.email,
+      item.school,
+      item.role,
+      item.message,
+      stringifyJsonValue(item.context) ?? "",
+      item.createdAt,
+    ]
   );
   return item;
 }
 
 export async function listFeedbackMessages(): Promise<FeedbackRow[]> {
   const result = await query(
-    `SELECT id, name, email, school, role, message, created_at FROM feedback_messages ORDER BY created_at DESC`,
+    `SELECT id, name, email, school, role, message, context_json, created_at FROM feedback_messages ORDER BY created_at DESC`,
     []
   );
   return result.rows.map((r) => ({
@@ -4152,6 +4168,7 @@ export async function listFeedbackMessages(): Promise<FeedbackRow[]> {
     school: toStringValue(r.school),
     role: toStringValue(r.role),
     message: toStringValue(r.message),
+    context: parseJsonValue<FeedbackDiagnosticContext>(r.context_json),
     createdAt: toNumber(r.created_at),
   }));
 }

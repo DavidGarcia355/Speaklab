@@ -4,6 +4,11 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
+import {
+  normalizeDiagnosticRoute,
+  parseAuthSupportCode,
+} from "@/lib/auth-diagnostics-shared";
+import type { FeedbackContextInput } from "@/lib/feedback-context";
 
 type FeedbackForm = {
   name: string;
@@ -28,12 +33,24 @@ export default function FeedbackPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [status, setStatus] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [intent, setIntent] = useState<"" | "schools">("");
+  const [intent, setIntent] = useState<"" | "auth" | "schools">("");
+  const [supportContext, setSupportContext] = useState<FeedbackContextInput | null>(null);
 
   useEffect(() => {
-    const requestedIntent = new URLSearchParams(window.location.search).get("intent");
+    const params = new URLSearchParams(window.location.search);
+    const requestedIntent = params.get("intent");
     if (requestedIntent === "schools" || requestedIntent === "school-pilot") {
       setIntent("schools");
+      return;
+    }
+    if (requestedIntent === "auth") {
+      const authErrorCode = parseAuthSupportCode(params.get("authError"));
+      setIntent("auth");
+      setSupportContext({
+        source: "auth",
+        route: normalizeDiagnosticRoute(params.get("from")),
+        ...(authErrorCode ? { authErrorCode } : {}),
+      });
     }
   }, []);
 
@@ -54,6 +71,7 @@ export default function FeedbackPage() {
         body: JSON.stringify({
           ...form,
           ...(intent === "schools" ? { intent } : {}),
+          ...(intent === "auth" ? { intent, context: supportContext } : {}),
         }),
       });
       const data = (await response.json()) as { error?: string; fieldErrors?: FieldErrors };
@@ -78,15 +96,21 @@ export default function FeedbackPage() {
       <PageTitle title="Feedback" />
       <BrandBar label="Feedback" />
       <section className="hero">
-        <p className="pill">{intent === "schools" ? "TryHabla for Schools" : "Contact"}</p>
+        <p className="pill">
+          {intent === "schools" ? "TryHabla for Schools" : intent === "auth" ? "Sign-in help" : "Contact"}
+        </p>
         <h1>
           {intent === "schools"
             ? "Talk with TryHabla for Schools"
+            : intent === "auth"
+              ? "Get help accessing TryHabla"
             : "Share feedback or ask a question"}
         </h1>
         <p>
           {intent === "schools"
             ? "Tell us about your school or program, expected teacher cohort, review volume, and any rollout requirements."
+            : intent === "auth"
+              ? "Tell us what happened. Your sign-in reference, browser type, and the page you came from will be attached automatically."
             : "Share feedback, ask a question, or let us know how we can help."}
         </p>
       </section>
@@ -179,7 +203,9 @@ export default function FeedbackPage() {
               {submitting
                 ? "Sending..."
                 : intent === "schools"
-                  ? "Contact TryHabla for Schools"
+                ? "Contact TryHabla for Schools"
+                : intent === "auth"
+                  ? "Send support request"
                   : "Send feedback"}
             </button>
             <Link className="btn btn-ghost" href="/faq">

@@ -39,10 +39,20 @@ describe("feedback admin alert intent", () => {
     mocks.enqueueSchoolLeadAlert.mockReset().mockResolvedValue(undefined);
   });
 
-  function request(intent?: "schools" | "school-pilot") {
+  function request(
+    intent?: "auth" | "schools" | "school-pilot",
+    context?: {
+      source: "auth";
+      authErrorCode: "AccessDenied";
+      route: string;
+    }
+  ) {
     return new Request("http://localhost/api/feedback", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 FBAN/FBIOS FBAV/455.0 sensitive-fragment",
+      },
       body: JSON.stringify({
         name: "Casey Contact",
         email: "casey@district.example",
@@ -50,6 +60,7 @@ describe("feedback admin alert intent", () => {
         role: "Curriculum director",
         message: "We would like to discuss a pilot for our language teachers.",
         ...(intent ? { intent } : {}),
+        ...(context ? { context } : {}),
       }),
     });
   }
@@ -92,5 +103,46 @@ describe("feedback admin alert intent", () => {
     expect(mocks.enqueueSchoolLeadAlert).toHaveBeenCalledWith({
       feedbackId: "fb_opaque_1",
     });
+  });
+
+  it("attaches safe access context to support messages", async () => {
+    const { POST } = await import("@/app/api/feedback/route");
+
+    const response = await POST(
+      request("auth", {
+        source: "auth",
+        authErrorCode: "AccessDenied",
+        route: "/auth/error?token=must-not-persist",
+      })
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.createFeedbackMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: {
+          source: "auth",
+          authErrorCode: "AccessDenied",
+          browserCategory: "facebook",
+          route: "/auth/error",
+        },
+      })
+    );
+    expect(mocks.sendFeedbackNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: {
+          source: "auth",
+          authErrorCode: "AccessDenied",
+          browserCategory: "facebook",
+          route: "/auth/error",
+        },
+      })
+    );
+    expect(JSON.stringify(mocks.createFeedbackMessage.mock.calls)).not.toContain(
+      "must-not-persist"
+    );
+    expect(JSON.stringify(mocks.createFeedbackMessage.mock.calls)).not.toContain(
+      "sensitive-fragment"
+    );
+    expect(mocks.enqueueSchoolLeadAlert).not.toHaveBeenCalled();
   });
 });

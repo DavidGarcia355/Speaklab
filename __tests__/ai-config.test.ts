@@ -159,7 +159,7 @@ describe("AI launch configuration", () => {
   });
 
   it("rejects broad AI access combined with open production registration", () => {
-    process.env.ALLOW_TEACHER_SELF_REGISTRATION = "true";
+    process.env.ALLOW_TEACHER_SELF_REGISTRATION = "  TRUE\t";
     const config = {
       ...getAiConfig(),
       enabled: true,

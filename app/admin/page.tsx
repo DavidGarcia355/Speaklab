@@ -430,6 +430,13 @@ export default async function AdminPage() {
                   </div>
                 </div>
                 <p className="admin-feedback-body">{msg.message}</p>
+                {msg.context ? (
+                  <p className="meta">
+                    Access context: {msg.context.source} · {msg.context.authErrorCode || "no error code"}
+                    {" · "}
+                    {msg.context.browserCategory} · {msg.context.route}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
