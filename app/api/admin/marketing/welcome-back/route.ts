@@ -36,9 +36,26 @@ export async function POST(request: Request) {
   const { admin, response } = await requireAdmin();
   if (response) return response;
 
+  const requestUrl = new URL(request.url);
+  const origin = request.headers.get("origin");
+  if (origin && new URL(origin).host !== requestUrl.host) {
+    return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
+  }
+
+  const contentType = request.headers.get("content-type") || "";
+  const isForm = contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
+
   try {
-    const body = (await request.json()) as { confirmation?: unknown };
-    if (body.confirmation !== "SEND_WELCOME_BACK_2026") {
+    let confirmation = "";
+    if (isForm) {
+      const form = await request.formData();
+      confirmation = String(form.get("confirmation") || "");
+    } else {
+      const body = (await request.json()) as { confirmation?: unknown };
+      confirmation = typeof body.confirmation === "string" ? body.confirmation : "";
+    }
+
+    if (confirmation !== "SEND_WELCOME_BACK_2026") {
       return NextResponse.json({ error: "Campaign confirmation did not match." }, { status: 400 });
     }
 
@@ -48,9 +65,21 @@ export async function POST(request: Request) {
       recipientCount: result.recipientCount,
       batchCount: result.batchCount,
     });
+
+    if (isForm) {
+      const done = new URL("/admin/marketing/welcome-back", request.url);
+      done.searchParams.set("sent", String(result.recipientCount));
+      return NextResponse.redirect(done, 303);
+    }
+
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     console.error("Failed to send welcome-back campaign", error);
+    if (isForm) {
+      const failed = new URL("/admin/marketing/welcome-back", request.url);
+      failed.searchParams.set("error", error instanceof Error ? error.message : "Unable to send campaign.");
+      return NextResponse.redirect(failed, 303);
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to send campaign." },
       { status: 500 },
