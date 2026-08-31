@@ -209,7 +209,7 @@ The default Auth.js experience also collapses several unrelated failures into ge
 
 ## Remediation implemented on August 31
 
-The following changes are implemented on branch `fix/teacher-access-onboarding-2026-08-31`, rebased onto current `origin/main` commit `a4ecf8a`. They are verified locally but are **not yet deployed to production**.
+The following changes are implemented on branch `fix/teacher-access-onboarding-2026-08-31` and were rebased onto current `origin/main` at final verification. They are verified locally but are **not yet deployed to production**.
 
 - Replaced the unreliable `target="_blank"` webview fallback with explicit Facebook/in-app-browser instructions, the canonical registration URL, and an accessible copy-link workflow with Clipboard API and selection fallback.
 - Added privacy-safe events for sign-in requests, embedded-browser blocks, copy-link usage, normalized Auth.js errors, sign-in rejections, and closed registration. Raw user agents, emails, query strings, OAuth payloads, and tokens are not recorded in these diagnostics.
