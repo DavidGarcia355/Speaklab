@@ -225,6 +225,10 @@ export async function sendDiscordBotAlert(input: {
   const fetchImpl = input.fetchImpl ?? fetch;
   const botToken = token();
   if (!isDiscordBotDeliveryConfigured()) throw new DiscordBotError("discord_bot_missing", 503);
+
+  // First real founder alert turns a blank server into the TryHabla HQ layout.
+  await ensureTryHablaDiscordHq(fetchImpl);
+
   const guildId = await resolveGuildId(fetchImpl, botToken);
   const channels = await listGuildChannels(fetchImpl, botToken, guildId);
   const spec = CHANNELS[input.destination];
