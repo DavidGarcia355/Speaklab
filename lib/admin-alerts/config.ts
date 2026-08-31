@@ -64,7 +64,20 @@ export function resolveAdminAlertsEnvironment(
 export function isAdminAlertDeliveryEnabled(
   source: EnvironmentSource = process.env,
 ): boolean {
-  return source.DISCORD_ADMIN_ALERTS_ENABLED?.trim() === "true";
+  const explicit = source.DISCORD_ADMIN_ALERTS_ENABLED?.trim();
+  if (explicit === "true") return true;
+  if (explicit === "false") return false;
+
+  // The single-channel founder setup is intentionally one-secret: adding a
+  // valid private production webhook is enough to turn Habla Pulse on.
+  const unified = source.DISCORD_ADMIN_WEBHOOK_URL?.trim() || "";
+  if (!unified) return false;
+  try {
+    validateDiscordWebhookUrl(unified);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export type AdminAlertOperationalConfig = Readonly<{
@@ -132,10 +145,15 @@ export function resolveDiscordWebhookUrl(
   environment: AdminAlertEnvironment,
   source: EnvironmentSource = process.env,
 ): string {
-  const variableName = environment === "production"
-    ? PRODUCTION_WEBHOOK_VARIABLES[destination]
-    : "DISCORD_TEST_WEBHOOK_URL";
-  const value = source[variableName]?.trim() || "";
+  if (environment === "production") {
+    const destinationValue = source[PRODUCTION_WEBHOOK_VARIABLES[destination]]?.trim() || "";
+    const unifiedValue = source.DISCORD_ADMIN_WEBHOOK_URL?.trim() || "";
+    const value = destinationValue || unifiedValue;
+    if (!value) throw new AdminAlertConfigurationError("webhook_missing");
+    return validateDiscordWebhookUrl(value);
+  }
+
+  const value = source.DISCORD_TEST_WEBHOOK_URL?.trim() || "";
   if (!value) throw new AdminAlertConfigurationError("webhook_missing");
   return validateDiscordWebhookUrl(value);
 }
