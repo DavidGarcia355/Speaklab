@@ -10,6 +10,7 @@ const signedCents = z.number().int().min(-1_000_000_000_000).max(1_000_000_000_0
 const teacherRef = z.string().regex(/^T-[A-F0-9]{12}$/);
 const leadRef = z.string().regex(/^L-[A-F0-9]{12}$/);
 const paymentRef = z.string().regex(/^P-[A-F0-9]{12}$/);
+const commitRef = z.string().regex(/^[a-f0-9]{12}$/);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
   const parsed = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().startsWith(value);
@@ -167,6 +168,10 @@ export const adminAlertEventSchema = z.discriminatedUnion("type", [
     adminPath: protectedAdminPath.optional(),
   }).strict(),
   z.object({
+    type: z.literal("release.deployed"),
+    commitRef,
+  }).strict(),
+  z.object({
     type: z.literal("milestone.reached"),
     metric: z.enum([
       "total_teachers",
@@ -229,6 +234,7 @@ export function getAdminAlertDestinations(
     case "teacher.activated":
     case "ai.first_review":
     case "trial.half_used":
+    case "release.deployed":
       return ["traction"];
     case "trial.exhausted":
     case "subscription.started":

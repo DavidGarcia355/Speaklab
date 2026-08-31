@@ -129,7 +129,7 @@ describe("admin alert safe contracts", () => {
       occurredAt: Date.UTC(2026, 7, 26, 20, 0),
     });
 
-    expect(mrr.embeds[0]?.title).toBe("🏆 $1,000.00 MRR");
+    expect(mrr.embeds[0]?.title).toBe("🏆 $1,000.00 MRR UNLOCKED");
     expect(mrr.embeds[0]?.fields[0]?.value.replaceAll("\\", "")).toBe("$1,200.00");
     expect(JSON.stringify(reviews)).toContain("42 estimated hours");
   });

@@ -49,6 +49,8 @@ type DeliveryErrorCode =
   | "discord_bot_network_error"
   | "discord_bot_request_failed"
   | "discord_guild_ambiguous"
+  | "discord_guild_mismatch"
+  | "discord_channel_missing"
   | "lease_lost";
 
 type AttemptResult =
@@ -137,7 +139,7 @@ function botErrorResult(error: unknown): AttemptResult {
     };
   }
   if (details.status === 409) {
-    return { ok: false, code: "discord_guild_ambiguous", retryable: false };
+    return { ok: false, code, retryable: false };
   }
   if (details.status >= 400 && details.status < 500) {
     return { ok: false, code, retryable: false };
@@ -167,6 +169,7 @@ async function attemptDiscordDelivery(input: {
     try {
       await sendDiscordBotAlert({
         destination: input.row.destination,
+        eventType: event.type,
         payload,
         fetchImpl: input.fetchImpl,
       });
