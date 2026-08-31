@@ -153,6 +153,17 @@ describe("admin alert cron route", () => {
     mocks.resolveAdminAlertsEnvironment.mockReset().mockReturnValue("production");
   });
 
+  it("derives a privacy-safe, deduplicated production release intent", async () => {
+    const { getDeploymentReleaseIntent } = await import("@/app/api/cron/admin-alerts/route");
+    const commit = "abcdef1234567890abcdef1234567890abcdef12";
+
+    expect(getDeploymentReleaseIntent({ VERCEL_GIT_COMMIT_SHA: commit })).toEqual({
+      event: { type: "release.deployed", commitRef: "abcdef123456" },
+      dedupeKey: `release:production:${commit}`,
+    });
+    expect(getDeploymentReleaseIntent({ VERCEL_GIT_COMMIT_SHA: "not-a-commit" })).toBeNull();
+  });
+
   it("rejects requests without the cron secret before reading alert state", async () => {
     const { GET } = await import("@/app/api/cron/admin-alerts/route");
 

@@ -28,6 +28,17 @@ export const runtime = "nodejs";
 const MAX_ENQUEUE_BATCH = 20;
 const AI_BUDGET_ALERT_THRESHOLDS = [50, 75, 90, 100] as const;
 
+export function getDeploymentReleaseIntent(
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): AdminAlertEnqueueInput | null {
+  const fullCommit = source.VERCEL_GIT_COMMIT_SHA?.trim().toLowerCase() || "";
+  if (!/^[a-f0-9]{40}$/.test(fullCommit)) return null;
+  return {
+    event: { type: "release.deployed", commitRef: fullCommit.slice(0, 12) },
+    dedupeKey: `release:production:${fullCommit}`,
+  };
+}
+
 function safeEquals(actual: string, expected: string) {
   if (actual.length !== expected.length) return false;
   return timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
@@ -188,6 +199,8 @@ export async function GET(request: Request) {
         ]);
 
       const scheduledInputs: AdminAlertEnqueueInput[] = [];
+      const releaseIntent = getDeploymentReleaseIntent();
+      if (releaseIntent) scheduledInputs.push(releaseIntent);
       if (windows.daily && dailyAggregate) {
         scheduledInputs.push({
           event: dailyEvent(windows.daily.date, dailyAggregate),

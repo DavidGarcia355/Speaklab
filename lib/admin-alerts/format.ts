@@ -12,6 +12,7 @@ type DiscordEmbedField = {
 export type DiscordWebhookPayload = {
   username: "Habla Pulse";
   avatar_url: "https://tryhabla.com/tryhabla-auth-logo.svg";
+  content?: string;
   allowed_mentions: { parse: [] };
   embeds: Array<{
     title: string;
@@ -90,7 +91,7 @@ function estimatedTimeSavedLabel(minutes: number) {
 function milestoneTitle(
   event: Extract<AdminAlertEvent, { type: "milestone.reached" }>,
 ) {
-  if (event.metric === "mrr_cents") return `🏆 ${money(event.threshold)} MRR`;
+  if (event.metric === "mrr_cents") return `🏆 ${money(event.threshold)} MRR UNLOCKED`;
   return `🏆 ${wholeNumber(event.threshold)} ${event.metric
     .replaceAll("_", " ")
     .toUpperCase()}`;
@@ -230,7 +231,7 @@ function weeklyFields(
 function eventPresentation(
   event: AdminAlertEvent,
   environment: AdminAlertEnvironment,
-): { title: string; color: number; fields: DiscordEmbedField[] } {
+): { title: string; content?: string; color: number; fields: DiscordEmbedField[] } {
   switch (event.type) {
     case "teacher.signed_up":
       return {
@@ -301,7 +302,8 @@ function eventPresentation(
       };
     case "subscription.started":
       return {
-        title: "💸 NEW PAID TEACHER",
+        title: `💰 +${money(event.amountCents)} MRR — NEW PAID TEACHER`,
+        content: `💰 **+${money(event.amountCents)} MRR**`,
         color: COLORS.revenue,
         fields: [
           field("MRR added", `+${money(event.amountCents)}`),
@@ -311,7 +313,8 @@ function eventPresentation(
       };
     case "subscription.renewed":
       return {
-        title: "🔁 Teacher subscription renewed",
+        title: `🔁 ${money(event.amountCents)} RETAINED — RENEWAL CLEARED`,
+        content: `✅ **${money(event.amountCents)} recurring revenue retained**`,
         color: COLORS.revenue,
         fields: [
           field("Retained revenue", money(event.amountCents)),
@@ -331,7 +334,8 @@ function eventPresentation(
       };
     case "payment.failed":
       return {
-        title: "⚠️ Payment failed",
+        title: "🚨 PAYMENT FAILED — ACTION REQUIRED",
+        content: "🚨 **CRITICAL TRYHABLA PAYMENT ALERT**",
         color: COLORS.incident,
         fields: [
           field("Teacher", event.teacherRef),
@@ -384,6 +388,12 @@ function eventPresentation(
         ],
       };
     }
+    case "release.deployed":
+      return {
+        title: "🚢 PRODUCTION RELEASE SHIPPED",
+        color: COLORS.traction,
+        fields: [field("Commit", event.commitRef)],
+      };
     case "milestone.reached":
       return {
         title: milestoneTitle(event),
@@ -436,7 +446,8 @@ function eventPresentation(
       };
     case "incident":
       return {
-        title: "🚨 TryHabla incident",
+        title: "🚨 CRITICAL TRYHABLA INCIDENT",
+        content: "🚨 **CRITICAL TRYHABLA INCIDENT — INVESTIGATE NOW**",
         color: COLORS.incident,
         fields: [field("Code", event.code), field("Summary", event.summary, false)],
       };
@@ -455,6 +466,7 @@ export function formatAdminAlertForDiscord(input: {
   return {
     username: "Habla Pulse",
     avatar_url: "https://tryhabla.com/tryhabla-auth-logo.svg",
+    ...(presentation.content ? { content: presentation.content } : {}),
     allowed_mentions: { parse: [] },
     embeds: [{
       title: presentation.title,
