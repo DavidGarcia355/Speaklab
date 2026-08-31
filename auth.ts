@@ -3,6 +3,7 @@ import Google from "next-auth/providers/google";
 import AzureAD from "next-auth/providers/azure-ad";
 import { enqueueTeacherSignedUpAlert } from "@/lib/admin-alert-lifecycle";
 import { trackActivity } from "@/lib/activity";
+import { logAuthDiagnostic, safeDiagnosticCode } from "@/lib/auth-diagnostics";
 import { getUserRoleByEmail, upsertGoogleUserAndGetRole } from "@/lib/db";
 
 const ALLOWED_PROVIDERS = new Set(["google", "azure-ad"]);
@@ -19,6 +20,17 @@ if (Boolean(microsoftClientId) !== Boolean(microsoftClientSecret)) {
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.AUTH_SECRET,
+  pages: {
+    error: "/auth/error",
+  },
+  logger: {
+    error(code) {
+      logAuthDiagnostic("nextauth_error", { code: safeDiagnosticCode(code) }, "error");
+    },
+    warn(code) {
+      logAuthDiagnostic("nextauth_warning", { code: safeDiagnosticCode(code) }, "warn");
+    },
+  },
   theme: {
     colorScheme: "auto",
     logo: "/tryhabla-auth-logo.svg",
@@ -45,11 +57,24 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async signIn({ account, profile }) {
-      if (!account?.provider || !ALLOWED_PROVIDERS.has(account.provider)) return false;
+      const provider =
+        account?.provider === "google" || account?.provider === "azure-ad"
+          ? account.provider
+          : "unknown";
+      if (!account?.provider || !ALLOWED_PROVIDERS.has(account.provider)) {
+        logAuthDiagnostic("sign_in_rejected", { code: "unsupported_provider", provider }, "warn");
+        return false;
+      }
       const email = typeof profile?.email === "string" ? profile.email.toLowerCase() : "";
       const emailVerified = (profile as { email_verified?: boolean } | null)?.email_verified;
-      if (!email) return false;
-      if (emailVerified === false) return false;
+      if (!email) {
+        logAuthDiagnostic("sign_in_rejected", { code: "missing_email", provider }, "warn");
+        return false;
+      }
+      if (emailVerified === false) {
+        logAuthDiagnostic("sign_in_rejected", { code: "email_not_verified", provider }, "warn");
+        return false;
+      }
       const previousRole = await getUserRoleByEmail(email);
       const role = await upsertGoogleUserAndGetRole(email);
       if (previousRole !== "teacher" && role === "teacher") {

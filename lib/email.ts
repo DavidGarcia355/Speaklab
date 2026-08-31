@@ -1,5 +1,6 @@
 import "server-only";
 import { Resend } from "resend";
+import type { FeedbackDiagnosticContext } from "@/lib/feedback-context";
 
 const TEACHER_UPGRADE_SUBJECT = "You're all set on TryHabla";
 const TEACHER_UPGRADE_TEXT = `Hi,
@@ -48,6 +49,7 @@ export async function sendFeedbackNotification(input: {
   school: string;
   role: string;
   message: string;
+  context?: FeedbackDiagnosticContext | null;
 }) {
   const apiKey = getResendApiKey();
   if (!apiKey) return;
@@ -61,6 +63,14 @@ export async function sendFeedbackNotification(input: {
       `From: ${input.name} <${input.email}>`,
       `School: ${input.school}`,
       `Role: ${input.role}`,
+      ...(input.context
+        ? [
+            `Access context: ${input.context.source}`,
+            `Reference: ${input.context.authErrorCode || "none"}`,
+            `Browser: ${input.context.browserCategory}`,
+            `Route: ${input.context.route}`,
+          ]
+        : []),
       ``,
       input.message,
     ].join("\n"),

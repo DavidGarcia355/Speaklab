@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { verifyMarketingUnsubscribeToken } from "@/lib/marketing-unsubscribe";
 
 function first(value: string | string[] | undefined) {
@@ -23,9 +25,9 @@ export default async function UnsubscribePage({
     return (
       <main className="mx-auto flex min-h-screen max-w-xl items-center px-6 py-16">
         <section className="w-full rounded-2xl border border-black/10 bg-white p-8 shadow-sm">
-          <a href="/" className="text-xl font-semibold tracking-tight text-black">
+          <Link href="/" className="text-xl font-semibold tracking-tight text-black">
             TryHabla
-          </a>
+          </Link>
           <h1 className="mt-8 text-2xl font-semibold text-black">You’re unsubscribed.</h1>
           <p className="mt-3 text-sm leading-6 text-black/65">
             You won’t receive future TryHabla product and update emails.
@@ -42,9 +44,9 @@ export default async function UnsubscribePage({
   return (
     <main className="mx-auto flex min-h-screen max-w-xl items-center px-6 py-16">
       <section className="w-full rounded-2xl border border-black/10 bg-white p-8 shadow-sm">
-        <a href="/" className="text-xl font-semibold tracking-tight text-black">
+        <Link href="/" className="text-xl font-semibold tracking-tight text-black">
           TryHabla
-        </a>
+        </Link>
 
         {valid ? (
           <>
@@ -65,9 +67,9 @@ export default async function UnsubscribePage({
                 Unsubscribe
               </button>
             </form>
-            <a href="/" className="mt-4 block text-center text-sm text-black/60 underline">
+            <Link href="/" className="mt-4 block text-center text-sm text-black/60 underline">
               Keep me subscribed
-            </a>
+            </Link>
           </>
         ) : (
           <>

@@ -2,8 +2,17 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
+const TEACHER_ROOT_PATH = "/teacher";
+const TEACHER_REGISTRATION_PATH = "/teacher/register";
+
 function teacherRequiredPath(pathname: string) {
-  if (pathname.startsWith("/teacher") && pathname !== "/teacher/register") return true;
+  if (
+    pathname !== TEACHER_REGISTRATION_PATH &&
+    pathname !== `${TEACHER_REGISTRATION_PATH}/` &&
+    (pathname === TEACHER_ROOT_PATH || pathname.startsWith(`${TEACHER_ROOT_PATH}/`))
+  ) {
+    return true;
+  }
   if (pathname.startsWith("/api/classes")) return true;
   if (pathname.startsWith("/api/assignments")) {
     return !pathname.endsWith("/submissions");
@@ -12,6 +21,20 @@ function teacherRequiredPath(pathname: string) {
     return !pathname.endsWith("/audio");
   }
   return false;
+}
+
+function teacherRegistrationUrl(request: NextRequest) {
+  const destination = new URL(TEACHER_REGISTRATION_PATH, request.url);
+  const { pathname, search } = request.nextUrl;
+  const callbackUrl =
+    pathname === TEACHER_ROOT_PATH || pathname.startsWith(`${TEACHER_ROOT_PATH}/`)
+      ? `${pathname}${search}`
+      : TEACHER_ROOT_PATH;
+
+  // Keep the return target relative so an untrusted host cannot turn this into
+  // a cross-origin callback.
+  destination.searchParams.set("callbackUrl", callbackUrl);
+  return destination;
 }
 
 function jsonError(status: number, error: string) {
@@ -23,18 +46,42 @@ function adminRequiredPath(pathname: string) {
 }
 
 async function getCurrentRole(request: NextRequest) {
-  const response = await fetch(new URL("/api/auth/role", request.url), {
-    headers: {
-      cookie: request.headers.get("cookie") ?? "",
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
+  let response: Response;
+  try {
+    response = await fetch(new URL("/api/auth/role", request.url), {
+      headers: {
+        cookie: request.headers.get("cookie") ?? "",
+      },
+      cache: "no-store",
+    });
+  } catch {
+    console.warn(
+      "AUTH_DIAGNOSTIC",
+      JSON.stringify({ event: "role_check_failed", code: "request_unavailable" })
+    );
     return null;
   }
 
-  return (await response.json()) as { role?: string };
+  if (!response.ok) {
+    console.warn(
+      "AUTH_DIAGNOSTIC",
+      JSON.stringify({ event: "role_check_failed", code: "http_error", status: response.status })
+    );
+    return null;
+  }
+
+  try {
+    const body = (await response.json()) as { role?: unknown };
+    if (body.role === "teacher" || body.role === "student") return { role: body.role };
+  } catch {
+    // The safe diagnostic below covers malformed JSON and unexpected response shapes.
+  }
+
+  console.warn(
+    "AUTH_DIAGNOSTIC",
+    JSON.stringify({ event: "role_check_failed", code: "invalid_response" })
+  );
+  return null;
 }
 
 export async function proxy(request: NextRequest) {
@@ -64,7 +111,7 @@ export async function proxy(request: NextRequest) {
     if (pathname.startsWith("/api/")) {
       return jsonError(401, "You'll need to sign in first.");
     }
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(teacherRegistrationUrl(request));
   }
 
   if (adminRequiredPath(pathname)) {
@@ -85,10 +132,10 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith("/teacher")) {
     const role = await getCurrentRole(request);
     if (!role) {
-      return NextResponse.redirect(new URL("/", request.url));
+      return NextResponse.redirect(teacherRegistrationUrl(request));
     }
     if (role.role !== "teacher") {
-      return NextResponse.redirect(new URL("/teacher/register", request.url));
+      return NextResponse.redirect(teacherRegistrationUrl(request));
     }
   }
 

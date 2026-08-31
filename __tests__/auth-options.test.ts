@@ -5,6 +5,12 @@ const mocks = vi.hoisted(() => ({
   trackActivity: vi.fn(),
   upsertGoogleUserAndGetRole: vi.fn(),
   enqueueTeacherSignedUpAlert: vi.fn(),
+  logAuthDiagnostic: vi.fn(),
+}));
+
+vi.mock("@/lib/auth-diagnostics", () => ({
+  logAuthDiagnostic: mocks.logAuthDiagnostic,
+  safeDiagnosticCode: (value: string) => value,
 }));
 
 vi.mock("@/lib/activity", () => ({
@@ -79,6 +85,7 @@ describe("auth options", () => {
     mocks.trackActivity.mockReset().mockResolvedValue(undefined);
     mocks.upsertGoogleUserAndGetRole.mockReset().mockResolvedValue("student");
     mocks.enqueueTeacherSignedUpAlert.mockReset().mockResolvedValue(undefined);
+    mocks.logAuthDiagnostic.mockReset();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
 
@@ -127,6 +134,7 @@ describe("auth options", () => {
       logo: "/tryhabla-auth-logo.svg",
       brandColor: "#1374ad",
     });
+    expect(authOptions.pages).toEqual({ error: "/auth/error" });
   });
 
   it("accepts Microsoft sign-in and upserts the exact lowercase email", async () => {

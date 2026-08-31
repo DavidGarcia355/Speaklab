@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import NextAuth from "next-auth";
 import { authOptions } from "@/auth";
+import { logAuthDiagnostic } from "@/lib/auth-diagnostics";
+import { classifyAuthBrowser, normalizeDiagnosticRoute } from "@/lib/auth-diagnostics-shared";
 import { enforceAuthRateLimit } from "@/lib/rate-limit";
 import { getClientIp, withApiHandler } from "@/lib/http";
 import { buildExternalBrowserRedirectUrl, isInAppBrowser } from "@/lib/in-app-browser";
@@ -10,6 +12,25 @@ const handler = NextAuth(authOptions);
 function isSignInAttempt(request: Request) {
   const { pathname } = new URL(request.url);
   return pathname === "/api/auth/signin" || /^\/api\/auth\/signin\/[^/]+$/.test(pathname);
+}
+
+function requestedProvider(request: Request): "azure-ad" | "google" | "unknown" {
+  const provider = new URL(request.url).pathname.split("/")[4];
+  return provider === "google" || provider === "azure-ad" ? provider : "unknown";
+}
+
+function logSignInRequest(request: Request, event: "in_app_browser_blocked" | "sign_in_requested") {
+  const url = new URL(request.url);
+  logAuthDiagnostic(
+    event,
+    {
+      browserCategory: classifyAuthBrowser(request.headers.get("user-agent")),
+      method: request.method === "POST" ? "POST" : "GET",
+      provider: requestedProvider(request),
+      route: normalizeDiagnosticRoute(url.searchParams.get("callbackUrl")),
+    },
+    event === "in_app_browser_blocked" ? "warn" : "info"
+  );
 }
 
 function shouldBlockInAppBrowser(request: Request) {
@@ -66,6 +87,7 @@ type AuthContext = {
 export async function GET(request: Request, context: AuthContext) {
   return withApiHandler(request, async () => {
     if (shouldBlockInAppBrowser(request)) {
+      logSignInRequest(request, "in_app_browser_blocked");
       return redirectToExternalBrowser(request);
     }
 
@@ -74,6 +96,7 @@ export async function GET(request: Request, context: AuthContext) {
     }
 
     if (isSignInAttempt(request)) {
+      logSignInRequest(request, "sign_in_requested");
       await enforceAuthRateLimit(getClientIp(request));
     }
     return handler(request, context);
@@ -83,6 +106,7 @@ export async function GET(request: Request, context: AuthContext) {
 export async function POST(request: Request, context: AuthContext) {
   return withApiHandler(request, async () => {
     if (shouldBlockInAppBrowser(request)) {
+      logSignInRequest(request, "in_app_browser_blocked");
       return redirectToExternalBrowser(request);
     }
 
@@ -91,6 +115,7 @@ export async function POST(request: Request, context: AuthContext) {
     }
 
     if (isSignInAttempt(request)) {
+      logSignInRequest(request, "sign_in_requested");
       await enforceAuthRateLimit(getClientIp(request));
     }
     return handler(request, context);

@@ -1,4 +1,7 @@
-const REGISTRATION_ENV_KEY = "ALLOW_TEACHER_SELF_REGISTRATION";
+import {
+  getTeacherSelfRegistrationSetting,
+  TEACHER_SELF_REGISTRATION_ENV_KEY,
+} from "../lib/teacher-registration-policy.mjs";
 
 /**
  * Public TryHabla releases must opt into the same self-serve registration that
@@ -13,12 +16,12 @@ const REGISTRATION_ENV_KEY = "ALLOW_TEACHER_SELF_REGISTRATION";
  */
 export function assertTeacherRegistrationReleasePolicy(options = {}) {
   const environment = options.environment ?? process.env;
-  const value = environment[REGISTRATION_ENV_KEY]?.trim().toLowerCase();
+  const value = getTeacherSelfRegistrationSetting(environment);
 
   if (value === "true") {
     if (options.privateDeployment) {
       throw new Error(
-        `${REGISTRATION_ENV_KEY}=true conflicts with --private-deployment. ` +
+        `${TEACHER_SELF_REGISTRATION_ENV_KEY}=true conflicts with --private-deployment. ` +
           "Set it to false for an invite-only deployment.",
       );
     }
@@ -28,7 +31,7 @@ export function assertTeacherRegistrationReleasePolicy(options = {}) {
   if (value === "false") {
     if (!options.privateDeployment) {
       throw new Error(
-        `${REGISTRATION_ENV_KEY}=false conflicts with TryHabla's public Start free experience. ` +
+        `${TEACHER_SELF_REGISTRATION_ENV_KEY}=false conflicts with TryHabla's public Start free experience. ` +
           "Set it to true, or rerun with --private-deployment for an intentionally invite-only deployment.",
       );
     }
@@ -37,10 +40,10 @@ export function assertTeacherRegistrationReleasePolicy(options = {}) {
 
   if (!value) {
     throw new Error(
-      `${REGISTRATION_ENV_KEY} must be explicit: true for public TryHabla releases, ` +
+      `${TEACHER_SELF_REGISTRATION_ENV_KEY} must be explicit: true for public TryHabla releases, ` +
         "or false together with --private-deployment for an invite-only deployment.",
     );
   }
 
-  throw new Error(`${REGISTRATION_ENV_KEY} must be either true or false.`);
+  throw new Error(`${TEACHER_SELF_REGISTRATION_ENV_KEY} must be either true or false.`);
 }

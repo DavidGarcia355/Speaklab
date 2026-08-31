@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { createClient } from "@libsql/client";
+import { createClient, type Client } from "@libsql/client";
 import { isInternalTestEmail } from "@/lib/internal-accounts";
 
 function createDbClient() {
@@ -24,12 +24,16 @@ function getSigningSecret() {
   return secret;
 }
 
-const db = createDbClient();
+let db: Client | null = null;
 let initPromise: Promise<void> | null = null;
+
+function getDbClient() {
+  return (db ??= createDbClient());
+}
 
 async function ensureInitialized() {
   if (!initPromise) {
-    initPromise = db
+    initPromise = getDbClient()
       .execute(`CREATE TABLE IF NOT EXISTS marketing_email_unsubscribes (
         email TEXT PRIMARY KEY COLLATE NOCASE,
         unsubscribed_at INTEGER NOT NULL
@@ -93,7 +97,7 @@ export async function unsubscribeMarketingEmail(emailInput: string) {
   if (!isReasonableEmail(email)) throw new Error("invalid_email");
 
   await ensureInitialized();
-  await db.execute({
+  await getDbClient().execute({
     sql: `INSERT INTO marketing_email_unsubscribes (email, unsubscribed_at)
       VALUES (?, ?)
       ON CONFLICT(email) DO UPDATE SET unsubscribed_at = excluded.unsubscribed_at`,
@@ -108,7 +112,7 @@ export async function isMarketingEmailUnsubscribed(emailInput: string) {
   if (!isReasonableEmail(email)) return false;
 
   await ensureInitialized();
-  const result = await db.execute({
+  const result = await getDbClient().execute({
     sql: "SELECT 1 FROM marketing_email_unsubscribes WHERE email = ? LIMIT 1",
     args: [email],
   });
@@ -117,7 +121,7 @@ export async function isMarketingEmailUnsubscribed(emailInput: string) {
 
 export async function listMarketingRecipientsBefore(cutoffMs: number) {
   await ensureInitialized();
-  const result = await db.execute({
+  const result = await getDbClient().execute({
     sql: `SELECT u.email
       FROM users u
       LEFT JOIN marketing_email_unsubscribes m

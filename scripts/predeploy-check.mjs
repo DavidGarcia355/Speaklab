@@ -4,6 +4,7 @@ import { assertTeacherRegistrationReleasePolicy } from "./teacher-registration-r
 
 const allowDirty = process.argv.includes("--allow-dirty");
 const privateDeployment = process.argv.includes("--private-deployment");
+const registrationOnly = process.argv.includes("--registration-only");
 const { loadEnvConfig } = nextEnv;
 
 function git(args) {
@@ -19,51 +20,58 @@ function git(args) {
 }
 
 function fail(message) {
-  console.error(`Release baseline check failed: ${message}`);
+  const checkName = registrationOnly
+    ? "Teacher registration build policy"
+    : "Release baseline check";
+  console.error(`${checkName} failed: ${message}`);
   process.exitCode = 1;
 }
 
 try {
   loadEnvConfig(process.cwd(), false);
-  assertTeacherRegistrationReleasePolicy({ privateDeployment });
+  const registrationMode = assertTeacherRegistrationReleasePolicy({ privateDeployment });
 
-  const root = git(["rev-parse", "--show-toplevel"]);
-  const topLevel = process.cwd().replaceAll("\\", "/").toLowerCase();
-  if (root.replaceAll("\\", "/").toLowerCase() !== topLevel) {
-    fail("run this command from the repository root.");
-  }
+  if (registrationOnly) {
+    console.log(`Teacher registration build policy verified for a ${registrationMode} deployment.`);
+  } else {
+    const root = git(["rev-parse", "--show-toplevel"]);
+    const topLevel = process.cwd().replaceAll("\\", "/").toLowerCase();
+    if (root.replaceAll("\\", "/").toLowerCase() !== topLevel) {
+      fail("run this command from the repository root.");
+    }
 
-  const status = git(["status", "--porcelain=v1", "--untracked-files=all"]);
-  if (status && !allowDirty) {
-    fail("the worktree is not clean. Commit the reviewed release candidate before deployment.");
-  }
+    const status = git(["status", "--porcelain=v1", "--untracked-files=all"]);
+    if (status && !allowDirty) {
+      fail("the worktree is not clean. Commit the reviewed release candidate before deployment.");
+    }
 
-  git([
-    "fetch",
-    "--prune",
-    "origin",
-    "+refs/heads/main:refs/remotes/origin/main",
-  ]);
-  git(["rev-parse", "--verify", "origin/main"]);
-  const behind = Number(git(["rev-list", "--count", "HEAD..origin/main"]));
-  if (!Number.isSafeInteger(behind) || behind > 0) {
-    fail(`HEAD is ${behind || "an unknown number of"} commit(s) behind local origin/main. Fetch and rebase the release branch.`);
-  }
+    git([
+      "fetch",
+      "--prune",
+      "origin",
+      "+refs/heads/main:refs/remotes/origin/main",
+    ]);
+    git(["rev-parse", "--verify", "origin/main"]);
+    const behind = Number(git(["rev-list", "--count", "HEAD..origin/main"]));
+    if (!Number.isSafeInteger(behind) || behind > 0) {
+      fail(`HEAD is ${behind || "an unknown number of"} commit(s) behind local origin/main. Fetch and rebase the release branch.`);
+    }
 
-  const whitespace = spawnSync("git", ["diff", "--check", "HEAD"], {
-    encoding: "utf8",
-    shell: false,
-  });
-  if (whitespace.status !== 0) {
-    fail((whitespace.stdout || whitespace.stderr || "the diff contains whitespace errors").trim());
-  }
+    const whitespace = spawnSync("git", ["diff", "--check", "HEAD"], {
+      encoding: "utf8",
+      shell: false,
+    });
+    if (whitespace.status !== 0) {
+      fail((whitespace.stdout || whitespace.stderr || "the diff contains whitespace errors").trim());
+    }
 
-  if (!process.exitCode) {
-    console.log(
-      allowDirty
-        ? "Release baseline is current with origin/main; dirty-worktree enforcement was explicitly bypassed for local verification."
-        : "Release baseline is clean and current with origin/main.",
-    );
+    if (!process.exitCode) {
+      console.log(
+        allowDirty
+          ? "Release baseline is current with origin/main; dirty-worktree enforcement was explicitly bypassed for local verification."
+          : "Release baseline is clean and current with origin/main.",
+      );
+    }
   }
 } catch (error) {
   fail(error instanceof Error ? error.message : "unexpected release baseline error");

@@ -12,8 +12,15 @@ const envKeys = [
   "DISCORD_ALERTS_ENV",
   "DISCORD_ALERTS_REFERENCE_SECRET",
   "AUTH_SECRET",
+  "DISCORD_BOT_TOKEN",
+  "DISCORD_ADMIN_WEBHOOK_URL",
+  "DISCORD_WEBHOOK_URL",
   "DISCORD_TEST_WEBHOOK_URL",
   "DISCORD_TRACTION_WEBHOOK_URL",
+  "DISCORD_REVENUE_WEBHOOK_URL",
+  "DISCORD_MILESTONES_WEBHOOK_URL",
+  "DISCORD_PULSE_WEBHOOK_URL",
+  "DISCORD_INCIDENTS_WEBHOOK_URL",
 ] as const;
 const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 const TEST_WEBHOOK = "https://discord.com/api/webhooks/12345678901234567/abcdefghijklmnopqrstuvwxyz_ABCD-123456";
@@ -25,6 +32,14 @@ async function loadFreshAdminAlerts() {
   process.env.HABLA_LOCAL_DB_PATH = dbPath;
   process.env.DISCORD_ALERTS_ENV = "test";
   process.env.DISCORD_ALERTS_REFERENCE_SECRET = "r".repeat(32);
+  delete process.env.DISCORD_BOT_TOKEN;
+  delete process.env.DISCORD_ADMIN_WEBHOOK_URL;
+  delete process.env.DISCORD_WEBHOOK_URL;
+  delete process.env.DISCORD_TRACTION_WEBHOOK_URL;
+  delete process.env.DISCORD_REVENUE_WEBHOOK_URL;
+  delete process.env.DISCORD_MILESTONES_WEBHOOK_URL;
+  delete process.env.DISCORD_PULSE_WEBHOOK_URL;
+  delete process.env.DISCORD_INCIDENTS_WEBHOOK_URL;
   process.env.DISCORD_TEST_WEBHOOK_URL = TEST_WEBHOOK;
   delete process.env.DISCORD_ADMIN_ALERTS_ENABLED;
   vi.resetModules();
@@ -108,6 +123,7 @@ describe("durable admin alert outbox", () => {
 
   it("keeps queued intents untouched while delivery is disabled", async () => {
     const { alerts, db } = await loadFreshAdminAlerts();
+    delete process.env.DISCORD_TEST_WEBHOOK_URL;
     await alerts.enqueueAdminAlert({
       type: "incident",
       code: "provider.degraded",

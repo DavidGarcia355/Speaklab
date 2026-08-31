@@ -1,6 +1,7 @@
 import "server-only";
 import { z, ZodError } from "zod";
 import { HttpError } from "@/lib/http";
+import { AUTH_SUPPORT_CODES } from "@/lib/auth-diagnostics-shared";
 import {
   hasMatchingAttachmentSignature,
   MAX_ASSIGNMENT_ATTACHMENT_BYTES,
@@ -257,7 +258,22 @@ export const feedbackCreateSchema = z.object({
   school: cleanTextSchema("School", 1, 120),
   role: cleanTextSchema("Role", 1, 80),
   message: cleanTextSchema("Message", 10, 1000),
-  intent: z.enum(["schools", "school-pilot"]).optional(),
+  intent: z.enum(["schools", "school-pilot", "auth"]).optional(),
+  context: z
+    .object({
+      source: z.enum(["auth", "registration", "webview"]),
+      authErrorCode: z.enum(AUTH_SUPPORT_CODES).optional(),
+      route: z
+        .string()
+        .trim()
+        .max(160)
+        .refine(
+          (value) => value.startsWith("/") && !value.startsWith("//"),
+          "Context route must be a same-site path."
+        ),
+    })
+    .strict()
+    .optional(),
 });
 
 export type ParsedAudio = {

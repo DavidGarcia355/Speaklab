@@ -7,6 +7,11 @@ const mocks = vi.hoisted(() => ({
   enqueueTeacherSignedUpAlert: vi.fn(),
   trackActivity: vi.fn(),
   sendTeacherUpgradeConfirmationEmail: vi.fn(),
+  logAuthDiagnostic: vi.fn(),
+}));
+
+vi.mock("@/lib/auth-diagnostics", () => ({
+  logAuthDiagnostic: mocks.logAuthDiagnostic,
 }));
 
 vi.mock("@/lib/authz", () => ({
@@ -69,6 +74,7 @@ describe("teacher registration controls", () => {
     mocks.enqueueTeacherSignedUpAlert.mockReset().mockResolvedValue(undefined);
     mocks.trackActivity.mockReset();
     mocks.sendTeacherUpgradeConfirmationEmail.mockReset();
+    mocks.logAuthDiagnostic.mockReset();
     mocks.requireAuthenticatedEmail.mockResolvedValue("new-teacher@example.com");
     mocks.getUserRoleByEmail.mockResolvedValue("student");
   });
@@ -102,6 +108,15 @@ describe("teacher registration controls", () => {
       role: "student",
       teacherRegistrationAvailable: false,
     });
+    expect(mocks.logAuthDiagnostic).toHaveBeenCalledWith(
+      "registration_unavailable_presented",
+      expect.objectContaining({
+        code: "self_registration_closed",
+        method: "GET",
+        route: "/teacher/register",
+      }),
+      "warn"
+    );
   });
 
   it("reports availability to an allowlisted signed-in user", async () => {
@@ -124,6 +139,41 @@ describe("teacher registration controls", () => {
       role: "student",
       teacherRegistrationAvailable: true,
     });
+  });
+
+  it("normalizes case and whitespace in the open-registration setting", async () => {
+    process.env.ALLOW_TEACHER_SELF_REGISTRATION = "  TRUE\t";
+    const { GET, POST } = await import("@/app/api/auth/role/route");
+
+    const availabilityResponse = await GET(getRequest());
+    const registrationResponse = await POST(request());
+
+    expect(availabilityResponse.status).toBe(200);
+    await expect(availabilityResponse.json()).resolves.toMatchObject({
+      role: "student",
+      teacherRegistrationAvailable: true,
+    });
+    expect(registrationResponse.status).toBe(200);
+    expect(mocks.setUserRoleTeacher).toHaveBeenCalledWith("new-teacher@example.com");
+  });
+
+  it("keeps an explicitly closed production gate closed after normalization", async () => {
+    process.env.ALLOW_TEACHER_SELF_REGISTRATION = "  FALSE\t";
+    const { POST } = await import("@/app/api/auth/role/route");
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(403);
+    expect(mocks.setUserRoleTeacher).not.toHaveBeenCalled();
+    expect(mocks.logAuthDiagnostic).toHaveBeenCalledWith(
+      "registration_denied",
+      expect.objectContaining({
+        code: "self_registration_closed",
+        method: "POST",
+        route: "/teacher/register",
+      }),
+      "warn"
+    );
   });
 
   it("creates a teacher account in the public production configuration", async () => {
