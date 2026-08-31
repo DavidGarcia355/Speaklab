@@ -61,25 +61,6 @@ export function resolveAdminAlertsEnvironment(
   return resolved;
 }
 
-export function isAdminAlertDeliveryEnabled(
-  source: EnvironmentSource = process.env,
-): boolean {
-  const explicit = source.DISCORD_ADMIN_ALERTS_ENABLED?.trim();
-  if (explicit === "true") return true;
-  if (explicit === "false") return false;
-
-  // The single-channel founder setup is intentionally one-secret: adding a
-  // valid private production webhook is enough to turn Habla Pulse on.
-  const unified = source.DISCORD_ADMIN_WEBHOOK_URL?.trim() || "";
-  if (!unified) return false;
-  try {
-    validateDiscordWebhookUrl(unified);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export type AdminAlertOperationalConfig = Readonly<{
   monthlyBudgetUsd: number;
   p95LatencyTargetMs: number;
@@ -140,6 +121,38 @@ export function validateDiscordWebhookUrl(value: string): string {
   return parsed.toString();
 }
 
+function hasValidWebhook(value: string | undefined) {
+  const candidate = value?.trim() || "";
+  if (!candidate) return false;
+  try {
+    validateDiscordWebhookUrl(candidate);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasBotToken(source: EnvironmentSource) {
+  return (source.DISCORD_BOT_TOKEN?.trim().length ?? 0) > 20;
+}
+
+export function isAdminAlertDeliveryEnabled(
+  source: EnvironmentSource = process.env,
+): boolean {
+  if (source.DISCORD_ADMIN_ALERTS_ENABLED?.trim() === "true") return true;
+
+  // Founder mode: if TryHabla already has a valid Discord connection, use it.
+  // This intentionally makes the old one-webhook setup work without requiring
+  // another Vercel flag flip.
+  if (hasBotToken(source)) return true;
+  if (hasValidWebhook(source.DISCORD_ADMIN_WEBHOOK_URL)) return true;
+  if (hasValidWebhook(source.DISCORD_WEBHOOK_URL)) return true;
+  if (hasValidWebhook(source.DISCORD_TEST_WEBHOOK_URL)) return true;
+  return Object.values(PRODUCTION_WEBHOOK_VARIABLES).some((name) =>
+    hasValidWebhook(source[name])
+  );
+}
+
 export function resolveDiscordWebhookUrl(
   destination: AdminAlertDestination,
   environment: AdminAlertEnvironment,
@@ -148,12 +161,16 @@ export function resolveDiscordWebhookUrl(
   if (environment === "production") {
     const destinationValue = source[PRODUCTION_WEBHOOK_VARIABLES[destination]]?.trim() || "";
     const unifiedValue = source.DISCORD_ADMIN_WEBHOOK_URL?.trim() || "";
-    const value = destinationValue || unifiedValue;
+    const legacyValue = source.DISCORD_WEBHOOK_URL?.trim() || "";
+    const value = destinationValue || unifiedValue || legacyValue;
     if (!value) throw new AdminAlertConfigurationError("webhook_missing");
     return validateDiscordWebhookUrl(value);
   }
 
-  const value = source.DISCORD_TEST_WEBHOOK_URL?.trim() || "";
+  const value = source.DISCORD_TEST_WEBHOOK_URL?.trim()
+    || source.DISCORD_ADMIN_WEBHOOK_URL?.trim()
+    || source.DISCORD_WEBHOOK_URL?.trim()
+    || "";
   if (!value) throw new AdminAlertConfigurationError("webhook_missing");
   return validateDiscordWebhookUrl(value);
 }
