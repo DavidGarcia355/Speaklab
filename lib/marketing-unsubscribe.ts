@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@libsql/client";
 
 function createDbClient() {
@@ -11,6 +12,15 @@ function createDbClient() {
   }
 
   return createClient({ url, authToken });
+}
+
+function getSigningSecret() {
+  const secret =
+    process.env.MARKETING_UNSUBSCRIBE_SECRET?.trim() ||
+    process.env.AUTH_SECRET?.trim() ||
+    "";
+  if (!secret) throw new Error("Marketing unsubscribe signing secret is not configured.");
+  return secret;
 }
 
 const db = createDbClient();
@@ -39,6 +49,42 @@ export function normalizeMarketingEmail(value: string) {
 export function isReasonableEmail(value: string) {
   const email = normalizeMarketingEmail(value);
   return email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export function createMarketingUnsubscribeToken(emailInput: string) {
+  const email = normalizeMarketingEmail(emailInput);
+  if (!isReasonableEmail(email)) throw new Error("invalid_email");
+  return createHmac("sha256", getSigningSecret())
+    .update(`tryhabla-marketing-unsubscribe-v1:${email}`)
+    .digest("base64url");
+}
+
+export function verifyMarketingUnsubscribeToken(emailInput: string, tokenInput: string) {
+  const email = normalizeMarketingEmail(emailInput);
+  const token = tokenInput.trim();
+  if (!isReasonableEmail(email) || !token) return false;
+
+  const expected = createMarketingUnsubscribeToken(email);
+  const expectedBuffer = Buffer.from(expected);
+  const actualBuffer = Buffer.from(token);
+  return (
+    expectedBuffer.length === actualBuffer.length &&
+    timingSafeEqual(expectedBuffer, actualBuffer)
+  );
+}
+
+export function createMarketingUnsubscribeUrl(emailInput: string) {
+  const email = normalizeMarketingEmail(emailInput);
+  const token = createMarketingUnsubscribeToken(email);
+  const params = new URLSearchParams({ email, token });
+  return `https://tryhabla.com/unsubscribe?${params.toString()}`;
+}
+
+export function createMarketingOneClickUnsubscribeUrl(emailInput: string) {
+  const email = normalizeMarketingEmail(emailInput);
+  const token = createMarketingUnsubscribeToken(email);
+  const params = new URLSearchParams({ email, token });
+  return `https://tryhabla.com/api/email/unsubscribe?${params.toString()}`;
 }
 
 export async function unsubscribeMarketingEmail(emailInput: string) {
