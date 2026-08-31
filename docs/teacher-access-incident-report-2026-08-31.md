@@ -229,7 +229,7 @@ Verification after implementation:
 - Guarded Next.js production build passed and generated 46 of 46 current routes/pages.
 - A deliberately closed public build was rejected before Next.js started; the explicit private-deployment policy path passed.
 - Local HTTP checks returned `200` for teacher registration and the custom auth-error page, `302` from a simulated Facebook sign-in attempt back to the browser-required flow, and `204` from privacy-safe webview telemetry. The emitted telemetry contained only the Facebook category and `/teacher/register` pathname.
-- Focused ESLint checks passed. A repository-wide lint scan was stopped because it traversed 2,231 pre-existing generated files under `.tmp`; it had reported no source errors before termination.
+- Repository-wide ESLint passed after generated `.tmp` build artifacts were excluded from the lint scope and the newest unsubscribe page's internal links were updated for Next.js 16.
 - Interactive browser click-through could not be performed because no browser connection was available in the workspace; the copy, fallback, accessibility, and telemetry behavior is covered by focused component tests.
 
 ## Acceptance criteria
