@@ -24,10 +24,8 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    ok: domain.status === "verified" && domain.capabilities?.sending === "enabled",
+    ok: domain.status === "verified",
     name: domain.name,
     status: domain.status,
-    sending: domain.capabilities?.sending ?? null,
-    receiving: domain.capabilities?.receiving ?? null,
   });
 }
