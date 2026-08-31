@@ -209,7 +209,7 @@ The default Auth.js experience also collapses several unrelated failures into ge
 
 ## Remediation implemented on August 31
 
-The following changes are implemented on branch `fix/teacher-access-onboarding-2026-08-31`, based directly on current `origin/main` commit `85ba0f7`. They are verified locally but are **not yet deployed to production**.
+The following changes are implemented on branch `fix/teacher-access-onboarding-2026-08-31`, rebased onto current `origin/main` commit `a4ecf8a`. They are verified locally but are **not yet deployed to production**.
 
 - Replaced the unreliable `target="_blank"` webview fallback with explicit Facebook/in-app-browser instructions, the canonical registration URL, and an accessible copy-link workflow with Clipboard API and selection fallback.
 - Added privacy-safe events for sign-in requests, embedded-browser blocks, copy-link usage, normalized Auth.js errors, sign-in rejections, and closed registration. Raw user agents, emails, query strings, OAuth payloads, and tokens are not recorded in these diagnostics.
@@ -219,13 +219,14 @@ The following changes are implemented on branch `fix/teacher-access-onboarding-2
 - Distinguished a temporary registration-role check failure from an intentionally closed registration gate and added a retry action.
 - Normalized `ALLOW_TEACHER_SELF_REGISTRATION` consistently across runtime role checks, AI safety checks, and release validation.
 - Made the public-registration policy a mandatory build gate while retaining explicit private-deployment build and release commands.
+- Corrected eager Turso initialization introduced by the latest marketing-unsubscribe changes so build-time route discovery does not require a remote database connection; runtime marketing operations still fail closed without Turso configuration.
 
 Verification after implementation:
 
-- Full Vitest suite: 91 files and 744 tests passed on the final integrated tree.
+- Full Vitest suite: 92 files and 745 tests passed on the final integrated tree.
 - All focused access-remediation, callback-safety, webview, release-policy, and feedback-migration tests passed.
 - TypeScript/Next route type generation passed.
-- Guarded Next.js production build passed and generated 42 of 42 static pages.
+- Guarded Next.js production build passed and generated 46 of 46 current routes/pages.
 - A deliberately closed public build was rejected before Next.js started; the explicit private-deployment policy path passed.
 - Local HTTP checks returned `200` for teacher registration and the custom auth-error page, `302` from a simulated Facebook sign-in attempt back to the browser-required flow, and `204` from privacy-safe webview telemetry. The emitted telemetry contained only the Facebook category and `/teacher/register` pathname.
 - Focused ESLint checks passed. A repository-wide lint scan was stopped because it traversed 2,231 pre-existing generated files under `.tmp`; it had reported no source errors before termination.
