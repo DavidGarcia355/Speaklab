@@ -172,29 +172,45 @@ export default function BillingPanel() {
     return (
       <section className="billing-panel billing-panel-loading" aria-live="polite">
         <LoaderCircle className="billing-spinner" size={23} aria-hidden="true" />
-        Checking your billing access…
+        Checking my billing access…
       </section>
     );
   }
 
   if (!status) {
-    const needsTeacherSignIn = authFailure === 401 || authFailure === 403;
+    const needsTeacherSignIn = authFailure === 401;
+    const needsTeacherAccess = authFailure === 403;
     return (
       <section className="billing-panel billing-panel-error" role="alert">
         <TriangleAlert size={22} aria-hidden="true" />
         <div>
           <strong>
-            {needsTeacherSignIn ? "Teacher sign-in is required." : "Billing status is unavailable."}
+            {needsTeacherSignIn
+              ? "Teacher sign-in is required."
+              : needsTeacherAccess
+                ? "This account does not have teacher access."
+                : "Billing status is unavailable."}
           </strong>
           <p>
             {needsTeacherSignIn
               ? "Sign in with your teacher account to view AI access and Stripe billing."
+              : needsTeacherAccess
+                ? "Activate approved teacher access, or switch to a teacher account, to open billing."
               : error}
           </p>
           {needsTeacherSignIn ? (
             <SignInLink className="btn btn-primary" callbackUrl="/billing">
               Sign in as a teacher
             </SignInLink>
+          ) : needsTeacherAccess ? (
+            <div className="actions">
+              <Link className="btn btn-primary" href="/teacher/register">
+                Activate teacher access
+              </Link>
+              <Link className="btn btn-ghost" href="/api/auth/signout?callbackUrl=/billing">
+                Switch account
+              </Link>
+            </div>
           ) : (
             <button className="btn btn-ghost" type="button" onClick={() => void loadStatus()}>
               Try again
@@ -317,7 +333,7 @@ export default function BillingPanel() {
         <small>
           {status.usage.allowanceKind === "subscription_unavailable"
             ? "Refresh billing or contact support before another AI-assisted recording."
-            : `of ${status.usage.limit.toLocaleString()} in your ${allowanceLabel.toLowerCase()} allowance`}
+            : `of ${status.usage.limit.toLocaleString()} in my ${allowanceLabel.toLowerCase()} allowance`}
         </small>
         <dl>
           <div>

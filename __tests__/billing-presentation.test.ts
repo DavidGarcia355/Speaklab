@@ -58,7 +58,7 @@ describe("billing presentation", () => {
     expect(presentation).toMatchObject({
       heading: "Manual AI access is active",
       description:
-        "Your manual lifetime allowance is separate from Stripe billing and has no automatic overages.",
+        "My manual lifetime allowance is separate from Stripe billing and has no automatic overages.",
     });
     expect(`${presentation.heading} ${presentation.description}`).not.toMatch(/pilot/i);
   });

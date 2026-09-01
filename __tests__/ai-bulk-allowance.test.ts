@@ -204,7 +204,7 @@ describe("bulk AI allowance preflight", () => {
     expect(response.status).toBe(429);
     await expect(response.json()).resolves.toEqual({
       error:
-        "This run needs 2 new AI-assisted recording units, but 0 remain in your current allowance. Need more? Explore TryHabla for Schools.",
+        "This run needs 2 new AI-assisted recording units, but 0 remain in the current allowance. Need more? Explore TryHabla for Schools.",
     });
     expect(mocks.reserveGenerationBudget).not.toHaveBeenCalled();
     expect(mocks.gradeOneSubmission).not.toHaveBeenCalled();
@@ -301,7 +301,7 @@ describe("bulk AI allowance preflight", () => {
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
       error:
-        "Your billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording.",
+        "The billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording.",
     });
     expect(mocks.reserveGenerationBudget).not.toHaveBeenCalled();
     expect(mocks.gradeOneSubmission).not.toHaveBeenCalled();

@@ -9,6 +9,7 @@ import {
   TimerReset,
 } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
+import AudienceHero from "@/app/components/AudienceHero";
 import SignInLink from "@/app/components/SignInLink";
 import { createPublicMetadata } from "@/lib/public-metadata";
 
@@ -56,24 +57,26 @@ export default function TeachersPage() {
     <main className="page-wrap">
       <BrandBar label="Teachers" />
 
-      <section className="audience-hero audience-hero-teacher">
-        <p className="pill">Teacher pathway</p>
-        <h1>More student speaking. Less grading drag.</h1>
-        <p>
-          TryHabla helps language teachers assign prompts, collect recordings, grade responses, and keep
-          every class organized. Optional AI can generate a transcript without grading, or add
-          rubric-aligned scores and feedback that the teacher can review and edit.
-        </p>
-        <div className="actions hero-actions">
-          <Link className="btn btn-primary" href="/teacher/register">
-            Start free
-            <ArrowRight size={17} aria-hidden="true" />
-          </Link>
-          <SignInLink className="btn btn-ghost" callbackUrl="/teacher">
-            Log in
-          </SignInLink>
-        </div>
-      </section>
+      <AudienceHero
+        tone="teacher"
+        eyebrow="Teacher pathway"
+        title="More student speaking. Less grading drag."
+        description="TryHabla helps language teachers assign prompts, collect recordings, grade responses, and keep every class organized. Optional AI can generate a transcript without grading, or add rubric-aligned scores and feedback that the teacher can review and edit."
+        artSrc="/mascot/hablaman-teacher-guide-v1.png"
+        sticker="Assign / listen / coach"
+        index="01"
+        actions={
+          <>
+            <Link className="btn btn-primary" href="/teacher/register">
+              Start free
+              <ArrowRight size={17} aria-hidden="true" />
+            </Link>
+            <SignInLink className="btn btn-ghost" callbackUrl="/teacher">
+              Log in
+            </SignInLink>
+          </>
+        }
+      />
 
       <section className="grid section-gap audience-card-grid teacher-benefit-grid">
         {teacherBenefits.map((benefit) => {

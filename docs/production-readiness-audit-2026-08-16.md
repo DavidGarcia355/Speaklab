@@ -1,5 +1,10 @@
 # Habla Production Readiness Audit
 
+> Historical snapshot from August 16, 2026. The dependency findings below were
+> resolved after this audit: on September 1, 2026,
+> `npm audit --omit=dev --audit-level=high` reported zero vulnerabilities. Use
+> the current release gate and a fresh audit for deployment decisions.
+
 Date: 2026-08-16  
 Production URL: https://tryhabla.com  
 Latest audited commit: `9f0b1f7` (`Fix playback for browser data URL recordings`)

@@ -1,15 +1,15 @@
 # Local AI Testing
 
-Run commands from the nested app folder that contains `package.json`:
+Run commands from the repository folder that contains `package.json`:
 
 ```powershell
-cd C:\Users\david\Downloads\Speaklab-main\Speaklab-main
+cd C:\path\to\speaklab-release-candidate
 ```
 
 ## First Setup
 
 ```powershell
-copy .env.local.example .env.local
+copy .env.example .env.local
 npm.cmd install
 npm.cmd run ai:doctor
 npm.cmd run ai:seed
@@ -26,7 +26,7 @@ http://localhost:3000/teacher
 
 ## Mock Mode
 
-The default local template uses:
+For isolated local mock mode, set these values in `.env.local`:
 
 ```env
 AI_GRADING_ENABLED=true

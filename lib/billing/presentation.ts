@@ -79,7 +79,7 @@ function checkoutNotice(
   if (subscribed && (returnState === "returned" || returnState === "confirmed")) {
     return {
       tone: "success",
-      text: "Stripe confirmation was received. Your AI billing access is active.",
+      text: "Stripe confirmation was received. My AI billing access is active.",
     };
   }
   if (returnState === "returned") {
@@ -91,7 +91,7 @@ function checkoutNotice(
   if (returnState === "timed_out") {
     return {
       tone: "warning",
-      text: "Stripe confirmation has not reached TryHabla yet. Refresh your status or contact billing support before starting another checkout.",
+      text: "Stripe confirmation has not reached TryHabla yet. Refresh billing status or contact billing support before starting another checkout.",
     };
   }
   if (returnState === "cancelled" && !subscribed) {
@@ -206,7 +206,7 @@ function stateCopy(status: BillingStatus) {
     return {
       heading: "Manual AI access is active",
       description:
-        "Your manual lifetime allowance is separate from Stripe billing and has no automatic overages.",
+        "My manual lifetime allowance is separate from Stripe billing and has no automatic overages.",
     };
   }
   if (status.accountIssue === "catalog_unverified") {
@@ -233,7 +233,7 @@ function stateCopy(status: BillingStatus) {
   return {
     heading: "Start with 30 free AI-assisted recordings",
     description:
-      "Your one-time Free allowance works without a card. Choose Teacher for 300 AI-assisted recordings in each Stripe billing period. Stripe is the only product-payment method.",
+      "My one-time Free allowance works without a card. Choose Teacher for 300 AI-assisted recordings in each Stripe billing period. Stripe is the only product-payment method.",
   };
 }
 

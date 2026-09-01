@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, BrainCircuit, ClipboardCheck, FileCheck2, LockKeyhole, School } from "lucide-react";
+import AudienceHero from "@/app/components/AudienceHero";
 import BrandBar from "@/app/components/BrandBar";
 import { createPublicMetadata } from "@/lib/public-metadata";
 
@@ -37,24 +38,25 @@ export default function DistrictPage() {
     <main className="page-wrap">
       <BrandBar label="Districts" />
 
-      <section className="audience-hero audience-hero-district">
-        <p className="pill">District pathway</p>
-        <h1>Evaluate TryHabla before it reaches every classroom.</h1>
-        <p>
-          TryHabla gives language programs one place for speaking assignments, audio submissions, grading,
-          feedback, and CSV exports. Teachers can start self-serve, while school and district teams
-          can review privacy, storage, network, vendor, and larger-rollout requirements.
-        </p>
-        <div className="actions hero-actions">
-          <Link className="btn btn-primary" href="/feedback?intent=schools">
-            Contact TryHabla for Schools
-            <ArrowRight size={17} aria-hidden="true" />
-          </Link>
-          <Link className="btn btn-ghost" href="/pricing">
-            View pricing
-          </Link>
-        </div>
-      </section>
+      <AudienceHero
+        tone="district"
+        eyebrow="District pathway"
+        title="Evaluate TryHabla before it reaches every classroom."
+        description="TryHabla gives language programs one place for speaking assignments, audio submissions, grading, feedback, and CSV exports. Teachers can start self-serve, while school and district teams can review privacy, storage, network, vendor, and larger-rollout requirements."
+        sticker="Map the rollout"
+        index="02"
+        actions={
+          <>
+            <Link className="btn btn-primary" href="/feedback?intent=schools">
+              Contact TryHabla for Schools
+              <ArrowRight size={17} aria-hidden="true" />
+            </Link>
+            <Link className="btn btn-ghost" href="/pricing">
+              View pricing
+            </Link>
+          </>
+        }
+      />
 
       <section className="grid cols-2 section-gap audience-card-grid">
         {reviewItems.map((item) => {

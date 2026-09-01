@@ -24,7 +24,7 @@ Open `http://127.0.0.1:3000`.
 For repeatable local AI-grading testing on Windows, use:
 
 ```powershell
-copy .env.local.example .env.local
+copy .env.example .env.local
 npm.cmd run ai:doctor
 npm.cmd run ai:seed
 npm.cmd run dev:local
@@ -55,10 +55,17 @@ vercel login
 vercel
 ```
 
-6. Push envs to Vercel preview (and optionally production):
+6. Push local values to Vercel preview only:
 
 ```bash
-powershell -ExecutionPolicy Bypass -File scripts/sync-vercel-env.ps1 -EnvFile .env.local -Targets preview,production
+powershell -ExecutionPolicy Bypass -File scripts/sync-vercel-env.ps1 -EnvFile .env.local -Targets preview
+```
+
+For production, use a separate reviewed env file. The sync rejects localhost,
+non-HTTPS, weak secrets, and local auth bypass settings:
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/sync-vercel-env.ps1 -EnvFile .env.production.local -Targets production
 ```
 
 The sync script manages `TEACHER_ALLOWLIST` and
@@ -253,12 +260,13 @@ and district-review requirements have been completed.
 
 ### Scheduled Jobs
 
-`vercel.json` schedules two authenticated jobs:
+`vercel.json` schedules three authenticated jobs:
 
+- `/api/cron/automatic-transcription` every minute processes queued opt-in transcription jobs.
 - `/api/cron/cleanup` at 2:00 UTC hard-deletes records soft-deleted more than 30 days ago.
 - `/api/cron/admin-alerts` every five minutes schedules and delivers private Habla Pulse alerts. Daily and weekly reporting boundaries are computed in America/Chicago.
 
-Both require `CRON_SECRET` in `Authorization: Bearer ...` or `x-cron-secret`.
+All three require `CRON_SECRET` in `Authorization: Bearer ...` or `x-cron-secret`.
 
 ### Secret Rotation
 

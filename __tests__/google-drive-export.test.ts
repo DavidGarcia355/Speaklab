@@ -150,7 +150,7 @@ describe("Google Drive export privacy boundaries", () => {
     const loading = loadGoogleIdentityServices();
     const rejection = expect(loading).rejects.toMatchObject({
       code: "network",
-      message: "Google Drive sign-in took too long to load. Check your connection and try again.",
+      message: "Google Drive sign-in took too long to load. Check the internet connection and try again.",
     });
     await vi.advanceTimersByTimeAsync(10_000);
     await rejection;

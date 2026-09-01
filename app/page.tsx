@@ -15,6 +15,7 @@ import DismissibleCauseBand from "@/app/components/DismissibleCauseBand";
 import SignInLink from "@/app/components/SignInLink";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
 import ThemeToggle from "@/app/components/ThemeToggle";
+import BeltMark from "@/app/components/BeltMark";
 import { APP_NAME } from "@/app/constants";
 import { createPublicMetadata } from "@/lib/public-metadata";
 
@@ -61,7 +62,7 @@ export default function Home() {
     <main className="page-wrap">
       <header className="home-top-tools" aria-label="Homepage tools">
         <Link className="btn btn-ghost btn-sm" href="/about">
-          About me
+          About TryHabla
         </Link>
         <ThemeToggle />
       </header>
@@ -71,7 +72,7 @@ export default function Home() {
         <div className="home-choice-copy">
           <SignInLink className="home-hero-brand" callbackUrl="/teacher">
             <span className="home-hero-brand-mark" aria-hidden="true">
-              H
+              <BeltMark priority />
             </span>
             <span>{APP_NAME}</span>
           </SignInLink>
@@ -87,10 +88,10 @@ export default function Home() {
         </div>
         <div className="home-choice-mascot" aria-hidden="true">
           <Image
-            src="/mascot/habla-man.webp"
+            src="/mascot/hablaman-home-hero-v1.png"
             alt=""
-            width={520}
-            height={516}
+            width={1254}
+            height={1254}
             priority
           />
         </div>

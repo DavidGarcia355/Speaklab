@@ -24,6 +24,8 @@ const envKeys = [
 ] as const;
 const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 const TEST_WEBHOOK = "https://discord.com/api/webhooks/12345678901234567/abcdefghijklmnopqrstuvwxyz_ABCD-123456";
+// Cold libsql schema initialization can exceed Vitest's 5-second default on Windows CI.
+const PERSISTENCE_TEST_TIMEOUT_MS = 15_000;
 
 async function loadFreshAdminAlerts() {
   const dbPath = path.join(os.tmpdir(), `tryhabla-admin-alerts-${randomUUID()}.db`);
@@ -60,7 +62,7 @@ afterAll(() => {
   }
 });
 
-describe("durable admin alert outbox", () => {
+describe("durable admin alert outbox", { timeout: PERSISTENCE_TEST_TIMEOUT_MS }, () => {
   it("migrates the outbox schema and deduplicates a safe event", async () => {
     const { alerts, db, dbPath } = await loadFreshAdminAlerts();
     const identity = alerts.deriveAdminAlertIdentity("teacher", "private@example.com");
@@ -329,7 +331,7 @@ describe("durable admin alert outbox", () => {
   });
 });
 
-describe("Stripe marker and notification atomicity", () => {
+describe("Stripe marker and notification atomicity", { timeout: PERSISTENCE_TEST_TIMEOUT_MS }, () => {
   it("records a Stripe marker and alert exactly once in one transaction", async () => {
     const { alerts, db } = await loadFreshAdminAlerts();
     const input = {

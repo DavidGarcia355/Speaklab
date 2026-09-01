@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
@@ -9,7 +9,6 @@ import {
   Check,
   CheckCircle2,
   Clock3,
-  Ribbon,
   Pencil,
   Plus,
   Sparkles,
@@ -21,7 +20,8 @@ import BrandBar from "@/app/components/BrandBar";
 import ConfirmModal from "@/app/components/ConfirmModal";
 import PageTitle from "@/app/components/PageTitle";
 import UndoToast from "@/app/components/UndoToast";
-import { PAYPAL_DONATION_DISCLOSURE, PAYPAL_DONATION_URL } from "@/app/constants";
+import WorkspaceLoading from "@/app/components/WorkspaceLoading";
+import mascotStyles from "@/app/components/OriginalMascotSlots.module.css";
 
 type ClassSummary = {
   id: string;
@@ -176,9 +176,11 @@ export default function TeacherPage() {
 
   useEffect(() => {
     return () => {
-      if (pendingDeleteRef.current) {
-        window.clearTimeout(pendingDeleteRef.current.timerId);
-      }
+      const pending = pendingDeleteRef.current;
+      if (!pending) return;
+      window.clearTimeout(pending.timerId);
+      pendingDeleteRef.current = null;
+      void pending.commit().catch(() => undefined);
     };
   }, []);
 
@@ -258,9 +260,14 @@ export default function TeacherPage() {
   function scheduleClassDelete(item: ClassSummary) {
     const snapshotStatus = classStatus[item.id];
     if (pendingDeleteRef.current) {
-      window.clearTimeout(pendingDeleteRef.current.timerId);
-      void pendingDeleteRef.current.commit();
+      const pending = pendingDeleteRef.current;
+      window.clearTimeout(pending.timerId);
       pendingDeleteRef.current = null;
+      void pending.commit().catch((error) => {
+        pending.rollback();
+        const message = error instanceof Error ? error.message : "Unable to delete class.";
+        setClassErrors((prev) => ({ ...prev, [pending.classId]: message }));
+      });
     }
 
     const rollback = () => {
@@ -275,7 +282,10 @@ export default function TeacherPage() {
     };
 
     const commit = async () => {
-      const response = await fetch(`/api/classes/${item.id}`, { method: "DELETE" });
+      const response = await fetch(`/api/classes/${item.id}`, {
+        method: "DELETE",
+        keepalive: true,
+      });
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
         throw new Error(data.error || "Unable to delete class.");
@@ -328,21 +338,21 @@ export default function TeacherPage() {
             <strong>What&apos;s new:</strong> Batch and automatic transcripts, recording downloads, and student oral portfolios.{" "}
             <Link className="teacher-access-link" href="/changelog">See patch notes</Link>
           </span>
-          <button type="button" className="icon-btn" onClick={dismissChangelogBanner} aria-label="Dismiss">
-            <X size={14} />
+          <button type="button" className="btn btn-ghost btn-sm" onClick={dismissChangelogBanner}>
+            Dismiss
           </button>
         </div>
       ) : null}
 
-      <section className="teacher-hero">
+      <section className={`teacher-hero ${mascotStyles.teacherHero}`}>
         <div className="teacher-hero-copy">
           <p className="pill teacher-hero-pill">
             <Sparkles size={14} aria-hidden="true" />
             Teacher workspace
           </p>
-          <h1>Your speaking classroom, all in one place.</h1>
+          <h1>My speaking classroom, all in one place.</h1>
           <p>
-            Create assignments, share student links, and move through grading without losing your place.
+            Create assignments, share student links, and move through grading without losing the thread.
           </p>
           <div className="actions teacher-hero-actions">
             <Link className="btn btn-primary" href="/teacher/class/new">
@@ -353,6 +363,10 @@ export default function TeacherPage() {
               View classes
               <ArrowRight size={17} aria-hidden="true" />
             </Link>
+            <Link className="btn btn-ghost" href="/teacher/rosters">
+              View rosters
+              <Users2 size={17} aria-hidden="true" />
+            </Link>
             <Link className="btn btn-ghost" href="/billing">
               AI billing
             </Link>
@@ -361,11 +375,12 @@ export default function TeacherPage() {
         <div className="teacher-hero-art" aria-hidden="true">
           <span className="teacher-hero-sticker">Ready to speak</span>
           <Image
-            className="teacher-hero-mascot"
-            src="/mascot/habla-man.webp"
+            className={`teacher-hero-mascot ${mascotStyles.teacherMascot}`}
+            src="/mascot/hablaman-teacher-guide-v1.png"
             alt=""
-            width={229}
-            height={227}
+            width={1254}
+            height={1254}
+            sizes="(max-width: 620px) 214px, 250px"
             priority
           />
         </div>
@@ -401,18 +416,18 @@ export default function TeacherPage() {
         <div className="teacher-section-head">
           <div>
             <p className="teacher-section-label">Classroom hub</p>
-            <h2 className="surface-title">Your classes</h2>
+            <h2 className="surface-title">My classes</h2>
           </div>
           <Link className="btn btn-primary btn-sm" href="/teacher/class/new">
             <Plus size={16} aria-hidden="true" />
             New class
           </Link>
         </div>
-        {loading ? <p className="meta">Loading classes...</p> : null}
+        {loading ? <WorkspaceLoading compact label="Loading my classes" /> : null}
         {errorMsg ? <p className="status-danger">{errorMsg}</p> : null}
         {!loading && needsTeacherAccess ? (
           <div className="grid">
-            <h3 className="surface-title">Set up your teacher account</h3>
+            <h3 className="surface-title">Set up my teacher account</h3>
             <p className="empty">
               You&apos;re signed in, but teacher tools are only available after a one-click setup.
             </p>
@@ -429,7 +444,7 @@ export default function TeacherPage() {
         {!loading && !errorMsg && !needsTeacherAccess && classes.length === 0 ? (
           <div className="grid onboarding-empty-state">
             <div>
-              <h3 className="surface-title">Create your first class</h3>
+              <h3 className="surface-title">Create my first class</h3>
               <p className="empty">Get started in three steps:</p>
             </div>
             <ul className="flow-list">
@@ -480,20 +495,20 @@ export default function TeacherPage() {
                           />
                           <button
                             type="button"
-                            className="icon-btn icon-btn-confirm"
+                            className="btn btn-primary btn-sm"
                             onClick={() => void saveInlineEdit(item)}
                             disabled={savingClassId === item.id}
-                            aria-label="Save class name"
                           >
-                            <Check size={15} />
+                            <Check size={15} aria-hidden="true" />
+                            Save
                           </button>
                           <button
                             type="button"
-                            className="icon-btn"
+                            className="btn btn-ghost btn-sm"
                             onClick={cancelInlineEdit}
-                            aria-label="Cancel class edit"
                           >
-                            <X size={15} />
+                            <X size={15} aria-hidden="true" />
+                            Cancel
                           </button>
                         </div>
                       ) : (
@@ -505,27 +520,29 @@ export default function TeacherPage() {
                     <div className="class-actions">
                       <span className={`status-badge status-${status.tone}`}>{status.label}</span>
                       <div className="actions">
-                        <Link className="btn btn-ghost" href={`/teacher/class/${item.id}`}>
+                        <Link className="btn btn-ghost" href={`/teacher/class/${item.id}`} aria-label={`Open ${item.name}`}>
                           Open class
                           <ArrowRight size={16} aria-hidden="true" />
                         </Link>
                         {!isEditing ? (
                           <button
                             type="button"
-                            className="icon-btn"
+                            className="btn btn-ghost btn-sm"
                             onClick={() => startInlineEdit(item)}
-                            aria-label="Edit class name"
+                            aria-label={`Rename ${item.name}`}
                           >
-                            <Pencil size={15} />
+                            <Pencil size={15} aria-hidden="true" />
+                            Rename
                           </button>
                         ) : null}
                         <button
                           type="button"
-                          className="icon-btn icon-btn-danger"
+                          className="btn btn-danger btn-sm"
                           onClick={() => setDeleteTarget(item)}
-                          aria-label="Delete class"
+                          aria-label={`Delete ${item.name}`}
                         >
-                          <Trash2 size={15} />
+                          <Trash2 size={15} aria-hidden="true" />
+                          Delete
                         </button>
                       </div>
                     </div>
@@ -555,34 +572,6 @@ export default function TeacherPage() {
             })}
           </div>
         ) : null}
-      </section>
-
-      <section className="teacher-support-band section-gap">
-        <div className="teacher-support-copy">
-          <Ribbon
-            className="cancer-ribbon-icon"
-            data-awareness-ribbon="peach"
-            size={18}
-            aria-hidden="true"
-          />
-          <p>
-            <strong>Help my mom&apos;s fight against endometrial cancer.</strong>
-            <span> {PAYPAL_DONATION_DISCLOSURE}</span>
-          </p>
-        </div>
-        <div className="actions">
-          <Link className="btn btn-ghost btn-sm" href="/about">
-            My story
-          </Link>
-          <a
-            className="btn btn-primary btn-sm"
-            href={PAYPAL_DONATION_URL}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Donate to support my mom via PayPal
-          </a>
-        </div>
       </section>
 
       <ConfirmModal

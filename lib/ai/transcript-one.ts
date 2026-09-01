@@ -273,7 +273,7 @@ export async function transcribeOneSubmission(input: {
           status: "failed",
           code: "billing_sync_required",
           message:
-            "Your billing period could not be verified. Refresh billing or contact support before processing another recording.",
+            "The billing period could not be verified. Refresh billing or contact support before processing another recording.",
         };
       }
       if (reservation.reservationStatus === "exhausted") {
@@ -283,7 +283,7 @@ export async function transcribeOneSubmission(input: {
           message:
             reservation.status === "teacher_period"
               ? "This billing period's 300 AI-assisted recordings have been used. Recording, playback, and manual grading are still available."
-              : `Your ${reservation.limit} lifetime AI-assisted recordings have been used. Recording, playback, and manual grading are still available.`,
+              : `All ${reservation.limit} lifetime AI-assisted recordings have been used. Recording, playback, and manual grading are still available.`,
         };
       }
       if (reservation.reservationStatus === "in_flight") {

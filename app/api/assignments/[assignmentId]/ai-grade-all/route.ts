@@ -147,7 +147,7 @@ export async function POST(
     if (allowance?.status === "subscription_unavailable") {
       throw new HttpError(
         409,
-        "Your billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording.",
+        "The billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording.",
       );
     }
     if (allowance && newUnitsRequired > allowance.remaining) {
@@ -159,7 +159,7 @@ export async function POST(
             : "Contact TryHabla for Schools to discuss larger or custom needs.";
       throw new HttpError(
         429,
-        `This run needs ${newUnitsRequired} new AI-assisted recording unit${newUnitsRequired === 1 ? "" : "s"}, but ${allowance.remaining} remain in your current allowance. ${nextStep}`,
+        `This run needs ${newUnitsRequired} new AI-assisted recording unit${newUnitsRequired === 1 ? "" : "s"}, but ${allowance.remaining} remain in the current allowance. ${nextStep}`,
       );
     }
     if (pending.length > quota.remaining) {

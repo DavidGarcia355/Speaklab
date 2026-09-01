@@ -64,10 +64,10 @@ describe("public legal surface", () => {
     expect(markup).toContain('href="/terms"');
     expect(markup).toContain('href="/feedback"');
     expect(markup).toContain('href="/about"');
-    expect(markup).toContain("My story &amp; donations");
-    expect(markup).toContain("mailto:davidsgarcia325@gmail.com");
-    expect(markup).toContain("keeps the core classroom free forever");
-    expect(markup).toContain("30 AI-assisted recordings");
+    expect(markup).toContain('href="/faq"');
+    expect(markup).toContain("Our story");
+    expect(markup).not.toContain("mailto:");
+    expect(markup).not.toContain("AI-assisted recordings");
     expect(markup).not.toMatch(/teacher pilot/i);
     expect(markup).not.toContain("paypal.me");
   });

@@ -71,7 +71,7 @@ export function describeMicrophoneAccessFailure(error: unknown) {
     return {
       permissionDenied: true,
       message:
-        "Microphone access was blocked. Allow microphone permission in your browser settings, then try again.",
+        "Microphone access was blocked. Allow microphone permission in browser settings, then try again.",
     };
   }
 

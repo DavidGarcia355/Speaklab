@@ -24,6 +24,7 @@ import {
 } from "@/lib/billing/config";
 import { getStripeAutomaticUsageRecoverySupportedSince } from "@/lib/billing/recovery-policy";
 import { INTERNAL_TEST_EMAILS } from "@/lib/internal-accounts";
+import { createSilentWavFixtureDataUrl } from "@/lib/local-ai-fixture-audio";
 import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 import { processedAssignmentFingerprint } from "@/lib/ai/recording-identity";
 import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapter";
@@ -9170,7 +9171,7 @@ export async function ensureLocalAiFixture(): Promise<{
       { id: "language", name: "Language", description: "Uses target-language vocabulary and structures.", maxPoints: 5 },
     ],
   };
-  const audioData = `data:audio/webm;base64,${Buffer.from("synthetic local audio fixture").toString("base64")}`;
+  const audioData = createSilentWavFixtureDataUrl();
 
   await query(
     `INSERT INTO users (email, role, created_at, is_paid, ai_access_grant_source)
@@ -9199,7 +9200,13 @@ export async function ensureLocalAiFixture(): Promise<{
       id, assignment_id, student_name, student_email, audio_data, audio_blob_url,
       submitted_at, feedback, grade, rubric_scores, deleted_at
     ) VALUES (?, ?, 'Local AI Student', ?, ?, NULL, ?, '', NULL, NULL, NULL)
-    ON CONFLICT(id) DO UPDATE SET grade = NULL, feedback = '', rubric_scores = NULL, deleted_at = NULL`,
+    ON CONFLICT(id) DO UPDATE SET
+      audio_data = excluded.audio_data,
+      audio_blob_url = NULL,
+      grade = NULL,
+      feedback = '',
+      rubric_scores = NULL,
+      deleted_at = NULL`,
     [submissionId, assignmentId, studentEmail, audioData, Date.now()]
   );
   return { teacherEmail, classId, assignmentId, submissionId };

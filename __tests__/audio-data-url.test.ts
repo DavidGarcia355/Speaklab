@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HttpError } from "@/lib/http";
+import { createSilentWavFixtureDataUrl } from "@/lib/local-ai-fixture-audio";
 import { LIMITS, parseAudioDataUrl } from "@/lib/validation";
 
 describe("audio data URL parsing", () => {
@@ -52,5 +53,14 @@ describe("audio data URL parsing", () => {
         "This recording is too large to upload. Record a shorter response and try again (maximum 3 MB)."
       );
     }
+  });
+
+  it("builds a valid silent WAV for the local AI playback fixture", () => {
+    const parsed = parseAudioDataUrl(createSilentWavFixtureDataUrl());
+
+    expect(parsed.mimeType).toBe("audio/wav");
+    expect(parsed.buffer.subarray(0, 4).toString("ascii")).toBe("RIFF");
+    expect(parsed.buffer.subarray(8, 12).toString("ascii")).toBe("WAVE");
+    expect(parsed.buffer.readUInt32LE(40)).toBe(parsed.buffer.length - 44);
   });
 });

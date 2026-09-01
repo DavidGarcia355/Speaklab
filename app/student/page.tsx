@@ -14,6 +14,7 @@ import {
   studentGradeProvenance,
   type StudentGradeSource,
 } from "@/lib/ai/student-provenance";
+import hubStyles from "./student-hubs.module.css";
 
 type StudentSubmission = {
   id: string;
@@ -205,10 +206,14 @@ export default function StudentDashboardPage() {
 
   if (authLoading) {
     return (
-      <main className="page-wrap">
-        <PageTitle title="My submissions" />
+      <main className="page-wrap student-auth-loading" aria-busy="true">
+        <PageTitle title="My Recordings" />
         <BrandBar label="Student" />
-        <p className="meta">Loading...</p>
+        <section className="student-loading-shell" aria-label="Loading student workspace">
+          <span className="student-loading-pulse" aria-hidden="true" />
+          <span className="student-loading-line" aria-hidden="true" />
+          <span className="student-loading-line is-short" aria-hidden="true" />
+        </section>
       </main>
     );
   }
@@ -216,7 +221,7 @@ export default function StudentDashboardPage() {
   if (!email) {
     return (
       <main className="page-wrap">
-        <PageTitle title="My submissions" />
+        <PageTitle title="My Recordings" />
         <BrandBar label="Student" />
         <section className="hero">
           <h1>Sign in to view your submissions</h1>
@@ -239,39 +244,43 @@ export default function StudentDashboardPage() {
   const grouped = groupByClass(assignmentHistory, submissions);
 
   return (
-    <main className="page-wrap student-game-wrap">
-      <PageTitle title="My submissions" />
+    <main className={`page-wrap student-game-wrap student-home-wrap ${hubStyles.recordingsWrap}`}>
+      <PageTitle title="My Recordings" />
       <BrandBar label="Student" />
 
-      <section className="student-dash-header student-game-hero student-submissions-hero">
-        <div className="student-game-copy">
+      <section className={`student-home-header ${hubStyles.recordingsHero}`}>
+        <span className="student-header-echo" aria-hidden="true">Recordings</span>
+        <div>
           <p className="pill student-game-pill">
             <Mic2 size={14} aria-hidden="true" />
             Submission history
           </p>
-          <h1 className="student-dash-headline">Hi, {name}. Your recordings are organized.</h1>
+          <h1>My Recordings</h1>
           <p className="meta">
-            {localAuthBypassEnabled ? "Local dev auth bypass - viewing as" : "Signed in as"} {email}
+            Hi, {name}. {localAuthBypassEnabled ? "Local dev auth bypass - viewing as" : "Signed in as"} {email}
           </p>
         </div>
-        <div className="student-mini-mascot" aria-hidden="true">
+        <div className={`student-home-actions ${hubStyles.recordingsVisual}`}>
+          <div className={`student-home-links ${hubStyles.hubLinks}`}>
+            <Link className="student-text-link" href="/student/dashboard">My Classes</Link>
+            <Link className="student-text-link" href="/">Home</Link>
+            <Link className="student-text-link" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
+          </div>
           <Image
-            src="/mascot/habla-man.webp"
+            className={hubStyles.recordingsMascot}
+            src="/mascot/hablaman-transition-record-v1.webp"
             alt=""
-            width={210}
-            height={208}
+            width={768}
+            height={768}
+            sizes="(max-width: 520px) 125px, (max-width: 720px) 150px, 300px"
             priority
+            unoptimized
           />
-          <span>{gradedCount} graded</span>
-        </div>
-        <div className="student-submission-nav">
-          <Link className="btn btn-primary" href="/student/dashboard">Open classes</Link>
-          <Link className="student-text-link" href="/">Back home</Link>
-          <Link className="student-text-link" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
+          <span className={hubStyles.recordingsBadge} aria-hidden="true">{gradedCount} graded</span>
         </div>
       </section>
 
-      <section className="student-reward-console section-gap">
+      <section className={`student-reward-console section-gap ${hubStyles.recordingStats}`}>
         <article className="student-console-card">
           <p className="student-console-label">
             <Sparkles size={14} aria-hidden="true" />
@@ -304,17 +313,16 @@ export default function StudentDashboardPage() {
         <p className="meta">Loading submissions...</p>
       ) : grouped.length === 0 ? (
         <section className="student-empty-quest section-gap">
-          <Image
-            src="/mascot/habla-man.webp"
-            alt="TryHabla mascot waiting for your first recording"
-            width={190}
-            height={188}
-          />
-          <h2 className="surface-title">No submissions yet</h2>
-          <p className="empty">
-            When your teacher shares an assignment link, open it to record and submit your response.
-            Your submissions will appear here.
-          </p>
+          <div className="student-empty-mark" aria-hidden="true">
+            <Mic2 size={34} />
+          </div>
+          <div className="student-empty-copy">
+            <h2 className="surface-title">No submissions yet</h2>
+            <p className="empty">
+              Open an assignment link from a teacher to record and submit a response. New
+              submissions will appear here.
+            </p>
+          </div>
         </section>
       ) : (
         grouped.map((group) => (
@@ -324,7 +332,11 @@ export default function StudentDashboardPage() {
               <div key={asg.assignmentId} className="student-assignment-group student-quest-card">
                 <div className="student-assignment-header">
                   <h3 className="student-assignment-title">{asg.assignmentTitle}</h3>
-                  <Link className="btn btn-ghost btn-sm" href={`/a/${asg.assignmentId}`}>
+                  <Link
+                    className="btn btn-ghost btn-sm"
+                    href={`/a/${asg.assignmentId}`}
+                    aria-label={`Open ${asg.assignmentTitle}`}
+                  >
                     Open assignment
                   </Link>
                 </div>
@@ -352,11 +364,11 @@ export default function StudentDashboardPage() {
                               {sub.grade === null ? (
                                 <button
                                   type="button"
-                                  className="icon-btn icon-btn-danger"
-                                  title="Delete submission"
+                                  className="btn btn-danger btn-sm"
                                   onClick={() => setDeleteTarget(sub)}
                                 >
-                                  <Trash2 size={14} />
+                                  <Trash2 size={14} aria-hidden="true" />
+                                  Delete submission
                                 </button>
                               ) : null}
                             </div>

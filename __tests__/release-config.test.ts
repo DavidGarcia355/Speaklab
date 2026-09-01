@@ -129,4 +129,14 @@ describe("release environment sync", () => {
     expect(script).toContain("must be explicit for production");
     expect(script).toContain("requires -PrivateDeployment");
   });
+
+  it("rejects local or weak settings before syncing production", () => {
+    const script = readFileSync("scripts/sync-vercel-env.ps1", "utf8");
+
+    expect(script).toContain('[string]$ProductionOrigin = "https://tryhabla.com"');
+    expect(script).toContain("NEXTAUTH_URL must be an HTTPS origin");
+    expect(script).toContain("must match the reviewed production origin");
+    expect(script).toContain("LOCAL_DEV_BYPASS_AUTH=true is local-only");
+    expect(script).toContain("must contain at least 32 characters");
+  });
 });

@@ -410,7 +410,7 @@ export async function gradeOneSubmission(input: {
           status: "failed",
           code: "billing_sync_required",
           message:
-            "Your billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording.",
+            "The billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording.",
         };
       }
       if (reservation.reservationStatus === "exhausted") {
@@ -420,7 +420,7 @@ export async function gradeOneSubmission(input: {
           message:
             reservation.status === "teacher_period"
               ? "This billing period's 300 AI-assisted recordings have been used. Recording, playback, and manual grading are still available. Need more? Explore TryHabla for Schools."
-              : `Your ${reservation.limit} lifetime AI-assisted recordings have been used. Recording, playback, and manual grading are still available.`,
+              : `All ${reservation.limit} lifetime AI-assisted recordings have been used. Recording, playback, and manual grading are still available.`,
         };
       }
       if (reservation.reservationStatus === "in_flight") {

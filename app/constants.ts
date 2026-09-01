@@ -19,3 +19,8 @@ export const CONTACT_LINKS = {
   email: "mailto:davidsgarcia325@gmail.com",
   github: "https://github.com/DavidGarcia355",
 } as const;
+
+export const TRYHABLA_SOCIAL_LINKS = {
+  facebook: "https://www.facebook.com/tryhabla",
+  linkedin: "https://www.linkedin.com/company/tryhabla",
+} as const;

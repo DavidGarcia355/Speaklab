@@ -2,12 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import Image from "next/image";
-import { ArrowRight, BookOpenCheck, CircleCheck, Clock3, School, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, CircleCheck, Sparkles } from "lucide-react";
 import { authOptions } from "@/auth";
 import BrandBar from "@/app/components/BrandBar";
 import SignInLink from "@/app/components/SignInLink";
 import PageTitle from "@/app/components/PageTitle";
 import { listEnrolledClassesWithAssignmentsByEmail, type StudentEnrolledRow } from "@/lib/db";
+import hubStyles from "../student-hubs.module.css";
 
 type EnrolledClass = {
   classId: string;
@@ -48,8 +49,13 @@ function groupEnrolledRows(rows: StudentEnrolledRow[]): EnrolledClass[] {
 
 export default async function StudentDashboardPage() {
   const session = await getServerSession(authOptions);
-  const email = session?.user?.email?.trim().toLowerCase() ?? "";
-  const name = session?.user?.name?.trim() ?? email.split("@")[0] ?? "";
+  const localAuthBypassEnabled =
+    process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true";
+  const sessionEmail = session?.user?.email?.trim().toLowerCase() ?? "";
+  const email = sessionEmail || (localAuthBypassEnabled ? "dev-student@gmail.com" : "");
+  const name =
+    session?.user?.name?.trim() ||
+    (sessionEmail ? sessionEmail.split("@")[0] : localAuthBypassEnabled ? "dev-student" : "");
   const role = (session?.user as { role?: string } | undefined)?.role;
 
   if (email && role === "teacher") {
@@ -88,138 +94,87 @@ export default async function StudentDashboardPage() {
     (sum, c) => sum + c.assignments.filter((a) => a.submissionCount > 0).length,
     0
   );
-  const pendingCount = totalAssignments - submittedCount;
 
   return (
-    <main className="page-wrap student-game-wrap">
+    <main className="page-wrap student-home-wrap">
       <PageTitle title="My Classes" />
       <BrandBar label="Student" />
 
-      <section className="student-game-hero">
-        <div className="student-game-copy">
+      <section className={`student-home-header ${hubStyles.classesHero}`}>
+        <span className="student-header-echo" aria-hidden="true">Classes</span>
+        <div>
           <p className="pill student-game-pill">
             <Sparkles size={14} aria-hidden="true" />
             Student workspace
           </p>
-          <h1>Hi, {name}. Your speaking assignments are here.</h1>
-          <p>
-            Open work from every class, record in the browser, and see what you have already
-            submitted without hunting through old links.
-          </p>
-          <div className="student-game-actions">
-            <Link className="btn btn-primary" href="/student">
-              Open vault
-              <ArrowRight size={17} aria-hidden="true" />
-            </Link>
+          <h1>My Classes</h1>
+          <p className="meta">Hi, {name}. Pick a class to see its assignments and feedback.</p>
+        </div>
+        <div className={`student-home-actions ${hubStyles.classesVisual}`}>
+          <div className={`student-home-links ${hubStyles.hubLinks}`}>
+            <Link className="student-text-link" href="/student">My Recordings</Link>
             <Link className="student-text-link" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
           </div>
-        </div>
-        <div className="student-hablaman-card" aria-label="TryHabla mascot status">
-          <span className="student-hablaman-burst">H</span>
           <Image
-            className="student-hablaman"
-            src="/mascot/habla-man.webp"
-            alt="TryHabla superhero mascot"
-            width={330}
-            height={328}
+            className={hubStyles.oceanMascot}
+            src="/mascot/hablaman-student-classes-eren-v1.png"
+            alt=""
+            width={1672}
+            height={941}
+            sizes="(max-width: 520px) 225px, (max-width: 720px) 265px, 500px"
             priority
           />
-          <div className="student-hablaman-speech">
-            <strong>{submittedCount}/{totalAssignments} submitted</strong>
-            <span>{pendingCount > 0 ? `${pendingCount} ready to record` : "All caught up"}</span>
-          </div>
         </div>
       </section>
 
-      {classes.length > 0 ? (
-        <section className="student-reward-console section-gap" aria-label="Assignment progress">
-          <article className="student-level-card">
-            <div>
-              <p className="student-console-label">
-                <School size={14} aria-hidden="true" />
-                Classes
-              </p>
-              <p className="student-level-value">{classes.length}</p>
-              <p className="meta">Rostered classrooms</p>
-            </div>
-          </article>
-          <article className="student-console-card">
-            <p className="student-console-label">
-              <CircleCheck size={14} aria-hidden="true" />
-              Submitted
-            </p>
-            <p className="student-console-value">{submittedCount}</p>
-            <p className="meta">Assignments with a recording</p>
-          </article>
-          <article className="student-console-card student-console-fire">
-            <p className="student-console-label">
-              <Clock3 size={14} aria-hidden="true" />
-              To record
-            </p>
-            <p className="student-console-value">{pendingCount}</p>
-            <p className="meta">{pendingCount > 0 ? "Assignments ready to open" : "All caught up"}</p>
-          </article>
-        </section>
-      ) : null}
-
       {classes.length === 0 ? (
-        <section className="student-empty-quest section-gap">
-          <Image
-            src="/mascot/habla-man.webp"
-            alt="TryHabla mascot waiting for your first class"
-            width={190}
-            height={188}
-          />
-          <div>
-            <p className="pill pill-subtle">Class list empty</p>
-            <h2 className="surface-title">No classes yet</h2>
+        <section className="student-empty-quest student-home-empty section-gap">
+          <div className="student-empty-mark" aria-hidden="true">
+            <BookOpen size={34} />
           </div>
-          <p className="empty">
-            You&apos;re not on any class rosters yet. Ask your teacher to add{" "}
-            <strong>{email}</strong> to their class, or open the assignment link they shared
-            with you directly.
-          </p>
-          <div className="student-inline-links">
-            <Link className="student-text-link" href="/student">View submissions</Link>
-            <Link className="student-text-link" href="/">Back home</Link>
+          <div className="student-empty-copy">
+            <div>
+              <p className="pill pill-subtle">Class list empty</p>
+              <h2 className="surface-title">No classes yet</h2>
+            </div>
+            <p className="empty">
+              No class rosters include this account yet. Ask a teacher to add{" "}
+              <strong>{email}</strong> to a class, or open a shared assignment link directly.
+            </p>
+            <div className="student-inline-links">
+              <Link className="student-text-link" href="/student">My Recordings</Link>
+              <Link className="student-text-link" href="/">Back home</Link>
+            </div>
           </div>
         </section>
       ) : (
-        classes.map((cls) => (
-          <section key={cls.classId} className="student-quest-section section-gap">
-            <h2 className="student-class-heading">{cls.className}</h2>
-            {cls.assignments.length === 0 ? (
-              <div className="student-quest-card is-empty">
-                <p className="empty">No assignments yet. Check back after your teacher posts one.</p>
-              </div>
-            ) : (
-              cls.assignments.map((asg) => (
-                <div key={asg.assignmentId} className={`student-assignment-group student-quest-card ${asg.submissionCount > 0 ? "is-complete" : "is-live"}`}>
-                  <div className="student-assignment-header">
-                    <div>
-                      <p className="student-quest-label">{asg.submissionCount > 0 ? "Submitted" : "Ready to record"}</p>
-                      <h3 className="student-assignment-title">{asg.assignmentTitle}</h3>
-                      <p className="meta">{asg.maxPoints} points possible</p>
-                    </div>
-                    <div className="student-quest-actions">
-                      {asg.submissionCount > 0 ? (
-                        <span className="pill pill-success">
-                          <BookOpenCheck size={14} aria-hidden="true" />
-                          Submitted
-                        </span>
-                      ) : (
-                        <span className="pill pill-neutral">Ready</span>
-                      )}
-                      <Link className="btn btn-ghost btn-sm" href={`/a/${asg.assignmentId}`}>
-                        {asg.submissionCount > 0 ? "View assignment" : "Start recording"}
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </section>
-        ))
+        <section className="student-class-list section-gap" aria-label="My Classes">
+          {classes.map((cls, index) => {
+            const completed = cls.assignments.filter((assignment) => assignment.submissionCount > 0).length;
+            return (
+              <Link className="student-class-row" href={`/student/class/${cls.classId}`} key={cls.classId}>
+                <span className="student-class-index" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <span className="student-class-row-icon" aria-hidden="true"><BookOpen size={21} /></span>
+                <span className="student-class-row-copy">
+                  <strong>{cls.className}</strong>
+                  <span>
+                    {cls.assignments.length} {cls.assignments.length === 1 ? "assignment" : "assignments"}
+                    {cls.assignments.length > 0 ? ` · ${completed} submitted` : ""}
+                  </span>
+                </span>
+                {completed === cls.assignments.length && cls.assignments.length > 0 ? (
+                  <span className="pill pill-success"><CircleCheck size={14} aria-hidden="true" /> Complete</span>
+                ) : null}
+                <ArrowRight size={20} aria-hidden="true" />
+              </Link>
+            );
+          })}
+          <p className="student-home-summary meta">
+            {classes.length} {classes.length === 1 ? "class" : "classes"} · {submittedCount}/{totalAssignments} assignments submitted
+          </p>
+        </section>
       )}
     </main>
   );

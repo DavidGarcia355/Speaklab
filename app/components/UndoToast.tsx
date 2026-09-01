@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 type UndoToastProps = {
   message: string;
@@ -23,13 +24,16 @@ export default function UndoToast({ message, expiresAt, onUndo, onDismiss }: Und
 
   const percent = useMemo(() => Math.max(0, Math.min(100, (remainingMs / WINDOW_MS) * 100)), [remainingMs]);
   const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  const portalTarget = typeof document === "undefined" ? null : document.body;
 
-  return (
+  if (!portalTarget) return null;
+
+  return createPortal(
     <div className="undo-toast" role="status" aria-live="polite">
       <div className="undo-toast-row">
         <p className="undo-toast-message">{message}</p>
-        <button type="button" className="icon-btn" onClick={onDismiss} aria-label="Dismiss">
-          x
+        <button type="button" className="btn btn-ghost" onClick={onDismiss}>
+          Dismiss
         </button>
       </div>
       <div className="undo-toast-actions">
@@ -40,6 +44,7 @@ export default function UndoToast({ message, expiresAt, onUndo, onDismiss }: Und
       <div className="undo-progress">
         <div className="undo-progress-bar" style={{ width: `${percent}%` }} />
       </div>
-    </div>
+    </div>,
+    portalTarget
   );
 }

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
+import WorkspaceLoading from "@/app/components/WorkspaceLoading";
 import RubricBuilder, { type RubricCriterionDraft } from "@/app/components/RubricBuilder";
 
 type ClassLookup = {
@@ -18,8 +19,8 @@ type ClassLookup = {
 
 const LANGUAGE_OPTIONS = [
   "Spanish",
-  "English",
   "French",
+  "English",
   "German",
   "Italian",
   "Portuguese",
@@ -77,6 +78,8 @@ export default function NewAssignmentPage() {
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [targetLanguage, setTargetLanguage] = useState("Spanish");
+  const [useCustomLanguage, setUseCustomLanguage] = useState(false);
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const [setAsDefaultLanguage, setSetAsDefaultLanguage] = useState(true);
   const [maxPoints, setMaxPoints] = useState("100");
   const [rubricEnabled, setRubricEnabled] = useState(false);
@@ -90,6 +93,28 @@ export default function NewAssignmentPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [hintMsg, setHintMsg] = useState("");
   const [saving, setSaving] = useState(false);
+  const languagePickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function closeLanguageMenu(event: PointerEvent) {
+      if (!languagePickerRef.current?.contains(event.target as Node)) {
+        setLanguageMenuOpen(false);
+      }
+    }
+
+    function closeLanguageMenuWithKeyboard(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setLanguageMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeLanguageMenu);
+    document.addEventListener("keydown", closeLanguageMenuWithKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", closeLanguageMenu);
+      document.removeEventListener("keydown", closeLanguageMenuWithKeyboard);
+    };
+  }, []);
 
   useEffect(() => {
     if (!classId) {
@@ -110,6 +135,7 @@ export default function NewAssignmentPage() {
         setClassData(data);
         const savedLanguage = data.teacherDefaultLanguage?.trim();
         setTargetLanguage(savedLanguage || "Spanish");
+        setUseCustomLanguage(Boolean(savedLanguage && !LANGUAGE_OPTIONS.includes(savedLanguage)));
         setSetAsDefaultLanguage(!savedLanguage);
         try {
           const featureResponse = await fetch("/api/features", { cache: "no-store" });
@@ -265,7 +291,9 @@ export default function NewAssignmentPage() {
   if (loadingClass) {
     return (
       <main className="page-wrap">
-        <p className="meta">Loading class...</p>
+        <PageTitle title="Create Assignment" />
+        <BrandBar label="Create Assignment" />
+        <WorkspaceLoading label="Preparing assignment setup" />
       </main>
     );
   }
@@ -345,25 +373,75 @@ export default function NewAssignmentPage() {
           <label className="label form-label-top" htmlFor="assignment-language">
             Student response language
           </label>
-          <input
-            id="assignment-language"
-            className="input"
-            list="assignment-language-options"
-            value={targetLanguage}
-            onChange={(event) => {
-              setTargetLanguage(event.target.value);
-              setSetAsDefaultLanguage(!classData.teacherDefaultLanguage);
-            }}
-            placeholder="Spanish"
-            maxLength={80}
-          />
-          <datalist id="assignment-language-options">
-            {LANGUAGE_OPTIONS.map((language) => (
-              <option key={language} value={language} />
-            ))}
-          </datalist>
+          <div className="language-picker" ref={languagePickerRef}>
+            <button
+              id="assignment-language"
+              className="language-picker-trigger"
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={languageMenuOpen}
+              onClick={() => setLanguageMenuOpen((open) => !open)}
+            >
+              <span>{useCustomLanguage ? targetLanguage || "Other language" : targetLanguage}</span>
+              <span className="language-picker-chevron" aria-hidden="true" />
+            </button>
+            {languageMenuOpen ? (
+              <div className="language-picker-menu" role="listbox" aria-label="Student response language">
+                {LANGUAGE_OPTIONS.map((language) => {
+                  const selected = !useCustomLanguage && targetLanguage === language;
+                  return (
+                    <button
+                      className="language-picker-option"
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      key={language}
+                      onClick={() => {
+                        setUseCustomLanguage(false);
+                        setTargetLanguage(language);
+                        setSetAsDefaultLanguage(!classData.teacherDefaultLanguage);
+                        setLanguageMenuOpen(false);
+                      }}
+                    >
+                      <span>{language}</span>
+                      {selected ? <span aria-hidden="true">✓</span> : null}
+                    </button>
+                  );
+                })}
+                <button
+                  className="language-picker-option language-picker-option-custom"
+                  type="button"
+                  role="option"
+                  aria-selected={useCustomLanguage}
+                  onClick={() => {
+                    setUseCustomLanguage(true);
+                    setTargetLanguage("");
+                    setSetAsDefaultLanguage(!classData.teacherDefaultLanguage);
+                    setLanguageMenuOpen(false);
+                  }}
+                >
+                  <span>Other language…</span>
+                  {useCustomLanguage ? <span aria-hidden="true">✓</span> : null}
+                </button>
+              </div>
+            ) : null}
+          </div>
+          {useCustomLanguage ? (
+            <input
+              className="input form-label-top"
+              value={targetLanguage}
+              onChange={(event) => {
+                setTargetLanguage(event.target.value);
+                setSetAsDefaultLanguage(!classData.teacherDefaultLanguage);
+              }}
+              placeholder="Enter a language"
+              aria-label="Other student response language"
+              maxLength={80}
+              autoFocus
+            />
+          ) : null}
           <p className="meta field-meta">
-            AI grading will evaluate the response in this language.
+            Choose the language students will speak. AI grading will evaluate the response in this language.
           </p>
           {classData.teacherDefaultLanguage &&
           targetLanguage.trim().toLocaleLowerCase() !==
@@ -378,7 +456,7 @@ export default function NewAssignmentPage() {
             </label>
           ) : !classData.teacherDefaultLanguage ? (
             <p className="notice info">
-              {targetLanguage.trim() || "This language"} will become your default for future assignments.
+              {targetLanguage.trim() || "This language"} will become my default for future assignments.
             </p>
           ) : null}
 
@@ -452,7 +530,7 @@ export default function NewAssignmentPage() {
               <p className="meta field-meta">
                 Future recordings will be transcribed after students submit. Each usable new transcript
                 uses one AI-assisted recording unit; grading that same recording later is included and
-                still remains optional. Processing pauses at your allowance limit, with no overages.
+                still remains optional. Processing pauses at the allowance limit, with no overages.
               </p>
             </>
           ) : null}
@@ -506,9 +584,10 @@ export default function NewAssignmentPage() {
               <button
                 className="text-link"
                 type="button"
+                aria-label={`Remove attachment ${attachment.fileName}`}
                 onClick={() => setAttachment(null)}
               >
-                Remove
+                Remove attachment
               </button>
             </div>
           ) : null}

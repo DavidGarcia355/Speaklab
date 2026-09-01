@@ -137,7 +137,7 @@ export default function AudioPlayer({
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       console.error("Audio download failed", error);
-      setErrorMsg("Couldn't download this recording. Check your connection and try again.");
+      setErrorMsg("Couldn't download this recording. Check the internet connection and try again.");
     } finally {
       setDownloading(false);
     }

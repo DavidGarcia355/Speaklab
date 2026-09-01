@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 export type RubricCriterionDraft = {
   id: string;
@@ -132,20 +133,22 @@ export default function RubricBuilder({
                   <label className="sr-only" htmlFor={templateSelectId}>
                     Load a saved rubric template
                   </label>
-                  <select
-                    id={templateSelectId}
-                    className="input"
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) handleLoadTemplate(e.target.value);
-                    }}
-                    style={{ flex: 1, minWidth: 0 }}
-                  >
-                    <option value="" disabled>Load a saved rubric...</option>
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
+                  <div className="select-field">
+                    <select
+                      id={templateSelectId}
+                      className="input select-input"
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) handleLoadTemplate(e.target.value);
+                      }}
+                    >
+                      <option value="" disabled>Load a saved rubric...</option>
+                      {templates.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={20} aria-hidden="true" />
+                  </div>
                 </>
               ) : null}
               <button

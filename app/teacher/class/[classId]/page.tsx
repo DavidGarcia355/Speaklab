@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, CheckCircle2, Clock3, Pencil, Trash2, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { BookOpen, Check, CheckCircle2, ChevronDown, Clock3, Pencil, Trash2, X } from "lucide-react";
 import AiGradeReviewBadge from "@/app/components/AiGradeReviewBadge";
 import AudioPlayer from "@/app/components/AudioPlayer";
 import BrandBar from "@/app/components/BrandBar";
@@ -16,6 +17,7 @@ import {
 import ConfirmModal from "@/app/components/ConfirmModal";
 import GoogleDriveExportButton from "@/app/components/GoogleDriveExportButton";
 import PageTitle from "@/app/components/PageTitle";
+import WorkspaceLoading from "@/app/components/WorkspaceLoading";
 import RubricBuilder, { type RubricCriterionDraft } from "@/app/components/RubricBuilder";
 import SubmissionTranscript from "@/app/components/SubmissionTranscript";
 import StudentOralPortfolio from "@/app/components/StudentOralPortfolio";
@@ -168,6 +170,15 @@ type DeleteTarget =
   | { type: "submission"; submission: SubmissionItem }
   | null;
 
+const DIALOG_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
 type AssignmentClipboard = {
   sourceAssignmentId: string;
   title: string;
@@ -217,7 +228,7 @@ function bulkAiLimitDescription(preflight: BulkAiPreflight) {
     return "There are no ungraded submissions with audio available for this run.";
   }
   if (allowance?.status === "subscription_unavailable") {
-    return "Your billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording unit. Recording, playback, and manual grading remain available.";
+    return "The billing period could not be verified. Refresh billing or contact support before using another AI-assisted recording unit. Recording, playback, and manual grading remain available.";
   }
   if (allowance && preflight.newUnitsRequired > allowance.remaining) {
     const nextStep =
@@ -226,7 +237,7 @@ function bulkAiLimitDescription(preflight: BulkAiPreflight) {
         : allowance.status === "free_lifetime"
           ? "Choose Teacher for 300 AI-assisted recordings per Stripe billing period."
           : "Contact TryHabla for Schools to discuss larger or custom needs.";
-    return `This run will grade ${pluralize(preflight.ungradedCount, "submission")} and needs ${pluralize(preflight.newUnitsRequired, "new AI-assisted recording unit")}, but ${allowance.remaining} remain in your current allowance. Recordings already transcribed for this assignment do not use another unit. ${nextStep} Recording, playback, and manual grading remain available.`;
+    return `This run will grade ${pluralize(preflight.ungradedCount, "submission")} and needs ${pluralize(preflight.newUnitsRequired, "new AI-assisted recording unit")}, but ${allowance.remaining} remain in the current allowance. Recordings already transcribed for this assignment do not use another unit. ${nextStep} Recording, playback, and manual grading remain available.`;
   }
   return `This run includes ${pluralize(preflight.ungradedCount, "submission")}, but only ${preflight.remaining} AI grading generations remain today. Saved transcripts do not use another allowance unit, but grading still needs generation capacity. Grade some by hand, or try again tomorrow when the limit resets.`;
 }
@@ -327,6 +338,7 @@ export default function ClassDetailPage() {
   const [studentFilter, setStudentFilter] = useState("");
   const [showUngradedOnly, setShowUngradedOnly] = useState(false);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
+  const [assignmentView, setAssignmentView] = useState<"review" | "details" | "share">("review");
   const [copiedId, setCopiedId] = useState("");
   const [hasAssignmentClipboard, setHasAssignmentClipboard] = useState(false);
 
@@ -383,6 +395,9 @@ export default function ClassDetailPage() {
   const [csvUploading, setCsvUploading] = useState(false);
   const [csvResult, setCsvResult] = useState<{ added: number; skipped: number } | null>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const assignmentDialogRef = useRef<HTMLDivElement>(null);
+  const assignmentTitleInputRef = useRef<HTMLInputElement>(null);
+  const assignmentSavingRef = useRef(false);
   const bulkAiRunRef = useRef(false);
   const bulkAiAbortRef = useRef<AbortController | null>(null);
   const selectedAssignmentIdRef = useRef("");
@@ -643,19 +658,81 @@ export default function ClassDetailPage() {
 
   useEffect(() => {
     const created = searchParams.get("created");
-    if (created === "class") setInfoMsg("Class created. Next step: create your first assignment.");
+    if (created === "class") setInfoMsg("Class created. Next step: create the first assignment.");
     else if (created === "assignment") setInfoMsg("Assignment created. Share the student link when ready.");
     else setInfoMsg("");
   }, [searchParams]);
 
   useEffect(() => {
     return () => {
-      if (pendingDeleteRef.current) window.clearTimeout(pendingDeleteRef.current.timerId);
+      const pending = pendingDeleteRef.current;
+      if (pending) {
+        window.clearTimeout(pending.timerId);
+        pendingDeleteRef.current = null;
+        void pending.commit().catch(() => undefined);
+      }
       bulkAiAbortRef.current?.abort();
       bulkTranscriptAbortRef.current?.abort();
       if (bulkTranscriptUrlRef.current) URL.revokeObjectURL(bulkTranscriptUrlRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    assignmentSavingRef.current = assignmentSaving;
+  }, [assignmentSaving]);
+
+  useEffect(() => {
+    if (!assignmentEditOpen) return;
+
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      assignmentTitleInputRef.current?.focus();
+    });
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !assignmentSavingRef.current) {
+        event.preventDefault();
+        setAssignmentEditOpen(false);
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const dialog = assignmentDialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)
+      ).filter((element) => element.getAttribute("aria-hidden") !== "true");
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, [assignmentEditOpen]);
 
   useEffect(() => {
     selectedAssignmentIdRef.current = selectedAssignmentId;
@@ -1662,7 +1739,10 @@ export default function ClassDetailPage() {
         updatePayloadSubmissions((items) => [...items, ...submissionSnapshots].sort((a, b) => b.submittedAt - a.submittedAt));
       },
       commit: async () => {
-        const response = await fetch(`/api/assignments/${assignment.id}`, { method: "DELETE" });
+        const response = await fetch(`/api/assignments/${assignment.id}`, {
+          method: "DELETE",
+          keepalive: true,
+        });
         if (!response.ok) {
           const data = (await response.json()) as { error?: string };
           throw new Error(data.error || "Unable to delete assignment.");
@@ -1687,7 +1767,10 @@ export default function ClassDetailPage() {
         updatePayloadSubmissions((items) => [...items, submission].sort((a, b) => b.submittedAt - a.submittedAt));
       },
       commit: async () => {
-        const response = await fetch(`/api/submissions/${submission.id}`, { method: "DELETE" });
+        const response = await fetch(`/api/submissions/${submission.id}`, {
+          method: "DELETE",
+          keepalive: true,
+        });
         if (!response.ok) {
           const data = (await response.json()) as { error?: string };
           throw new Error(data.error || "Unable to delete submission.");
@@ -1697,7 +1780,15 @@ export default function ClassDetailPage() {
     });
   }
 
-  if (loading) return <main className="page-wrap"><p className="meta">Loading class...</p></main>;
+  if (loading) {
+    return (
+      <main className="page-wrap">
+        <PageTitle title="Class Workspace" />
+        <BrandBar label="Grading Workspace" />
+        <WorkspaceLoading label="Opening the class workspace" />
+      </main>
+    );
+  }
   if (errorMsg && !payload) {
     return (
       <main className="page-wrap">
@@ -1715,25 +1806,40 @@ export default function ClassDetailPage() {
     <main className="page-wrap">
       <PageTitle title={payload ? `${payload.item.name} Workspace` : "Class Workspace"} />
       <BrandBar label="Grading Workspace" />
-      <p className="meta page-intent">Assignments are your main navigation. Select one, then grade every submission in one panel.</p>
       {aiGradeErrors._feature ? <p className="card-inline-error">{aiGradeErrors._feature}</p> : null}
 
-      <div className="workspace-header">
-        <div className="dense-row">
-          <div><h2 className="surface-title">{payload.item.name}</h2><p className="meta">Class workspace</p></div>
-          <div className="actions">
-            <Link className="btn btn-ghost" href="/teacher">Back to classes</Link>
-            <Link className="btn btn-primary" href={`/teacher/class/${payload.item.id}/assignment/new`}>Create assignment</Link>
+      <div className="workspace-header teacher-class-header">
+        <div className="teacher-class-header-main">
+          <div>
+            <Link className="teacher-back-link" href="/teacher">← All classes</Link>
+            <h1>{payload.item.name}</h1>
+            <div className="class-stat-strip" aria-label="Class summary">
+              <span><BookOpen size={14} aria-hidden="true" /> {pluralize(payload.stats.assignmentCount, "assignment")}</span>
+              <span className={workspaceStats.pending > 0 ? "is-warning" : ""}><Clock3 size={14} aria-hidden="true" /> {pluralize(workspaceStats.pending, "to grade")}</span>
+              <span><CheckCircle2 size={14} aria-hidden="true" /> {workspaceStats.graded} graded</span>
+            </div>
+          </div>
+          <div className="actions teacher-class-primary-actions">
             <a className="btn btn-ghost" href="#roster">Roster</a>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => void pasteAssignment()}
-              disabled={!hasAssignmentClipboard}
-            >
-              Paste assignment
-            </button>
-            <a className="btn btn-ghost" href={`/api/classes/${payload.item.id}/gradebook.csv`}>Export CSV</a>
+            <details className="workspace-more-menu">
+              <summary className="btn btn-ghost workspace-more-trigger">
+                <span>More actions</span>
+                <span className="workspace-more-chevron" aria-hidden="true">
+                  <ChevronDown size={17} />
+                </span>
+              </summary>
+              <div className="workspace-more-popover">
+                <button
+                  type="button"
+                  onClick={() => void pasteAssignment()}
+                  disabled={!hasAssignmentClipboard}
+                >
+                  Paste assignment
+                </button>
+                <a href={`/api/classes/${payload.item.id}/gradebook.csv`}>Export gradebook CSV</a>
+              </div>
+            </details>
+            <Link className="btn btn-primary" href={`/teacher/class/${payload.item.id}/assignment/new`}>New assignment</Link>
           </div>
         </div>
       </div>
@@ -1741,24 +1847,22 @@ export default function ClassDetailPage() {
       {errorMsg ? <p className="notice danger" role="alert">{errorMsg}</p> : null}
       {infoMsg ? <p className="notice success" role="status" aria-live="polite">{infoMsg}</p> : null}
 
-      <section className="grid cols-3 section-gap">
-        <article className="card kpi-card"><p className="meta stat-label"><BookOpen size={14} /> Assignments</p><p className="stat-value">{payload.stats.assignmentCount}</p><p className="meta kpi-note">Published tasks</p></article>
-        <article className="card kpi-card kpi-warning"><p className="meta stat-label"><Clock3 size={14} /> Needs grading</p><p className="stat-value">{workspaceStats.pending}</p><p className="meta kpi-note">Ungraded submissions</p></article>
-        <article className="card kpi-card kpi-success"><p className="meta stat-label"><CheckCircle2 size={14} /> Graded</p><p className="stat-value">{workspaceStats.graded}</p><p className="meta kpi-note">Completed scores</p></article>
-      </section>
-
       {assignmentViews.length === 0 ? (
         <section className="card section-gap"><h2 className="surface-title">Assignments</h2><p className="empty">No assignments yet. Create one to start collecting recordings.</p></section>
       ) : (
         <section className="workspace-split section-gap">
           <aside className="card assignment-nav panel-subtle">
-            <h2 className="surface-title">Assignments</h2>
-            <p className="meta">Switch between assignments and see what needs grading.</p>
+            <div className="assignment-nav-heading">
+              <h2 className="surface-title">Assignments</h2>
+              <span>{assignmentViews.length}</span>
+            </div>
             <div className="assignment-list">
               {assignmentViews.map((assignment) => (
-                <button key={assignment.id} type="button" className={`assignment-nav-item ${assignment.id === activeAssignment?.id ? "is-selected" : ""}`} onClick={() => setSelectedAssignmentId(assignment.id)} disabled={bulkAiWorkflowActive}>
-                  <div className="assignment-nav-head"><p className="assignment-nav-title">{assignment.title}</p><span className={`status-badge status-${assignment.tone}`}>{assignment.label}</span></div>
-                  <div className="assignment-nav-counts"><span className="pill pill-subtle">{pluralize(assignment.totalSubmissions, "submission")}</span>{assignment.totalSubmissions === 0 ? <span className="pill pill-neutral">No activity</span> : assignment.ungradedCount > 0 ? <span className="pill pill-warning">{pluralize(assignment.ungradedCount, "ungraded")}</span> : <span className="pill pill-success">All graded</span>}</div>
+                <button key={assignment.id} type="button" className={`assignment-nav-item ${assignment.id === activeAssignment?.id ? "is-selected" : ""}`} onClick={() => { setSelectedAssignmentId(assignment.id); setAssignmentView("review"); }} disabled={bulkAiWorkflowActive}>
+                  <p className="assignment-nav-title">{assignment.title}</p>
+                  <span className={`assignment-nav-queue status-${assignment.tone}`}>
+                    {assignment.totalSubmissions === 0 ? "No activity" : assignment.ungradedCount > 0 ? pluralize(assignment.ungradedCount, "to grade") : "Complete"}
+                  </span>
                 </button>
               ))}
             </div>
@@ -1771,64 +1875,50 @@ export default function ClassDetailPage() {
                   <div><h2 className="assignment-title">{activeAssignment.title}</h2>{activeAssignment.description ? <p className="meta assignment-description">{activeAssignment.description}</p> : null}<p className="meta assignment-meta">Created {formatDate(activeAssignment.createdAt)}</p></div>
                   <div className="assignment-header-actions">
                     <span className={`status-badge status-${activeAssignment.tone}`}>{activeAssignment.label}</span>
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      onClick={openAssignmentEditModal}
-                      disabled={bulkAiWorkflowActive}
-                      aria-label={`Edit assignment ${activeAssignment.title}`}
-                      title="Edit assignment"
-                    >
-                      <Pencil size={15} aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-btn icon-btn-danger"
-                      onClick={() => setDeleteTarget({ type: "assignment", assignment: activeAssignment })}
-                      disabled={bulkAiWorkflowActive}
-                      aria-label={`Delete assignment ${activeAssignment.title}`}
-                      title="Delete assignment"
-                    >
-                      <Trash2 size={15} aria-hidden="true" />
-                    </button>
+                    <span className="assignment-header-count">{pluralize(activeAssignment.totalSubmissions, "submission")}</span>
                   </div>
                 </div>
 
-                <div className="actions assignment-actions">
-                  <Link className="btn btn-ghost" href={`/a/${activeAssignment.id}`}>Open student page</Link>
-                  <button type="button" className="btn btn-ghost" onClick={() => void copyStudentLink(activeAssignment.id)}>{copiedId === activeAssignment.id ? "Copied" : "Copy link"}</button>
-                  <button type="button" className="btn btn-ghost" onClick={() => copyAssignment(activeAssignment)}>
-                    Copy assignment
-                  </button>
-                  <span className="pill pill-subtle">{pluralize(activeAssignment.totalSubmissions, "submission")}</span>
-                  <span className={`pill ${activeAssignment.totalSubmissions === 0 ? "pill-neutral" : activeAssignment.ungradedCount > 0 ? "pill-warning" : "pill-success"}`}>{activeAssignment.totalSubmissions === 0 ? "No activity" : activeAssignment.ungradedCount > 0 ? pluralize(activeAssignment.ungradedCount, "ungraded") : "All graded"}</span>
+                <div className="assignment-view-tabs" role="tablist" aria-label="Assignment workspace">
+                  <button type="button" role="tab" aria-selected={assignmentView === "review"} className={assignmentView === "review" ? "is-active" : ""} onClick={() => setAssignmentView("review")}>Review</button>
+                  <button type="button" role="tab" aria-selected={assignmentView === "details"} className={assignmentView === "details" ? "is-active" : ""} onClick={() => setAssignmentView("details")}>Assignment</button>
+                  <button type="button" role="tab" aria-selected={assignmentView === "share"} className={assignmentView === "share" ? "is-active" : ""} onClick={() => setAssignmentView("share")}>Share</button>
                 </div>
+
                 {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
-                <div className="assignment-instructions"><p className="meta"><strong>Instructions:</strong> {activeAssignment.instructions?.trim() || "No instructions provided."}</p></div>
-                <p className="meta"><strong>Points possible:</strong> {activeAssignment.maxPoints}</p>
-                {activeAssignment.autoTranscribe ? (
-                  <div className="notice info assignment-attachment-notice">
-                    Automatic transcription is on for future submissions. Successful new transcripts
-                    use one AI-assisted recording unit each; optional grading of the same recording is included.
-                    {!aiGradingEnabled ? " AI processing is currently paused for this deployment." : ""}
-                  </div>
-                ) : null}
-                {activeAssignment.rubric ? (
-                  <div className="notice info assignment-attachment-notice">
-                    Rubric: <strong>{activeAssignment.rubric.title}</strong> with{" "}
-                    {pluralize(activeAssignment.rubric.criteria.length, "criterion")}
-                  </div>
-                ) : null}
-                {activeAssignment.attachmentUrl ? (
-                  <div className="notice info assignment-attachment-notice">
-                    Attachment: <strong>{activeAssignment.attachmentName || "Directions file"}</strong>
-                    <a className="text-link" href={`/api/assignments/${encodeURIComponent(activeAssignment.id)}/attachment`} target="_blank" rel="noreferrer">
-                      Open file
-                    </a>
-                  </div>
+                {assignmentView === "share" ? (
+                  <section className="assignment-tab-panel assignment-share-panel" role="tabpanel">
+                    <div>
+                      <h3>Student access</h3>
+                      <p className="meta">Preview the student experience or copy the class link.</p>
+                    </div>
+                    <div className="actions assignment-actions">
+                      <Link className="btn btn-primary" href={`/a/${activeAssignment.id}`}>Open student page</Link>
+                      <button type="button" className="btn btn-ghost" onClick={() => void copyStudentLink(activeAssignment.id)}>{copiedId === activeAssignment.id ? "Copied" : "Copy student link"}</button>
+                      <button type="button" className="btn btn-ghost" onClick={() => copyAssignment(activeAssignment)}>Copy assignment</button>
+                    </div>
+                  </section>
                 ) : null}
 
-                <div className="toolbar-compact">
+                {assignmentView === "details" ? (
+                  <section className="assignment-tab-panel assignment-details-panel" role="tabpanel">
+                    <div className="assignment-detail-grid">
+                      <div><span>Instructions</span><p>{activeAssignment.instructions?.trim() || "No instructions provided."}</p></div>
+                      <div><span>Points</span><p>{activeAssignment.maxPoints}</p></div>
+                      <div><span>Transcription</span><p>{activeAssignment.autoTranscribe ? "Automatic" : "Manual"}</p></div>
+                      <div><span>Rubric</span><p>{activeAssignment.rubric ? `${activeAssignment.rubric.title} · ${pluralize(activeAssignment.rubric.criteria.length, "criterion", "criteria")}` : "No rubric"}</p></div>
+                      {activeAssignment.attachmentUrl ? <div><span>Attachment</span><p><a className="text-link" href={`/api/assignments/${encodeURIComponent(activeAssignment.id)}/attachment`} target="_blank" rel="noreferrer">{activeAssignment.attachmentName || "Open directions file"}</a></p></div> : null}
+                    </div>
+                    <div className="actions assignment-management-actions">
+                      <button type="button" className="btn btn-ghost" onClick={openAssignmentEditModal} disabled={bulkAiWorkflowActive}><Pencil size={15} aria-hidden="true" /> Edit assignment</button>
+                      <button type="button" className="btn btn-danger" onClick={() => setDeleteTarget({ type: "assignment", assignment: activeAssignment })} disabled={bulkAiWorkflowActive}><Trash2 size={15} aria-hidden="true" /> Delete assignment</button>
+                    </div>
+                  </section>
+                ) : null}
+
+                {assignmentView === "review" ? (
+                <section className="assignment-tab-panel assignment-review-panel" role="tabpanel">
+                <div className="toolbar-compact grading-toolbar">
                   <label className="label toolbar-label" htmlFor="student-filter">Find student in this assignment</label>
                   <input id="student-filter" className="input toolbar-input" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Search by student name" />
                   <button type="button" className={`btn ${showUngradedOnly ? "btn-primary" : "btn-ghost"}`} onClick={() => setShowUngradedOnly((prev) => !prev)}>{showUngradedOnly ? "Ungraded only: on" : "Ungraded only"}</button>
@@ -1849,11 +1939,19 @@ export default function ClassDetailPage() {
                     </button>
                   ) : null}
                   {activeAllSubmissions.length > 0 ? (
-                    <>
-                      {aiGradingEnabled ? (
+                    <details className="workspace-more-menu grading-download-menu">
+                      <summary className="btn btn-ghost workspace-more-trigger">
+                        <span>
+                          {bulkTranscriptChecking || bulkTranscriptDownloading ? "Preparing downloads..." : "Download options"}
+                        </span>
+                        <span className="workspace-more-chevron" aria-hidden="true">
+                          <ChevronDown size={17} />
+                        </span>
+                      </summary>
+                      <div className="workspace-more-popover">
+                        {aiGradingEnabled ? (
                         <button
                           type="button"
-                          className="btn btn-ghost"
                           onClick={() => void openBulkTranscriptConfirm()}
                           disabled={
                             bulkTranscriptChecking ||
@@ -1870,16 +1968,16 @@ export default function ClassDetailPage() {
                                 : "Generating transcripts..."
                               : "Generate & download transcripts"}
                         </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        onClick={() => void downloadAllSavedTranscripts()}
-                        disabled={bulkTranscriptChecking || bulkTranscriptDownloading || bulkAiRunning}
-                      >
-                        Download saved only
-                      </button>
-                    </>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => void downloadAllSavedTranscripts()}
+                          disabled={bulkTranscriptChecking || bulkTranscriptDownloading || bulkAiRunning}
+                        >
+                          Download saved transcripts
+                        </button>
+                      </div>
+                    </details>
                   ) : null}
                   <span className="status-badge status-warning">{pluralize(activeAssignment.ungradedCount, "ungraded")}</span>
                 </div>
@@ -2000,23 +2098,23 @@ export default function ClassDetailPage() {
                                   />
                                   <button
                                     type="button"
-                                    className="icon-btn icon-btn-confirm"
+                                    className="btn btn-primary btn-sm"
                                     onClick={() => void saveSubmissionName(submission)}
                                     disabled={nameSaving || bulkAiWorkflowActive}
                                     aria-label={`Save student name for ${submission.studentName}`}
-                                    title="Save student name"
                                   >
                                     <Check size={15} aria-hidden="true" />
+                                    Save
                                   </button>
                                   <button
                                     type="button"
-                                    className="icon-btn"
+                                    className="btn btn-ghost btn-sm"
                                     onClick={() => { setEditingSubmissionId(""); setEditingSubmissionName(""); }}
                                     disabled={bulkAiWorkflowActive}
                                     aria-label={`Cancel editing student name for ${submission.studentName}`}
-                                    title="Cancel editing"
                                   >
                                     <X size={15} aria-hidden="true" />
+                                    Cancel
                                   </button>
                                 </div>
                               ) : (
@@ -2024,23 +2122,23 @@ export default function ClassDetailPage() {
                                   <strong>{submission.studentName}</strong>
                                   <button
                                     type="button"
-                                    className="icon-btn"
+                                    className="btn btn-ghost btn-sm"
                                     onClick={() => { setEditingSubmissionId(submission.id); setEditingSubmissionName(submission.studentName); }}
                                     disabled={bulkAiWorkflowActive}
                                     aria-label={`Edit student name for ${submission.studentName}`}
-                                    title="Edit student name"
                                   >
                                     <Pencil size={14} aria-hidden="true" />
+                                    Rename
                                   </button>
                                   <button
                                     type="button"
-                                    className="icon-btn icon-btn-danger"
+                                    className="btn btn-danger btn-sm"
                                     onClick={() => setDeleteTarget({ type: "submission", submission })}
                                     disabled={bulkAiWorkflowActive}
                                     aria-label={`Delete submission from ${submission.studentName}`}
-                                    title="Delete submission"
                                   >
                                     <Trash2 size={14} aria-hidden="true" />
+                                    Delete
                                   </button>
                                 </div>
                               )}
@@ -2194,6 +2292,8 @@ export default function ClassDetailPage() {
                     })}
                   </div>
                 )}
+                </section>
+                ) : null}
               </>
             )}
           </div>
@@ -2288,21 +2388,23 @@ export default function ClassDetailPage() {
                     <button
                       type="button"
                       className="btn btn-ghost"
+                      aria-label={`View details for ${entry.studentName}`}
                       onClick={() => {
                         if (!classId) return;
                         setSelectedStudentEmail(entry.studentEmail);
                         void loadStudentDetail(classId, entry.studentEmail);
                       }}
                     >
-                      View
+                      View details
                     </button>
                     <button
                       type="button"
-                      className="icon-btn icon-btn-danger"
+                      className="btn btn-danger btn-sm"
                       onClick={() => void handleRemoveStudent(entry.studentEmail)}
-                      aria-label="Remove from roster"
+                      aria-label={`Remove ${entry.studentName} from roster`}
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={14} aria-hidden="true" />
+                      Remove student
                     </button>
                   </div>
                 </div>
@@ -2417,13 +2519,38 @@ export default function ClassDetailPage() {
         onConfirm={() => void generateAndDownloadTranscripts()}
       />
 
-      {assignmentEditOpen ? (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Edit assignment">
-          <div className="modal-card">
-            <h3 className="surface-title">Edit assignment</h3>
-            <p className="meta">Update assignment name and instructions.</p>
+      {assignmentEditOpen && typeof document !== "undefined" ? createPortal(
+        <div
+          className="modal-backdrop"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !assignmentSavingRef.current) {
+              setAssignmentEditOpen(false);
+            }
+          }}
+        >
+          <div
+            ref={assignmentDialogRef}
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-assignment-dialog-title"
+            aria-describedby="edit-assignment-dialog-description"
+            tabIndex={-1}
+          >
+            <div className="dense-row">
+              <h3 id="edit-assignment-dialog-title" className="surface-title">Edit assignment</h3>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setAssignmentEditOpen(false)}
+                disabled={assignmentSaving}
+              >
+                Close
+              </button>
+            </div>
+            <p id="edit-assignment-dialog-description" className="meta">Update assignment name and instructions.</p>
             <label className="label form-label-top" htmlFor="edit-assignment-title">Assignment name</label>
-            <input id="edit-assignment-title" className="input" value={assignmentTitleDraft} onChange={(event) => setAssignmentTitleDraft(event.target.value)} maxLength={100} />
+            <input ref={assignmentTitleInputRef} id="edit-assignment-title" className="input" value={assignmentTitleDraft} onChange={(event) => setAssignmentTitleDraft(event.target.value)} maxLength={100} />
             <label className="label form-label-top" htmlFor="edit-assignment-instructions">Instructions</label>
             <textarea id="edit-assignment-instructions" className="textarea" rows={4} value={assignmentInstructionsDraft} onChange={(event) => setAssignmentInstructionsDraft(event.target.value)} maxLength={500} />
             <label className="label form-label-top" htmlFor="edit-assignment-max-points">Points possible</label>
@@ -2520,30 +2647,39 @@ export default function ClassDetailPage() {
                 <button
                   type="button"
                   className="text-link"
+                  aria-label={`Remove attachment ${assignmentAttachmentDraft.fileName}`}
                   onClick={() => setAssignmentAttachmentDraft(null)}
                 >
-                  Remove
+                  Remove attachment
                 </button>
               </div>
             ) : activeAssignment?.attachmentUrl && !assignmentAttachmentRemoved ? (
               <div className="notice info assignment-attachment-notice">
                 Current attachment: <strong>{activeAssignment.attachmentName}</strong>
-                <a className="text-link" href={`/api/assignments/${encodeURIComponent(activeAssignment.id)}/attachment`} target="_blank" rel="noreferrer">
-                  Open
+                <a
+                  className="text-link"
+                  href={`/api/assignments/${encodeURIComponent(activeAssignment.id)}/attachment`}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Open attachment ${activeAssignment.attachmentName}`}
+                >
+                  Open attachment
                 </a>
                 <button
                   type="button"
                   className="text-link"
+                  aria-label={`Remove attachment ${activeAssignment.attachmentName}`}
                   onClick={() => setAssignmentAttachmentRemoved(true)}
                 >
-                  Remove
+                  Remove attachment
                 </button>
               </div>
             ) : null}
             {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
             <div className="actions modal-actions"><button type="button" className="btn btn-ghost" onClick={() => setAssignmentEditOpen(false)} disabled={assignmentSaving}>Cancel</button><button type="button" className="btn btn-primary" onClick={() => void saveAssignmentEdit()} disabled={assignmentSaving}>{assignmentSaving ? "Saving..." : "Save changes"}</button></div>
           </div>
-        </div>
+        </div>,
+        document.body
       ) : null}
 
       {undoState ? <UndoToast message={undoState.message} expiresAt={undoState.expiresAt} onUndo={undoDelete} onDismiss={() => setUndoState(null)} /> : null}

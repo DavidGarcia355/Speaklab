@@ -188,7 +188,7 @@ export default function SubmissionTranscript({
           <h3 className="submission-transcript-title">
             <FileText size={16} aria-hidden="true" /> Transcript
           </h3>
-          <p className="meta">Generate a clean transcript for your review. AI grading is separate and optional.</p>
+          <p className="meta">Generate a clean transcript for review. AI grading is separate and optional.</p>
         </div>
         {phase === "ready" ? <span className="pill pill-success">Ready</span> : null}
       </div>

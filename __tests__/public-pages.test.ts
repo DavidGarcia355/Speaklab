@@ -75,7 +75,7 @@ describe("billing page", () => {
 
     expect(markup).toContain("Keep the classroom free");
     expect(markup).toContain("Core stays $0");
-    expect(markup).toContain("Checking your billing access");
+    expect(markup).toContain("Checking my billing access");
     expect(markup).toContain("Stripe is TryHabla&#x27;s only product-payment method");
     expect(markup).toContain("voluntary, non-tax-deductible donations only");
     expect(markup).toContain("30 AI-assisted recordings per teacher account");
@@ -91,13 +91,14 @@ describe("billing page", () => {
 });
 
 describe("public audience paths", () => {
-  it("presents self-serve access in the shared footer", async () => {
+  it("keeps the shared footer compact and audience-neutral", async () => {
     const { default: SiteFooter } = await import("@/app/components/SiteFooter");
 
     const markup = renderToStaticMarkup(SiteFooter());
 
-    expect(markup).toContain("keeps the core classroom free forever");
-    expect(markup).toContain("lifetime allowance of 30 AI-assisted recordings");
+    expect(markup).toContain("TryHabla");
+    expect(markup).toContain('href="/faq"');
+    expect(markup).not.toContain("AI-assisted recordings");
     expect(markup).not.toMatch(/pilot|request access|invite-only/i);
   });
 
@@ -155,7 +156,7 @@ describe("public audience paths", () => {
 });
 
 describe("about page", () => {
-  it("tells David's story briefly and links the family support action", async () => {
+  it("presents David and TryHabla professionally with verified contact links", async () => {
     const [{ default: AboutPage }, { default: HomePage }] = await Promise.all([
       import("@/app/about/page"),
       import("@/app/page"),
@@ -164,21 +165,27 @@ describe("about page", () => {
     const markup = renderToStaticMarkup(await AboutPage());
     const homeMarkup = renderToStaticMarkup(await HomePage());
 
-    expect(markup).toContain("Hi, I&#x27;m David.");
+    expect(markup).toContain("Hi, I&#x27;m David Garcia.");
     expect(markup).toContain("college student who built TryHabla for my mom");
     expect(markup).toContain("My mom is why TryHabla exists.");
     expect(markup).toContain("She is a Spanish teacher fighting recurrent endometrial cancer.");
+    expect(markup).toContain("Official TryHabla links");
+    expect(markup).not.toContain("Speaking assignments should feel manageable.");
     expect(markup).not.toContain("storm");
     expect(markup).not.toContain("Portage");
     expect(markup).not.toContain("our home");
     expect(markup).not.toContain("air conditioning");
-    expect(markup).toContain("Donate to support my mom via PayPal");
+    expect(markup).toContain("Support her fight");
     expect(markup).toContain("PayPal is for voluntary, non-tax-deductible donations only");
     expect(markup).toContain('data-awareness-ribbon="peach"');
     expect(markup).toContain("https://paypal.me/DavidGarcia355");
+    expect(markup).toContain("https://www.linkedin.com/in/david-garcia-78b93328a");
+    expect(markup).toContain("https://www.linkedin.com/company/tryhabla");
+    expect(markup).toContain("https://www.facebook.com/tryhabla");
+    expect(markup).toContain("mailto:davidsgarcia325@gmail.com");
     expect(markup).not.toMatch(/\bHabla\b/);
     expect(homeMarkup).toContain("href=\"/about\"");
-    expect(homeMarkup).toContain("About me");
+    expect(homeMarkup).toContain("About TryHabla");
     expect(homeMarkup).toContain("Built for my mom. Supporting her fight.");
     expect(homeMarkup).toContain("She is the reason");
     expect(homeMarkup).not.toContain("storm");

@@ -74,11 +74,11 @@ export default function StudentsPage() {
             record here
           </span>
           <Image
-            src="/mascot/habla-man.webp"
+            src="/mascot/hablaman-student-welcome-v1.png"
             alt="TryHabla superhero mascot"
-            width={420}
-            height={417}
-            priority
+            width={1254}
+            height={1254}
+            preload
           />
           <span className="student-public-pop student-public-pop-bottom">
             <MessageCircle size={14} aria-hidden="true" />

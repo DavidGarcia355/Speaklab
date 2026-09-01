@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, AudioLines, ShieldCheck } from "lucide-react";
+import { ArrowLeft, AudioWaveform, ShieldCheck } from "lucide-react";
 import BrandBar from "@/app/components/BrandBar";
+import mascotStyles from "@/app/components/OriginalMascotSlots.module.css";
 import BillingPanel from "@/app/billing/BillingPanel";
 
 export const metadata: Metadata = {
@@ -15,9 +16,9 @@ export default function BillingPage() {
     <main className="page-wrap billing-page">
       <BrandBar label="AI billing" />
 
-      <section className="billing-hero">
+      <section className={`billing-hero ${mascotStyles.billingHero}`}>
         <div>
-          <p className="pill">Optional AI</p>
+          <p className="pill">Core stays $0 · Optional AI</p>
           <h1>Keep the classroom free. Choose Teacher when AI helps.</h1>
           <p>
             Free includes a lifetime allowance of 30 AI-assisted recordings per teacher account.
@@ -25,9 +26,13 @@ export default function BillingPage() {
             optional grading, and no automatic overages.
           </p>
         </div>
-        <div className="billing-hero-mark" aria-hidden="true">
-          <AudioLines size={42} />
-          <span>Core stays $0</span>
+        <div className={`billing-hero-mark ${mascotStyles.billingMascotCard}`} aria-hidden="true">
+          <div className={mascotStyles.billingSignal}>
+            <span><AudioWaveform size={26} /></span>
+            <span><AudioWaveform size={34} /></span>
+            <span><AudioWaveform size={26} /></span>
+          </div>
+          <span>No surprise usage</span>
         </div>
       </section>
 

@@ -2,7 +2,8 @@ param(
   [string]$EnvFile = ".env.local",
   [string[]]$Targets = @("preview"),
   [switch]$IncludeOptionalClientEnv,
-  [switch]$PrivateDeployment
+  [switch]$PrivateDeployment,
+  [string]$ProductionOrigin = "https://tryhabla.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -68,6 +69,26 @@ if ($missing.Count -gt 0) {
 }
 
 if ($Targets -contains "production") {
+  $nextAuthUrl = $values["NEXTAUTH_URL"].Trim().TrimEnd("/")
+  $reviewedProductionOrigin = $ProductionOrigin.Trim().TrimEnd("/")
+  if ($nextAuthUrl -notmatch '^https://[^/?#]+(?::\d+)?$') {
+    Write-Error "NEXTAUTH_URL must be an HTTPS origin with no path, query, or fragment before syncing production."
+  }
+  if ($nextAuthUrl -ne $reviewedProductionOrigin) {
+    Write-Error "NEXTAUTH_URL must match the reviewed production origin '$reviewedProductionOrigin' before syncing production."
+  }
+  if (
+    $values.ContainsKey("LOCAL_DEV_BYPASS_AUTH") -and
+    $values["LOCAL_DEV_BYPASS_AUTH"].Trim().ToLowerInvariant() -eq "true"
+  ) {
+    Write-Error "LOCAL_DEV_BYPASS_AUTH=true is local-only and cannot be present in a production sync source."
+  }
+  foreach ($secretKey in @("AUTH_SECRET", "CRON_SECRET")) {
+    if ($values[$secretKey].Trim().Length -lt 32) {
+      Write-Error "$secretKey must contain at least 32 characters before syncing production."
+    }
+  }
+
   $registrationKey = "ALLOW_TEACHER_SELF_REGISTRATION"
   if (-not $values.ContainsKey($registrationKey) -or [string]::IsNullOrWhiteSpace($values[$registrationKey])) {
     Write-Error "$registrationKey must be explicit for production: true for public TryHabla, or false with -PrivateDeployment."

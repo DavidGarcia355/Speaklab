@@ -1,0 +1,203 @@
+.classesHero,
+.recordingsHero {
+  min-height: 250px;
+}
+
+.classesVisual,
+.recordingsVisual {
+  position: relative;
+  align-self: stretch;
+  min-width: min(48%, 510px);
+  justify-content: center;
+}
+
+.hubLinks {
+  position: absolute;
+  top: -2.05rem;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.oceanMascot {
+  width: min(100%, 500px);
+  height: 100%;
+  max-height: 230px;
+  object-fit: contain;
+  object-position: center bottom;
+  margin-top: 0.35rem;
+  filter: drop-shadow(7px 8px 0 color-mix(in srgb, var(--coral) 32%, transparent));
+}
+
+.recordingsWrap {
+  width: min(1080px, calc(100% - 2rem));
+}
+
+.recordingsHero {
+  margin-top: 0;
+}
+
+.recordingsMascot {
+  width: min(100%, 360px);
+  height: 230px;
+  object-fit: contain;
+  object-position: center bottom;
+  margin-top: 0.35rem;
+  filter: drop-shadow(7px 8px 0 color-mix(in srgb, var(--coral) 32%, transparent));
+}
+
+.recordingsBadge {
+  position: absolute;
+  right: 0.25rem;
+  bottom: 0.15rem;
+  z-index: 3;
+  display: inline-flex;
+  padding: 0.4rem 0.58rem;
+  border: 2px solid var(--text);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mint) 62%, var(--surface));
+  color: var(--text);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  box-shadow: 4px 4px 0 var(--text);
+  transform: rotate(2deg);
+}
+
+.recordingStats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.recordingStats > article {
+  min-height: 112px;
+  padding: 0.82rem 0.9rem;
+}
+
+.recordingStats :global(.student-console-value) {
+  font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+}
+
+@media (max-width: 720px) {
+  .classesHero,
+  .recordingsHero {
+    min-height: 205px;
+    gap: 0.5rem;
+  }
+
+  .classesVisual,
+  .recordingsVisual {
+    min-width: 132px;
+  }
+
+  .hubLinks.hubLinks {
+    position: absolute;
+    top: -0.55rem;
+    right: 0;
+    display: flex;
+    width: min(44vw, 188px);
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.2rem 0.55rem;
+  }
+
+  .hubLinks :global(.student-text-link) {
+    min-height: 28px;
+    font-size: 0.7rem;
+    border-bottom-width: 2px;
+  }
+
+  .oceanMascot {
+    width: 245px;
+    max-width: none;
+    height: 165px;
+    margin-top: 1.75rem;
+    object-position: center bottom;
+    transform: translateX(3%);
+  }
+
+  .recordingsMascot {
+    width: 150px;
+    height: 160px;
+    margin-top: 1.35rem;
+  }
+
+  .recordingsBadge {
+    right: -0.15rem;
+    bottom: 0;
+    padding: 0.3rem 0.42rem;
+    font-size: 0.62rem;
+    box-shadow: 3px 3px 0 var(--text);
+  }
+
+  .recordingStats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+
+  .recordingStats > article {
+    min-height: 92px;
+    padding: 0.65rem;
+  }
+
+  .recordingStats :global(.kpi-note) {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .classesHero.classesHero {
+    min-height: 330px;
+  }
+
+  .classesHero,
+  .recordingsHero {
+    padding: 1rem;
+  }
+
+  .classesHero > div:first-of-type,
+  .recordingsHero > div:first-of-type {
+    min-width: 0;
+  }
+
+  .classesVisual,
+  .recordingsVisual {
+    min-width: 105px;
+  }
+
+  .classesVisual.classesVisual {
+    position: static;
+    min-width: 0;
+  }
+
+  .classesVisual .hubLinks {
+    top: 0.45rem;
+    right: 1rem;
+  }
+
+  .oceanMascot {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 300px;
+    height: 169px;
+    margin-top: 0;
+    object-position: right bottom;
+    transform: none;
+  }
+
+  .recordingsMascot {
+    width: 125px;
+    height: 145px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oceanMascot,
+  .recordingsMascot {
+    animation: none;
+  }
+}

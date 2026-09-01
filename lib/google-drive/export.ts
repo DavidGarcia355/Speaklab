@@ -140,7 +140,7 @@ async function fetchGoogleDrivePublicConfigUncached(
   } catch {
     throw new GoogleDriveExportError(
       "network",
-      "Could not check Google Drive availability. Check your connection and try again.",
+      "Could not check Google Drive availability. Check the internet connection and try again.",
     );
   }
   if (!response.ok) {
@@ -186,7 +186,7 @@ export async function fetchProtectedSubmissionAssets(input: {
   } catch {
     throw new GoogleDriveExportError(
       "network",
-      "Could not load this recording from TryHabla. Check your connection and try again.",
+      "Could not load this recording from TryHabla. Check the internet connection and try again.",
     );
   }
 
@@ -268,7 +268,7 @@ async function driveError(response: Response, operation: string): Promise<never>
   if (response.status === 403) {
     throw new GoogleDriveExportError(
       "drive",
-      "Google Drive blocked this export. Check your school Google account's app permissions or choose another authorized account.",
+      "Google Drive blocked this export. Check the school Google account's app permissions or choose another authorized account.",
     );
   }
   if (response.status === 429 || response.status >= 500) {
@@ -296,7 +296,7 @@ async function requestDriveJson<T>(
   } catch {
     throw new GoogleDriveExportError(
       "network",
-      `Could not reach Google Drive to ${operation}. Check your connection and try again.`,
+      `Could not reach Google Drive to ${operation}. Check the internet connection and try again.`,
     );
   }
   if (!response.ok) await driveError(response, operation);
@@ -495,7 +495,7 @@ async function uploadAudioResumable(input: {
   } catch {
     throw new GoogleDriveExportError(
       "network",
-      "Could not start the Google Drive recording upload. Check your connection and try again.",
+      "Could not start the Google Drive recording upload. Check the internet connection and try again.",
     );
   }
   if (!sessionResponse.ok) await driveError(sessionResponse, "start the recording upload");

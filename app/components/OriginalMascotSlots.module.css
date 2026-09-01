@@ -1,0 +1,83 @@
+.teacherHero {
+  grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.65fr);
+}
+
+.teacherHero .teacherMascot.teacherMascot {
+  width: min(92%, 250px);
+  object-fit: contain;
+  animation: none;
+  transform: none;
+}
+
+.billingHero .billingMascotCard {
+  width: clamp(190px, 22vw, 252px);
+  min-width: 0;
+  aspect-ratio: auto;
+  gap: 0.25rem;
+  padding: 0.55rem 0.7rem 0.65rem;
+  transform: rotate(-3deg);
+}
+
+.billingSignal {
+  min-height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.billingSignal > span {
+  width: 3.35rem;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--house-ink);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--primary);
+  box-shadow: 4px 5px 0 var(--house-mango-shadow);
+}
+
+.billingSignal > span:nth-child(2) {
+  width: 4.1rem;
+  color: var(--mango-deep);
+  transform: translateY(-0.45rem);
+}
+
+.billingHero .billingMascotCard span {
+  max-width: 18ch;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.72rem;
+  line-height: 1.25;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+@media (max-width: 760px) {
+  .billingHero .billingMascotCard {
+    width: min(100%, 210px);
+  }
+}
+
+@media (max-width: 620px) {
+  .teacherHero {
+    grid-template-columns: 1fr;
+  }
+
+  .teacherHero .teacherMascot.teacherMascot {
+    width: min(72%, 214px);
+  }
+
+  .billingHero .billingMascotCard {
+    justify-self: center;
+    width: min(76%, 200px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .teacherHero .teacherMascot.teacherMascot,
+  .billingSignal > span {
+    animation: none;
+    transition: none;
+  }
+}

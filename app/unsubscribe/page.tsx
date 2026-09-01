@@ -1,6 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
+import BeltMark from "@/app/components/BeltMark";
 import { verifyMarketingUnsubscribeToken } from "@/lib/marketing-unsubscribe";
+
+export const metadata: Metadata = {
+  title: "Email Preferences",
+  robots: { index: false, follow: false },
+};
 
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] || "" : value || "";
@@ -13,6 +21,20 @@ function maskEmail(email: string) {
   return `${visible}${"•".repeat(Math.max(3, local.length - visible.length))}@${domain}`;
 }
 
+function UnsubscribeShell({ children }: { children: ReactNode }) {
+  return (
+    <main className="unsubscribe-page">
+      <section className="unsubscribe-card">
+        <Link href="/" className="unsubscribe-brand" aria-label="TryHabla home">
+          <BeltMark />
+          <span>TryHabla</span>
+        </Link>
+        {children}
+      </section>
+    </main>
+  );
+}
+
 export default async function UnsubscribePage({
   searchParams,
 }: {
@@ -23,17 +45,14 @@ export default async function UnsubscribePage({
 
   if (status === "done") {
     return (
-      <main className="mx-auto flex min-h-screen max-w-xl items-center px-6 py-16">
-        <section className="w-full rounded-2xl border border-black/10 bg-white p-8 shadow-sm">
-          <Link href="/" className="text-xl font-semibold tracking-tight text-black">
-            TryHabla
-          </Link>
-          <h1 className="mt-8 text-2xl font-semibold text-black">You’re unsubscribed.</h1>
-          <p className="mt-3 text-sm leading-6 text-black/65">
-            You won’t receive future TryHabla product and update emails.
-          </p>
-        </section>
-      </main>
+      <UnsubscribeShell>
+        <p className="pill">Email preferences</p>
+        <h1>You’re unsubscribed.</h1>
+        <p>You won’t receive future TryHabla product and update emails.</p>
+        <Link href="/" className="btn btn-ghost unsubscribe-home-link">
+          Back to TryHabla
+        </Link>
+      </UnsubscribeShell>
     );
   }
 
@@ -42,44 +61,38 @@ export default async function UnsubscribePage({
   const valid = verifyMarketingUnsubscribeToken(email, token);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-xl items-center px-6 py-16">
-      <section className="w-full rounded-2xl border border-black/10 bg-white p-8 shadow-sm">
-        <Link href="/" className="text-xl font-semibold tracking-tight text-black">
-          TryHabla
-        </Link>
-
-        {valid ? (
-          <>
-            <h1 className="mt-8 text-2xl font-semibold text-black">Unsubscribe from TryHabla updates?</h1>
-            <p className="mt-3 text-sm leading-6 text-black/65">
-              This will stop product and update emails to {maskEmail(email)}. Your TryHabla account and classroom data are not affected.
-            </p>
-            <form
-              action={`/api/email/unsubscribe?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`}
-              method="post"
-              className="mt-6"
-            >
-              <input type="hidden" name="source" value="browser" />
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-black px-4 py-3 font-medium text-white"
-              >
-                Unsubscribe
-              </button>
-            </form>
-            <Link href="/" className="mt-4 block text-center text-sm text-black/60 underline">
-              Keep me subscribed
-            </Link>
-          </>
-        ) : (
-          <>
-            <h1 className="mt-8 text-2xl font-semibold text-black">This unsubscribe link isn’t valid.</h1>
-            <p className="mt-3 text-sm leading-6 text-black/65">
-              Please use the unsubscribe link from the most recent TryHabla update email.
-            </p>
-          </>
-        )}
-      </section>
-    </main>
+    <UnsubscribeShell>
+      <p className="pill">Email preferences</p>
+      {valid ? (
+        <>
+          <h1>Unsubscribe from TryHabla updates?</h1>
+          <p>
+            This will stop product and update emails to {maskEmail(email)}. Your TryHabla account
+            and classroom data are not affected.
+          </p>
+          <form
+            action={`/api/email/unsubscribe?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`}
+            method="post"
+            className="unsubscribe-actions"
+          >
+            <input type="hidden" name="source" value="browser" />
+            <button type="submit" className="btn btn-primary">
+              Unsubscribe
+            </button>
+          </form>
+          <Link href="/" className="student-text-link unsubscribe-keep-link">
+            Keep me subscribed
+          </Link>
+        </>
+      ) : (
+        <>
+          <h1>This unsubscribe link isn’t valid.</h1>
+          <p>Please use the unsubscribe link from the most recent TryHabla update email.</p>
+          <Link href="/" className="btn btn-ghost unsubscribe-home-link">
+            Back to TryHabla
+          </Link>
+        </>
+      )}
+    </UnsubscribeShell>
   );
 }

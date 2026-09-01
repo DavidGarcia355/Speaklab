@@ -1,8 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, CircleDot, LoaderCircle, Mic } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, CircleDot, LoaderCircle, Mic } from "lucide-react";
 import AudioPlayer from "@/app/components/AudioPlayer";
 import BrandBar from "@/app/components/BrandBar";
 import SignInLink from "@/app/components/SignInLink";
@@ -25,6 +26,7 @@ import {
   shouldAutoStopAudioRecording,
   TARGET_AUDIO_BITS_PER_SECOND,
 } from "@/lib/upload-limits";
+import styles from "./student-assignment.module.css";
 
 type AssignmentDetail = {
   id: string;
@@ -105,7 +107,7 @@ function getRecorderBanner(options: {
     return {
       tone: "state-success",
       icon: <CheckCircle2 size={16} aria-hidden="true" />,
-      text: "Submitted! Your teacher will review your recording.",
+      text: "Submitted! The recording is ready for teacher review.",
     };
   }
 
@@ -519,11 +521,11 @@ export default function StudentAssignmentClient({
 
     const cleanName = studentName.trim();
     if (!cleanName) {
-      setErrorMsg("Enter your name before submitting.");
+      setErrorMsg("Enter a name before submitting.");
       return;
     }
     if (!recordingBlob) {
-      setErrorMsg("Record your response first.");
+      setErrorMsg("Record a response first.");
       return;
     }
     if (!isAudioUploadSizeAllowed(recordingBlob.size)) {
@@ -560,7 +562,7 @@ export default function StudentAssignmentClient({
     } catch (error) {
       const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
       console.error("Submit fetch failed", reason);
-      setErrorMsg(`Couldn't reach the server (${reason}). Check your connection and try again.`);
+      setErrorMsg(`Couldn't reach the server (${reason}). Check the connection and try again.`);
       setRecorderState("ready");
       return;
     }
@@ -583,7 +585,7 @@ export default function StudentAssignmentClient({
 
     setSubmittedCurrentRecording(true);
     setSubmissionCount((prev) => prev + 1);
-    setStatusMsg("Submitted! Your teacher will review your recording.");
+    setStatusMsg("Submitted! The recording is ready for teacher review.");
     setRecorderState("ready");
   }
 
@@ -635,27 +637,35 @@ export default function StudentAssignmentClient({
   }
 
   return (
-    <main className="page-wrap">
+    <main className={`page-wrap ${styles.page}`}>
       <PageTitle title={`Assignment: ${assignment.title}`} />
       <BrandBar label="Student Submission" />
 
-      <section className="hero student-hero">
-        <p className="pill">{assignment.className}</p>
-        <h1>{assignment.title}</h1>
-        {assignment.description ? <p>{assignment.description}</p> : null}
-        <p className="meta">
-          Respond in {assignment.targetLanguage || "Spanish"} · Worth {assignment.maxPoints} points
-        </p>
+      <section className={styles.hero} aria-labelledby="assignment-title">
+        <span className={styles.heroEcho} aria-hidden="true">
+          Speak
+        </span>
+        <div className={styles.heroCopy}>
+          <p className={`pill ${styles.classPill}`}>{assignment.className}</p>
+          <h1 id="assignment-title">{assignment.title}</h1>
+          {assignment.description ? <p className={styles.description}>{assignment.description}</p> : null}
+          <p className="meta">
+            Respond in {assignment.targetLanguage || "Spanish"} · Worth {assignment.maxPoints} points
+          </p>
+        </div>
       </section>
 
-      <section className="grid cols-2 section-gap">
-        <article className="card">
-          <h2 className="surface-title">Instructions</h2>
-          <p className="meta instruction-copy">
-            {assignment.instructions || "Your teacher hasn't added instructions yet."}
+      <section className={styles.workspace}>
+        <article className={styles.instructions}>
+          <div className={styles.sectionHeading}>
+            <span className={styles.sectionKicker}>Brief</span>
+            <h2>Instructions</h2>
+          </div>
+          <p className={`instruction-copy ${styles.instructionCopy}`}>
+            {assignment.instructions || "No instructions have been added yet."}
           </p>
           {assignment.attachmentUrl ? (
-            <div className="notice info assignment-attachment-notice">
+            <div className={`notice info assignment-attachment-notice ${styles.attachment}`}>
               <span>
                 Attachment: <strong>{assignment.attachmentName || "Directions file"}</strong>
               </span>
@@ -671,17 +681,23 @@ export default function StudentAssignmentClient({
           ) : null}
         </article>
 
-        <article className="card panel-subtle">
-          <h2 className="surface-title">Record your response</h2>
-          <div className="record-module">
+        <article className={styles.responsePanel} aria-labelledby="response-title">
+          <div className={styles.responseHeading}>
+            <div className={styles.sectionHeading}>
+              <span className={styles.sectionKicker}>Recorder</span>
+              <h2 id="response-title">My response</h2>
+            </div>
+            <p>Complete each step, listen once, then send it.</p>
+          </div>
+          <div className={styles.recordModule}>
             {authLoading ? (
-              <p className="notice info">Checking sign-in status...</p>
+              <p className={`notice info ${styles.authNotice}`}>Checking sign-in status...</p>
             ) : studentEmail ? (
-              <div className="auth-status-bar">
-                <p className="notice success auth-status-notice">
+              <div className={styles.authBar}>
+                <p className={`notice success auth-status-notice ${styles.authNotice}`}>
                   Signed in as <strong>{studentEmail}</strong>
                 </p>
-                <div className="auth-status-actions">
+                <div className={`auth-status-actions ${styles.authActions}`}>
                   <a className="btn btn-ghost btn-sm" href="/student">My submissions</a>
                   <a className="btn btn-ghost btn-sm" href={`/api/auth/signout?callbackUrl=${encodeURIComponent(callbackUrl)}`}>
                     Sign out
@@ -691,7 +707,7 @@ export default function StudentAssignmentClient({
             ) : localAuthBypassEnabled ? (
               <p className="notice info">Local dev auth bypass is on — sign-in is skipped. Record and submit below.</p>
             ) : (
-              <div className="auth-signin-prompt">
+              <div className={`auth-signin-prompt ${styles.signInPrompt}`}>
                 <p className="meta">Sign in with your school account to submit your recording.</p>
                 <SignInLink
                   className="btn btn-primary"
@@ -703,123 +719,193 @@ export default function StudentAssignmentClient({
               </div>
             )}
 
-            <div className="record-top">
-              <p className="meta recorder-note">Enter your name, record your response, play it back, then submit.</p>
-              <p className="notice info">
-                {STUDENT_AI_GRADING_DISCLOSURE}
-              </p>
-              {assignment.autoTranscribe ? (
-                <p className="notice warning">
-                  Automatic transcription is on for this assignment. After you submit, TryHabla will
-                  send your recording to its configured AI transcription provider and save the transcript
-                  for your teacher. This does not automatically grade your work.
-                </p>
-              ) : null}
-              {maxSubs > 0 ? (
-                <p className={`notice ${atSubmissionLimit ? "danger" : "info"}`}>
-                  {atSubmissionLimit
-                    ? `You've used all ${maxSubs} submission${maxSubs === 1 ? "" : "s"}. Delete a previous one from your dashboard to submit again.`
-                    : `${submissionCount} of ${maxSubs} submission${maxSubs === 1 ? "" : "s"} used.`}
-                </p>
-              ) : null}
-              {maxRecSec !== DEFAULT_MAX_RECORDING_SECONDS ? (
-                <p className="meta">Max recording length: {maxRecSec} seconds</p>
-              ) : null}
-              <p className={`state-banner ${recorderBanner.tone}`}>
-                <span className="state-banner-icon">{recorderBanner.icon}</span>
-                <span>{recorderBanner.text}</span>
-              </p>
-              <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-                {recorderAnnouncement}
-              </p>
-              {permissionState === "denied" ? (
-                <p className="notice danger">
-                  Microphone is blocked. Open browser site settings and allow microphone access.
-                </p>
-              ) : null}
-            </div>
-
-            <div>
-              <label className="label" htmlFor="student-name">
-                Your name
-              </label>
-              <input
-                id="student-name"
-                className="input"
-                value={studentName}
-                onChange={(event) => setStudentName(event.target.value)}
-                placeholder="Your full name"
-                maxLength={80}
-              />
-              <p className="meta field-meta">{studentName.length}/80</p>
-            </div>
-
-            <div className="actions record-controls">
-              {recorderState !== "recording" ? (
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  onClick={startRecording}
-                  disabled={
-                    (!studentEmail && !localAuthBypassEnabled) ||
-                    !micSupported ||
-                    recorderState === "requesting-permission" ||
-                    recorderState === "finalizing" ||
-                    recorderState === "submitting" ||
-                    atSubmissionLimit
-                  }
-                >
-                  Start recording
-                </button>
-              ) : (
-                <button className="btn btn-danger" type="button" onClick={() => stopRecording()}>
-                  Stop recording
-                </button>
-              )}
-
-              <button
-                className="btn btn-ghost"
-                type="button"
-                onClick={() => void submitResponse()}
-                disabled={
-                  (!studentEmail && !localAuthBypassEnabled) ||
-                  recorderState === "requesting-permission" ||
-                  recorderState === "recording" ||
-                  recorderState === "finalizing" ||
-                  recorderState === "submitting" ||
-                  !recordingBlob ||
-                  submittedCurrentRecording ||
-                  atSubmissionLimit
-                }
-              >
-                {recorderState === "submitting" ? "Submitting..." : "Submit response"}
-              </button>
-
-              {recordingBlob ? (
-                <button className="btn btn-ghost" type="button" onClick={clearRecording}>
-                  Record again
-                </button>
-              ) : null}
-            </div>
-
-            {recordingUrl ? (
-              <div className="recording-ready">
-                <span className="pill pill-success">Recording ready</span>
-                <AudioPlayer src={recordingUrl} variant="default" showSpeed />
+            <details className={styles.aiDisclosure}>
+              <summary>
+                <span>How AI may be used</span>
+                <span className={styles.disclosureHint}>Optional features &amp; privacy</span>
+                <span className={styles.disclosureChevron} aria-hidden="true">
+                  <ChevronDown size={17} />
+                </span>
+              </summary>
+              <div className={styles.disclosureBody}>
+                <p>{STUDENT_AI_GRADING_DISCLOSURE}</p>
+                {assignment.autoTranscribe ? (
+                  <p className={styles.autoTranscribeNotice}>
+                    Automatic transcription is on for this assignment. After you submit, TryHabla will
+                    send the recording to its configured AI transcription provider and save the transcript
+                    for teacher review. This does not automatically grade the work.
+                  </p>
+                ) : null}
               </div>
+            </details>
+
+            {maxSubs > 0 ? (
+              <p className={`notice ${atSubmissionLimit ? "danger" : "info"} ${styles.limitNotice}`}>
+                {atSubmissionLimit
+                  ? `Submission limit reached (${maxSubs}). Delete a previous recording from My submissions to submit again.`
+                  : `${submissionCount} of ${maxSubs} submission${maxSubs === 1 ? "" : "s"} used.`}
+              </p>
             ) : null}
 
-            {submittedCurrentRecording && statusMsg ? (
-              <div className="submission-success-block">
-                <p className="submission-confirm">
-                  <CheckCircle2 size={16} aria-hidden="true" /> {statusMsg}
-                </p>
-                <a className="btn btn-ghost btn-sm" href="/student" style={{ marginTop: "0.5rem" }}>
-                  View all your submissions
-                </a>
-              </div>
-            ) : null}
-            {!submittedCurrentRecording && statusMsg ? <p className="notice info">{statusMsg}</p> : null}
+            <div className={styles.steps}>
+              <section className={styles.step} aria-labelledby="name-step-title">
+                <div className={styles.stepHeader}>
+                  <span className={styles.stepNumber} aria-hidden="true">01</span>
+                  <div>
+                    <h3 id="name-step-title">Name</h3>
+                    <p>Identify the recording.</p>
+                  </div>
+                </div>
+                <div className={styles.stepBody}>
+                  <label className="label" htmlFor="student-name">
+                    My name
+                  </label>
+                  <input
+                    id="student-name"
+                    className="input"
+                    value={studentName}
+                    onChange={(event) => setStudentName(event.target.value)}
+                    placeholder="Full name"
+                    maxLength={80}
+                    aria-describedby="student-name-count"
+                  />
+                  <p className={`meta field-meta ${styles.fieldMeta}`} id="student-name-count">
+                    {studentName.length}/80
+                  </p>
+                </div>
+              </section>
+
+              <section className={styles.step} aria-labelledby="record-step-title">
+                <div className={styles.stepHeader}>
+                  <span className={styles.stepNumber} aria-hidden="true">02</span>
+                  <div>
+                    <h3 id="record-step-title">Record</h3>
+                    <p>
+                      {maxRecSec !== DEFAULT_MAX_RECORDING_SECONDS
+                        ? `Up to ${maxRecSec} seconds.`
+                        : "Speak clearly and at a natural pace."}
+                    </p>
+                  </div>
+                </div>
+                <div className={styles.stepBody}>
+                  <p className={`state-banner ${recorderBanner.tone} ${styles.stateBanner}`}>
+                    <span className="state-banner-icon">{recorderBanner.icon}</span>
+                    <span>{recorderBanner.text}</span>
+                  </p>
+                  <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                    {recorderAnnouncement}
+                  </p>
+                  {permissionState === "denied" ? (
+                    <p className={`notice danger ${styles.inlineNotice}`}>
+                      Microphone is blocked. Open browser site settings and allow microphone access.
+                    </p>
+                  ) : null}
+                  <div className={`actions record-controls ${styles.stepActions}`}>
+                    {recorderState !== "recording" ? (
+                      <button
+                        className="btn btn-primary"
+                        type="button"
+                        onClick={startRecording}
+                        disabled={
+                          (!studentEmail && !localAuthBypassEnabled) ||
+                          !micSupported ||
+                          recorderState === "requesting-permission" ||
+                          recorderState === "finalizing" ||
+                          recorderState === "submitting" ||
+                          atSubmissionLimit
+                        }
+                      >
+                        <Mic size={17} aria-hidden="true" />
+                        Start recording
+                      </button>
+                    ) : (
+                      <button className="btn btn-danger" type="button" onClick={() => stopRecording()}>
+                        Stop recording
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section className={`${styles.step} ${styles.reviewStep}`} aria-labelledby="review-step-title">
+                <div className={styles.stepHeader}>
+                  <span className={styles.stepNumber} aria-hidden="true">03</span>
+                  <div>
+                    <h3 id="review-step-title">Review &amp; submit</h3>
+                    <p>Listen back before sending.</p>
+                  </div>
+                </div>
+                <div className={styles.stepBody}>
+                  {submittedCurrentRecording && statusMsg ? (
+                    <div className={styles.successPanel}>
+                      <div className={styles.successCopy}>
+                        <span className={styles.successEyebrow}>
+                          <CheckCircle2 size={16} aria-hidden="true" /> Submitted
+                        </span>
+                        <h3>Recording delivered.</h3>
+                        <p>{statusMsg}</p>
+                        <div className={`actions ${styles.successActions}`}>
+                          <a className="btn btn-primary btn-sm" href="/student">
+                            View my submissions
+                          </a>
+                          <button className="btn btn-ghost btn-sm" type="button" onClick={clearRecording}>
+                            Record another response
+                          </button>
+                        </div>
+                      </div>
+                      <div className={styles.successMascot} aria-hidden="true">
+                        <Image
+                          src="/mascot/hablaman-student-submission-freedom-v1.png"
+                          alt=""
+                          fill
+                          sizes="(max-width: 720px) 180px, 280px"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {recordingUrl ? (
+                        <div className={styles.recordingReady}>
+                          <span className="pill pill-success">Recording ready</span>
+                          <AudioPlayer src={recordingUrl} variant="default" showSpeed />
+                        </div>
+                      ) : (
+                        <p className={styles.reviewEmpty}>The playback and submit controls appear after recording.</p>
+                      )}
+
+                      <div className={`actions ${styles.stepActions}`}>
+                        <button
+                          className="btn btn-primary"
+                          type="button"
+                          onClick={() => void submitResponse()}
+                          disabled={
+                            (!studentEmail && !localAuthBypassEnabled) ||
+                            recorderState === "requesting-permission" ||
+                            recorderState === "recording" ||
+                            recorderState === "finalizing" ||
+                            recorderState === "submitting" ||
+                            !recordingBlob ||
+                            submittedCurrentRecording ||
+                            atSubmissionLimit
+                          }
+                        >
+                          {recorderState === "submitting" ? "Submitting..." : "Submit response"}
+                        </button>
+
+                        {recordingBlob ? (
+                          <button className="btn btn-ghost" type="button" onClick={clearRecording}>
+                            Record again
+                          </button>
+                        ) : null}
+                      </div>
+                      {!submittedCurrentRecording && statusMsg ? (
+                        <p className={`notice info ${styles.inlineNotice}`}>{statusMsg}</p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </section>
+            </div>
           </div>
         </article>
       </section>

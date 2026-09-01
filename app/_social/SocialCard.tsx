@@ -1,4 +1,13 @@
+/* eslint-disable @next/next/no-img-element -- ImageResponse renders local image bytes through Satori. */
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { APP_NAME } from "@/app/constants";
+
+const buckleData = await readFile(
+  join(process.cwd(), "public", "tryhabla-belt-mark.png")
+);
+const buckleSrc = Uint8Array.from(buckleData).buffer;
 
 export default function SocialCard() {
   return (
@@ -29,17 +38,19 @@ export default function SocialCard() {
         <div
           style={{
             alignItems: "center",
-            background: "#ffb45e",
-            borderRadius: 18,
-            color: "#102743",
             display: "flex",
-            fontSize: 32,
-            height: 62,
+            height: 70,
             justifyContent: "center",
-            width: 62,
+            width: 70,
           }}
         >
-          H
+          <img
+            alt=""
+            height={70}
+            src={buckleSrc as unknown as string}
+            style={{ objectFit: "contain" }}
+            width={69}
+          />
         </div>
         {APP_NAME}
       </div>

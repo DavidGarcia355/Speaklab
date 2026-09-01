@@ -58,7 +58,7 @@ export default function NewClassPage() {
 
       <section className="card form-shell panel-subtle">
         <h1 className="surface-title">Create a class</h1>
-        <p className="meta">Name your class and jump straight into assignment setup.</p>
+        <p className="meta">Name the class and jump straight into assignment setup.</p>
 
         <form onSubmit={handleSubmit}>
           <label className="label" htmlFor="class-name">

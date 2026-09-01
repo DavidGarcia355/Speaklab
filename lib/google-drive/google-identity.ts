@@ -79,7 +79,7 @@ export function loadGoogleIdentityServices(): Promise<void> {
         reject(
           new GoogleDriveExportError(
             "network",
-            "Could not load Google Drive sign-in. Check your connection and try again.",
+            "Could not load Google Drive sign-in. Check the internet connection and try again.",
           ),
         );
       });
@@ -90,7 +90,7 @@ export function loadGoogleIdentityServices(): Promise<void> {
         reject(
           new GoogleDriveExportError(
             "network",
-            "Google Drive sign-in took too long to load. Check your connection and try again.",
+            "Google Drive sign-in took too long to load. Check the internet connection and try again.",
           ),
         );
       });

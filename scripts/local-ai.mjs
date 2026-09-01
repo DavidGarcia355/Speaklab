@@ -10,6 +10,32 @@ const classId = "local_ai_class";
 const assignmentId = "local_ai_assignment";
 const submissionId = "local_ai_submission";
 
+function createSilentWavFixtureDataUrl(durationMilliseconds = 250) {
+  const sampleRate = 8_000;
+  const bitsPerSample = 8;
+  const channels = 1;
+  const sampleCount = Math.max(1, Math.round((sampleRate * durationMilliseconds) / 1_000));
+  const dataSize = sampleCount * channels;
+  const wav = Buffer.alloc(44 + dataSize);
+
+  wav.write("RIFF", 0, "ascii");
+  wav.writeUInt32LE(wav.length - 8, 4);
+  wav.write("WAVE", 8, "ascii");
+  wav.write("fmt ", 12, "ascii");
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(channels, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * channels * (bitsPerSample / 8), 28);
+  wav.writeUInt16LE(channels * (bitsPerSample / 8), 32);
+  wav.writeUInt16LE(bitsPerSample, 34);
+  wav.write("data", 36, "ascii");
+  wav.writeUInt32LE(dataSize, 40);
+  wav.fill(128, 44);
+
+  return `data:audio/wav;base64,${wav.toString("base64")}`;
+}
+
 function readEnv() {
   const file = path.join(root, ".env.local");
   const env = {};
@@ -65,11 +91,11 @@ async function seed() {
       { id: "language", name: "Language", description: "Uses target-language vocabulary.", maxPoints: 5 },
     ],
   });
-  const audio = `data:audio/webm;base64,${Buffer.from("synthetic local audio fixture").toString("base64")}`;
+  const audio = createSilentWavFixtureDataUrl();
   await exec(db, "INSERT INTO users (email, role, created_at, is_paid) VALUES (?, 'teacher', ?, 1) ON CONFLICT(email) DO UPDATE SET role='teacher', is_paid=1", [teacherEmail, now]);
   await exec(db, "INSERT INTO classes (id, name, owner_email, created_at, deleted_at) VALUES (?, 'Local AI Test Class', ?, ?, NULL) ON CONFLICT(id) DO UPDATE SET owner_email=excluded.owner_email, deleted_at=NULL", [classId, teacherEmail, now]);
   await exec(db, "INSERT INTO assignments (id, class_id, title, description, instructions, max_points, max_submissions, max_recording_seconds, rubric, attachment_name, attachment_url, attachment_content_type, created_at, deleted_at) VALUES (?, ?, 'Local AI Speaking Test', '', 'Introduce yourself and describe your school day in Spanish.', 10, 0, 180, ?, '', '', '', ?, NULL) ON CONFLICT(id) DO UPDATE SET rubric=excluded.rubric, instructions=excluded.instructions, deleted_at=NULL", [assignmentId, classId, rubric, now]);
-  await exec(db, "INSERT INTO submissions (id, assignment_id, student_name, student_email, audio_data, audio_blob_url, submitted_at, feedback, grade, rubric_scores, deleted_at) VALUES (?, ?, 'Local AI Student', ?, ?, NULL, ?, '', NULL, NULL, NULL) ON CONFLICT(id) DO UPDATE SET feedback='', grade=NULL, rubric_scores=NULL, deleted_at=NULL", [submissionId, assignmentId, studentEmail, audio, now]);
+  await exec(db, "INSERT INTO submissions (id, assignment_id, student_name, student_email, audio_data, audio_blob_url, submitted_at, feedback, grade, rubric_scores, deleted_at) VALUES (?, ?, 'Local AI Student', ?, ?, NULL, ?, '', NULL, NULL, NULL) ON CONFLICT(id) DO UPDATE SET audio_data=excluded.audio_data, audio_blob_url=NULL, feedback='', grade=NULL, rubric_scores=NULL, deleted_at=NULL", [submissionId, assignmentId, studentEmail, audio, now]);
   console.log("Seed complete: 1 teacher, 1 class, 1 assignment, 1 submission.");
 }
 
