@@ -27,9 +27,7 @@ export default async function StudentClassPage({ params }: StudentClassPageProps
     process.env.NODE_ENV !== "production" && process.env.LOCAL_DEV_BYPASS_AUTH === "true";
   const sessionEmail = session?.user?.email?.trim().toLowerCase() ?? "";
   const email = sessionEmail || (localAuthBypassEnabled ? "dev-student@gmail.com" : "");
-  const role = (session?.user as { role?: string } | undefined)?.role;
 
-  if (sessionEmail && role === "teacher") redirect("/teacher");
   if (!email) redirect(`/api/auth/signin?callbackUrl=${encodeURIComponent(`/student/class/${classId}`)}`);
 
   const [enrolledRows, submissions] = await Promise.all([

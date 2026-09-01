@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import Image from "next/image";
 import { ArrowRight, BookOpen, CircleCheck, Sparkles } from "lucide-react";
@@ -56,11 +55,6 @@ export default async function StudentDashboardPage() {
   const name =
     session?.user?.name?.trim() ||
     (sessionEmail ? sessionEmail.split("@")[0] : localAuthBypassEnabled ? "dev-student" : "");
-  const role = (session?.user as { role?: string } | undefined)?.role;
-
-  if (email && role === "teacher") {
-    redirect("/teacher");
-  }
 
   if (!email) {
     return (
