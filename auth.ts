@@ -106,13 +106,30 @@ export const authOptions: NextAuthOptions = {
     },
     async redirect({ url, baseUrl }) {
       // After sign-in with no explicit callbackUrl, send users to the student
-      // dashboard. Teachers are then redirected onward to /teacher from there.
-      if (url === baseUrl || url === `${baseUrl}/`) {
-        return `${baseUrl}/student/dashboard`;
+      // dashboard. Exact-origin checks prevent lookalike hosts such as
+      // `tryhabla.com.evil.example` from becoming OAuth or sign-out redirects.
+      let baseOrigin: string;
+      try {
+        baseOrigin = new URL(baseUrl).origin;
+      } catch {
+        return baseUrl;
       }
-      if (url.startsWith("/")) return `${baseUrl}${url}`;
-      if (url.startsWith(baseUrl)) return url;
-      return baseUrl;
+
+      try {
+        const isSafeRelativePath =
+          url.startsWith("/") && !url.startsWith("//") && !url.startsWith("/\\");
+        const candidate = isSafeRelativePath ? new URL(url, baseOrigin) : new URL(url);
+
+        if (candidate.origin !== baseOrigin) {
+          return baseOrigin;
+        }
+        if (candidate.pathname === "/" && !candidate.search && !candidate.hash) {
+          return `${baseOrigin}/student/dashboard`;
+        }
+        return candidate.toString();
+      } catch {
+        return baseOrigin;
+      }
     },
   },
 };

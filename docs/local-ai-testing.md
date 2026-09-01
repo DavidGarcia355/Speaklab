@@ -44,12 +44,11 @@ Mock mode never contacts OpenAI, Ollama, Vercel Blob, Upstash Redis, OAuth, Rese
 3. Open `http://localhost:3000/teacher`.
 4. Open `Local AI Test Class`.
 5. Select `Local AI Speaking Test`.
-6. Click `Generate AI suggestion`.
-7. Confirm a panel appears with `Local AI test mode` and `Mock suggestion`.
-8. Click `Use suggestion`.
-9. Confirm draft score, rubric fields, and feedback are filled.
-10. Refresh before pressing `Save grade`; the final grade should still be empty.
-11. Press `Save grade` only when you want to finalize manually.
+6. Click `Optional: AI grade & enter score`.
+7. Confirm a panel appears with `Local AI test mode` and the saved mock result.
+8. Confirm the score, rubric fields, and feedback are filled and marked for teacher review.
+9. Refresh and confirm the AI-saved grade persists with its review indicator.
+10. Edit the result and press `Save grade` only when you want to replace or confirm it manually.
 
 ## Failure Modes
 
@@ -148,8 +147,8 @@ in the OpenAI platform before making any live request.
 
 ### Cost per AI-grade generation
 
-Each click of "Generate AI suggestion" does one transcription call and one grading call
-(nothing is cached, so regenerating re-runs both). Assuming a ~2-minute student recording:
+Each new semantic recording review does one transcription call and one grading call. Exact retries reuse
+the saved result without another provider call or billable unit. Assuming a ~2-minute student recording:
 
 | Step | Model | Rate | Cost for 2 min / ~600 in / ~400 out tokens |
 | --- | --- | --- | --- |
@@ -199,7 +198,7 @@ near-free) — its only benefit is not sending transcript text to a third party.
 
 ## Common Errors
 
-- `Could not read package.json`: you are one folder too high. Run `cd C:\Users\david\Downloads\Speaklab-main\Speaklab-main`.
+- `Could not read package.json`: change into the current TryHabla repository root—the folder that contains `package.json`—and run the command again.
 - `.next/dev/lock`: run `npm.cmd run dev:status`. If Habla is already running, open the printed URL. If stale, `dev:local` removes it only when no Habla process owns it.
 - `ERR_CONNECTION_REFUSED` on `3001`: use `http://localhost:3000`. Habla local scripts do not silently move to `3001`.
 - AI button missing: confirm `AI_GRADING_ENABLED=true`, restart dev server, and check `/api/features`.

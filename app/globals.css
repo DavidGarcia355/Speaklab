@@ -88,7 +88,7 @@ body {
 }
 
 html {
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {
@@ -106,7 +106,7 @@ body {
     radial-gradient(circle at 96% 6%, rgba(255, 226, 138, 0.22) 0%, transparent 28%),
     radial-gradient(circle at 68% 98%, rgba(146, 226, 178, 0.2) 0%, transparent 30%);
   background-attachment: fixed;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 a {
@@ -125,7 +125,7 @@ h3 {
   margin: 0 auto;
   padding-top: max(1.1rem, env(safe-area-inset-top));
   padding-bottom: max(2rem, env(safe-area-inset-bottom));
-  animation: fade-up 0.3s ease both;
+  animation: fade-up 0.3s ease backwards;
 }
 
 .brand-bar {
@@ -3437,7 +3437,7 @@ html.dark .feedback-area {
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -4300,6 +4300,13 @@ html.dark .home-cta-actions .btn-ghost {
   background: var(--surface);
   color: var(--text);
   box-shadow: 0 4px 0 #0b1018;
+}
+
+html.dark .btn-ghost:hover,
+html.dark .btn-ghost:focus-visible {
+  border-color: var(--primary-soft-border);
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 html.dark .home-entry-teacher {
@@ -9094,7 +9101,7 @@ html.dark .home-hero-brand-mark {
 }
 
 .route-stage-teacher {
-  animation: teacher-route-settle 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: teacher-route-settle 180ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 }
 
 .route-stage-student {
@@ -9511,7 +9518,7 @@ html.dark .home-hero-brand-mark {
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -10470,6 +10477,7 @@ html.dark .home-hero-brand-mark {
 }
 
 .route-stage-teacher .teacher-class-header {
+  position: sticky;
   z-index: 20;
   overflow: visible;
 }
@@ -10591,6 +10599,12 @@ html.dark .route-stage-teacher .teacher-hero-art::before {
 
   .workspace-loading-lines {
     grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 700px) {
+  .route-stage-teacher .teacher-class-header {
+    position: static;
   }
 }
 

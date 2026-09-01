@@ -82,6 +82,82 @@ describe("grading persistence", () => {
     ).resolves.toBeNull();
   });
 
+  it("rejects assignment point reductions below an existing saved grade", async () => {
+    const { assignment, teacherEmail, submission } = await createFixture(db, "points-owner");
+    await db.updateSubmission(submission.id, teacherEmail, {
+      studentName: submission.studentName,
+      grade: 9,
+      feedback: "Saved teacher grade.",
+      rubricScores: null,
+    });
+
+    const update = {
+      title: assignment.title,
+      description: assignment.description,
+      instructions: assignment.instructions,
+      targetLanguage: assignment.targetLanguage,
+      maxPoints: 8,
+      maxSubmissions: assignment.maxSubmissions,
+      maxRecordingSeconds: assignment.maxRecordingSeconds,
+      rubric: assignment.rubric,
+      attachmentName: assignment.attachmentName,
+      attachmentUrl: assignment.attachmentUrl,
+      attachmentContentType: assignment.attachmentContentType,
+      autoTranscribe: assignment.autoTranscribe,
+    };
+
+    await expect(
+      db.updateAssignment(assignment.id, teacherEmail, update)
+    ).rejects.toThrow("saved grade of 9");
+    await expect(db.findAssignmentById(assignment.id, teacherEmail)).resolves.toMatchObject({
+      maxPoints: 10,
+    });
+
+    await expect(
+      db.updateAssignment(assignment.id, teacherEmail, { ...update, maxPoints: 9 })
+    ).resolves.toMatchObject({ maxPoints: 9 });
+  });
+
+  it("rechecks the submission limit inside the insertion transaction", async () => {
+    const teacherEmail = "limit-owner@example.com";
+    const createdClass = await db.createClass("Limit Class", teacherEmail);
+    const assignment = await db.createAssignment({
+      classId: createdClass.id,
+      ownerEmail: teacherEmail,
+      title: "One attempt",
+      description: "",
+      instructions: "Speak once.",
+      maxPoints: 10,
+      maxSubmissions: 1,
+      maxRecordingSeconds: 180,
+      rubric: null,
+      attachmentName: "",
+      attachmentUrl: "",
+      attachmentContentType: "",
+    });
+
+    await db.createSubmission({
+      id: "sub_limit_a",
+      assignmentId: assignment.id,
+      studentName: "Student",
+      studentEmail: "limit-student@example.com",
+      audioBlobUrl: "submissions/limit/a.webm",
+    });
+
+    await expect(
+      db.createSubmission({
+        id: "sub_limit_b",
+        assignmentId: assignment.id,
+        studentName: "Student",
+        studentEmail: "limit-student@example.com",
+        audioBlobUrl: "submissions/limit/b.webm",
+      })
+    ).rejects.toMatchObject({ name: "SubmissionLimitReachedError" });
+    await expect(
+      db.countStudentSubmissions(assignment.id, "limit-student@example.com")
+    ).resolves.toBe(1);
+  });
+
   it("persists extended attempt metadata without weakening owner-scoped reads", async () => {
     const { assignment, teacherEmail, submission } = await createFixture(db, "attempt-owner");
     const attempt = await db.createAiGradingAttempt({

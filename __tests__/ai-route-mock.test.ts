@@ -229,7 +229,42 @@ describe("AI grading mock route", () => {
     mocks.applyAiGradeToSubmission.mockClear();
     mocks.latestAiAttemptCreatedAt.mockReset();
     mocks.latestAiAttemptCreatedAt.mockResolvedValue(null);
+    mocks.listAiGradingAttemptsForSubmission.mockClear();
   });
+
+  it("does not expose AI attempt history for another teacher's submission", async () => {
+    const { GET } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/submissions/sub_other/ai-grade"),
+      { params: Promise.resolve({ submissionId: "sub_other" }) },
+    );
+
+    expect(response.status).toBe(403);
+    expect(mocks.findOwnedSubmissionForAiReview).toHaveBeenCalledWith(
+      "sub_other",
+      "dev-teacher@local.test",
+    );
+    expect(mocks.listAiGradingAttemptsForSubmission).not.toHaveBeenCalled();
+    expect(mocks.getAiReviewAllowanceSummary).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it("returns AI attempt history after submission ownership is established", async () => {
+    mocks.findOwnedSubmissionForAiReview.mockResolvedValueOnce({ submissionId: "sub_1" });
+    const { GET } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");
+
+    const response = await GET(
+      new Request("http://localhost/api/submissions/sub_1/ai-grade"),
+      { params: Promise.resolve({ submissionId: "sub_1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.listAiGradingAttemptsForSubmission).toHaveBeenCalledWith(
+      "sub_1",
+      "dev-teacher@local.test",
+      5,
+    );
+  }, 30_000);
 
   it("creates an auditable attempt and automatically saves the AI grade", async () => {
     const { POST } = await import("@/app/api/submissions/[submissionId]/ai-grade/route");

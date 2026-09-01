@@ -194,6 +194,10 @@ export default function StudentAssignmentClient({
   const [authLoading, setAuthLoading] = useState(true);
   const [studentEmail, setStudentEmail] = useState("");
   const [callbackUrl, setCallbackUrl] = useState("/");
+  const [submissionAccessState, setSubmissionAccessState] = useState<
+    "idle" | "checking" | "allowed" | "blocked"
+  >("idle");
+  const [submissionAccessError, setSubmissionAccessError] = useState("");
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -271,19 +275,52 @@ export default function StudentAssignmentClient({
   }, []);
 
   useEffect(() => {
-    if (!studentEmail || !assignmentId) return;
-    async function loadSubmissionCount() {
+    let cancelled = false;
+
+    if (!studentEmail || !assignmentId) {
+      setSubmissionAccessState("idle");
+      setSubmissionAccessError("");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    async function checkSubmissionAccess() {
+      setSubmissionAccessState("checking");
+      setSubmissionAccessError("");
       try {
         const response = await fetch(`/api/student/assignments/${assignmentId}/submissions`, { cache: "no-store" });
-        if (response.ok) {
-          const data = (await response.json()) as { count: number };
-          setSubmissionCount(data.count);
+        let data: { count?: number; error?: string } | null = null;
+        try {
+          data = (await response.json()) as { count?: number; error?: string };
+        } catch {
+          data = null;
         }
+
+        if (cancelled) return;
+        if (!response.ok) {
+          setSubmissionAccessState("blocked");
+          setSubmissionAccessError(
+            data?.error || "We couldn't verify that this account can submit to this assignment."
+          );
+          return;
+        }
+
+        setSubmissionCount(typeof data?.count === "number" ? data.count : 0);
+        setSubmissionAccessState("allowed");
       } catch {
-        // non-critical
+        if (cancelled) return;
+        setSubmissionAccessState("blocked");
+        setSubmissionAccessError(
+          "We couldn't verify access to this assignment. Check your connection and try again."
+        );
       }
     }
-    void loadSubmissionCount();
+
+    void checkSubmissionAccess();
+    return () => {
+      cancelled = true;
+    };
   }, [studentEmail, assignmentId, submittedCurrentRecording]);
 
   useEffect(() => {
@@ -336,6 +373,10 @@ export default function StudentAssignmentClient({
     setStatusMsg("");
     setErrorMsg("");
     if (!micSupported) return;
+    if (!localAuthBypassEnabled && submissionAccessState !== "allowed") {
+      setErrorMsg(submissionAccessError || "Wait while we verify that this account can submit.");
+      return;
+    }
     setRecorderState("requesting-permission");
 
     let stream: MediaStream;
@@ -513,6 +554,10 @@ export default function StudentAssignmentClient({
       setErrorMsg("Please sign in before submitting.");
       return;
     }
+    if (!localAuthBypassEnabled && submissionAccessState !== "allowed") {
+      setErrorMsg(submissionAccessError || "Wait while we verify that this account can submit.");
+      return;
+    }
 
     if (submittedCurrentRecording) {
       setErrorMsg("This recording has already been submitted. Record a new one to submit again.");
@@ -592,6 +637,8 @@ export default function StudentAssignmentClient({
   const maxRecSec = assignment?.maxRecordingSeconds || DEFAULT_MAX_RECORDING_SECONDS;
   const maxSubs = assignment?.maxSubmissions || 0;
   const atSubmissionLimit = maxSubs > 0 && submissionCount >= maxSubs;
+  const submissionAccessBlocked =
+    !localAuthBypassEnabled && Boolean(studentEmail) && submissionAccessState !== "allowed";
 
   const recorderBanner = getRecorderBanner({
     state: recorderState,
@@ -719,6 +766,17 @@ export default function StudentAssignmentClient({
               </div>
             )}
 
+            {studentEmail && submissionAccessState === "checking" ? (
+              <p className={`notice info ${styles.inlineNotice}`} role="status">
+                Verifying access to this assignment...
+              </p>
+            ) : null}
+            {studentEmail && submissionAccessState === "blocked" ? (
+              <p className={`notice danger ${styles.inlineNotice}`} role="alert">
+                {submissionAccessError}
+              </p>
+            ) : null}
+
             <details className={styles.aiDisclosure}>
               <summary>
                 <span>How AI may be used</span>
@@ -742,7 +800,7 @@ export default function StudentAssignmentClient({
             {maxSubs > 0 ? (
               <p className={`notice ${atSubmissionLimit ? "danger" : "info"} ${styles.limitNotice}`}>
                 {atSubmissionLimit
-                  ? `Submission limit reached (${maxSubs}). Delete a previous recording from My submissions to submit again.`
+                  ? `Submission limit reached (${maxSubs}). Delete an ungraded recording from My Recordings, or ask your teacher for help.`
                   : `${submissionCount} of ${maxSubs} submission${maxSubs === 1 ? "" : "s"} used.`}
               </p>
             ) : null}
@@ -812,6 +870,7 @@ export default function StudentAssignmentClient({
                           recorderState === "requesting-permission" ||
                           recorderState === "finalizing" ||
                           recorderState === "submitting" ||
+                          submissionAccessBlocked ||
                           atSubmissionLimit
                         }
                       >
@@ -848,9 +907,11 @@ export default function StudentAssignmentClient({
                           <a className="btn btn-primary btn-sm" href="/student">
                             View my submissions
                           </a>
-                          <button className="btn btn-ghost btn-sm" type="button" onClick={clearRecording}>
-                            Record another response
-                          </button>
+                          {!atSubmissionLimit ? (
+                            <button className="btn btn-ghost btn-sm" type="button" onClick={clearRecording}>
+                              Record another response
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                       <div className={styles.successMascot} aria-hidden="true">
@@ -886,6 +947,7 @@ export default function StudentAssignmentClient({
                             recorderState === "submitting" ||
                             !recordingBlob ||
                             submittedCurrentRecording ||
+                            submissionAccessBlocked ||
                             atSubmissionLimit
                           }
                         >

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { groupStudentRecordingsByClass } from "@/lib/student-recording-groups";
 
 const dataDir = path.join(process.cwd(), "data");
 const localDbPath = path.join(dataDir, "tracking-test.db");
@@ -143,6 +144,7 @@ describe("tracking db helpers", () => {
       expect.objectContaining({
         assignmentId: assignment.id,
         assignmentTitle: "Weekend recap",
+        classId: createdClass.id,
         className: "Spanish History",
         maxPoints: 10,
       }),
@@ -157,9 +159,76 @@ describe("tracking db helpers", () => {
       expect.objectContaining({
         assignmentId: assignment.id,
         assignmentTitle: "Weekend recap",
+        classId: createdClass.id,
         className: "Spanish History",
       }),
     ]);
+  });
+
+  it("keeps same-named classes distinct in student recording history", async () => {
+    const db = await loadDbModule();
+    const firstTeacherEmail = "same-name-teacher-one@example.com";
+    const secondTeacherEmail = "same-name-teacher-two@example.com";
+    const studentEmail = "same-name-student@example.com";
+    const firstClass = await db.createClass("Spanish 1", firstTeacherEmail);
+    const secondClass = await db.createClass("Spanish 1", secondTeacherEmail);
+    const firstAssignment = await db.createAssignment({
+      classId: firstClass.id,
+      ownerEmail: firstTeacherEmail,
+      title: "Introductions",
+      description: "",
+      instructions: "Introduce yourself.",
+      maxPoints: 10,
+      maxSubmissions: 0,
+      maxRecordingSeconds: 180,
+      rubric: null,
+      attachmentName: "",
+      attachmentUrl: "",
+      attachmentContentType: "",
+    });
+    const secondAssignment = await db.createAssignment({
+      classId: secondClass.id,
+      ownerEmail: secondTeacherEmail,
+      title: "Weekend recap",
+      description: "",
+      instructions: "Describe your weekend.",
+      maxPoints: 10,
+      maxSubmissions: 0,
+      maxRecordingSeconds: 180,
+      rubric: null,
+      attachmentName: "",
+      attachmentUrl: "",
+      attachmentContentType: "",
+    });
+
+    await db.createSubmission({
+      assignmentId: firstAssignment.id,
+      studentName: "Student One",
+      studentEmail,
+      audioBlobUrl: "https://blob.example/first.webm",
+    });
+    await db.createSubmission({
+      assignmentId: secondAssignment.id,
+      studentName: "Student One",
+      studentEmail,
+      audioBlobUrl: "https://blob.example/second.webm",
+    });
+
+    const submissions = await db.listSubmissionsByStudentEmail(studentEmail);
+    const assignments = await db.listStudentAssignmentHistoryByEmail(studentEmail);
+    const expectedClassIds = new Set([firstClass.id, secondClass.id]);
+
+    expect(new Set(submissions.map((submission) => submission.classId))).toEqual(
+      expectedClassIds,
+    );
+    expect(new Set(assignments.map((assignment) => assignment.classId))).toEqual(
+      expectedClassIds,
+    );
+
+    const groups = groupStudentRecordingsByClass(assignments, submissions);
+    expect(groups).toHaveLength(2);
+    expect(new Set(groups.map((group) => group.classId))).toEqual(expectedClassIds);
+    expect(groups.every((group) => group.className === "Spanish 1")).toBe(true);
   });
 
   it("prevents a student from deleting a graded submission", async () => {

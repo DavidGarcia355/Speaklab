@@ -57,7 +57,9 @@ function portProcess() {
 }
 
 function isHablaNext(processInfo) {
-  return Boolean(processInfo?.commandLine?.includes("Speaklab-main") && processInfo.commandLine.includes("next"));
+  const commandLine = processInfo?.commandLine?.replaceAll("\\", "/").toLowerCase() ?? "";
+  const projectRoot = path.resolve(root).replaceAll("\\", "/").toLowerCase();
+  return commandLine.includes(projectRoot) && commandLine.includes("next");
 }
 
 function lanAddresses() {

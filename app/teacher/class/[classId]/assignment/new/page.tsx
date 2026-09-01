@@ -7,6 +7,7 @@ import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
 import WorkspaceLoading from "@/app/components/WorkspaceLoading";
 import RubricBuilder, { type RubricCriterionDraft } from "@/app/components/RubricBuilder";
+import { MAX_ASSIGNMENT_ATTACHMENT_BYTES } from "@/lib/attachment-policy";
 
 type ClassLookup = {
   item: {
@@ -169,8 +170,8 @@ export default function NewAssignmentPage() {
       event.target.value = "";
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setErrorMsg("Attachment is too large. Maximum size is 10MB.");
+    if (file.size > MAX_ASSIGNMENT_ATTACHMENT_BYTES) {
+      setErrorMsg("Attachment is too large. Maximum size is 3 MB.");
       event.target.value = "";
       return;
     }
@@ -577,7 +578,7 @@ export default function NewAssignmentPage() {
             accept="application/pdf,image/png,image/jpeg"
             onChange={(event) => void handleAttachmentChange(event)}
           />
-          <p className="meta field-meta">Add a PDF or image students can open alongside the prompt.</p>
+          <p className="meta field-meta">Add a PDF or image students can open alongside the prompt. Maximum 3 MB.</p>
           {attachment ? (
             <div className="notice info assignment-attachment-notice">
               Attached: <strong>{attachment.fileName}</strong>

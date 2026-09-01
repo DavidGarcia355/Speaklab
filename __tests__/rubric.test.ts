@@ -9,6 +9,7 @@ import { POST as createAssignmentRoute } from "@/app/api/classes/[classId]/assig
 import { PATCH as updateAssignmentRoute } from "@/app/api/assignments/[assignmentId]/route";
 import { PATCH as patchSubmissionRoute } from "@/app/api/submissions/[submissionId]/route";
 import { GET as gradebookRoute } from "@/app/api/classes/[classId]/gradebook.csv/route";
+import { AssignmentPointsBelowSavedGradeError } from "@/lib/assignment-errors";
 
 const mocks = vi.hoisted(() => ({
   requireTeacherEmail: vi.fn(),
@@ -581,6 +582,29 @@ describe("rubric routes", () => {
 
     expect(response.status).toBe(409);
     expect(data.error).toBe("Assignment title already exists in this class.");
+  });
+
+  it("returns 409 when points would fall below a saved grade", async () => {
+    mocks.updateAssignment.mockRejectedValueOnce(
+      new AssignmentPointsBelowSavedGradeError(18)
+    );
+
+    const response = await updateAssignmentRoute(
+      new Request("http://localhost/api/assignments/asg_1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Updated oral quiz",
+          instructions: "Respond fully.",
+          maxPoints: 10,
+        }),
+      }),
+      { params: Promise.resolve({ assignmentId: "asg_1" }) }
+    );
+    const data = (await response.json()) as { error?: string };
+
+    expect(response.status).toBe(409);
+    expect(data.error).toContain("saved grade of 18");
   });
 
   it("keeps the legacy submission grading path working", async () => {

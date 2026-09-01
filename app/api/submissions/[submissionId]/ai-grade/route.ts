@@ -82,6 +82,9 @@ export async function GET(
     if (!config.enabled) throw new HttpError(404, "AI grading is not available.");
     const teacherEmail = await requireTeacherEmail();
     const { submissionId } = await context.params;
+    const owned = await findOwnedSubmissionForAiReview(submissionId, teacherEmail);
+    if (!owned) throw new HttpError(403, "You don't have access to this submission.");
+
     const [attempts, allowance] = await Promise.all([
       listAiGradingAttemptsForSubmission(submissionId, teacherEmail, 5),
       config.accessMode === "paid" && !isLocalMockAi(config)

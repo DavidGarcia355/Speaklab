@@ -123,3 +123,21 @@ describe("recording upload byte budget", () => {
     expect(shouldAutoStopAudioRecording(Number.NaN)).toBe(true);
   });
 });
+
+describe("student submission access guard", () => {
+  it("surfaces preflight failures and blocks recording and submission controls", () => {
+    const source = readFileSync(
+      "app/a/[assignmentId]/student-assignment-client.tsx",
+      "utf8"
+    );
+
+    expect(source).toContain("submissionAccessState");
+    expect(source).toContain(
+      "`/api/student/assignments/${assignmentId}/submissions`"
+    );
+    expect(source).toContain('submissionAccessState === "blocked"');
+    expect(source.match(/submissionAccessBlocked/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(source).toContain("Delete an ungraded recording from My Recordings");
+    expect(source).toMatch(/!atSubmissionLimit \? \([\s\S]*Record another response/);
+  });
+});

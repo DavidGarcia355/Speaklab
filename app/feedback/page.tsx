@@ -56,6 +56,12 @@ export default function FeedbackPage() {
 
   function updateField<K extends keyof FeedbackForm>(key: K, value: FeedbackForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -116,7 +122,7 @@ export default function FeedbackPage() {
       </section>
 
       <section className="card form-shell section-gap">
-        <form className="grid" onSubmit={onSubmit} noValidate>
+        <form className="grid" onSubmit={onSubmit} noValidate aria-busy={submitting}>
           <div>
             <label className="label" htmlFor="name">
               Name
@@ -128,8 +134,14 @@ export default function FeedbackPage() {
               onChange={(event) => updateField("name", event.target.value)}
               maxLength={80}
               required
+              aria-invalid={Boolean(fieldErrors.name?.[0])}
+              aria-describedby={fieldErrors.name?.[0] ? "name-error" : undefined}
             />
-            {fieldErrors.name?.[0] ? <p className="card-inline-error">{fieldErrors.name[0]}</p> : null}
+            {fieldErrors.name?.[0] ? (
+              <p id="name-error" className="card-inline-error" role="alert">
+                {fieldErrors.name[0]}
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -144,8 +156,14 @@ export default function FeedbackPage() {
               onChange={(event) => updateField("email", event.target.value)}
               maxLength={254}
               required
+              aria-invalid={Boolean(fieldErrors.email?.[0])}
+              aria-describedby={fieldErrors.email?.[0] ? "email-error" : undefined}
             />
-            {fieldErrors.email?.[0] ? <p className="card-inline-error">{fieldErrors.email[0]}</p> : null}
+            {fieldErrors.email?.[0] ? (
+              <p id="email-error" className="card-inline-error" role="alert">
+                {fieldErrors.email[0]}
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -159,8 +177,14 @@ export default function FeedbackPage() {
               onChange={(event) => updateField("school", event.target.value)}
               maxLength={120}
               required
+              aria-invalid={Boolean(fieldErrors.school?.[0])}
+              aria-describedby={fieldErrors.school?.[0] ? "school-error" : undefined}
             />
-            {fieldErrors.school?.[0] ? <p className="card-inline-error">{fieldErrors.school[0]}</p> : null}
+            {fieldErrors.school?.[0] ? (
+              <p id="school-error" className="card-inline-error" role="alert">
+                {fieldErrors.school[0]}
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -174,8 +198,14 @@ export default function FeedbackPage() {
               onChange={(event) => updateField("role", event.target.value)}
               maxLength={80}
               required
+              aria-invalid={Boolean(fieldErrors.role?.[0])}
+              aria-describedby={fieldErrors.role?.[0] ? "role-error" : undefined}
             />
-            {fieldErrors.role?.[0] ? <p className="card-inline-error">{fieldErrors.role[0]}</p> : null}
+            {fieldErrors.role?.[0] ? (
+              <p id="role-error" className="card-inline-error" role="alert">
+                {fieldErrors.role[0]}
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -189,13 +219,26 @@ export default function FeedbackPage() {
               onChange={(event) => updateField("message", event.target.value)}
               maxLength={1000}
               required
+              aria-invalid={Boolean(fieldErrors.message?.[0])}
+              aria-describedby={fieldErrors.message?.[0] ? "message-error" : undefined}
             />
-            {fieldErrors.message?.[0] ? <p className="card-inline-error">{fieldErrors.message[0]}</p> : null}
+            {fieldErrors.message?.[0] ? (
+              <p id="message-error" className="card-inline-error" role="alert">
+                {fieldErrors.message[0]}
+              </p>
+            ) : null}
           </div>
 
-          {fieldErrors._form?.[0] ? <p className="card-inline-error">{fieldErrors._form[0]}</p> : null}
+          {fieldErrors._form?.[0] ? <p className="card-inline-error" role="alert">{fieldErrors._form[0]}</p> : null}
           {status ? (
-            <p className={status.startsWith("Thanks") ? "notice success" : "notice danger"}>{status}</p>
+            <p
+              className={status.startsWith("Thanks") ? "notice success" : "notice danger"}
+              role={status.startsWith("Thanks") ? "status" : "alert"}
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {status}
+            </p>
           ) : null}
 
           <div className="actions form-actions">

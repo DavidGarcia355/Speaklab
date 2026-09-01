@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
@@ -6,6 +7,12 @@ import { SITE_URL } from "@/app/constants";
 import { logAuthDiagnostic } from "@/lib/auth-diagnostics";
 import { normalizeAuthSupportCode } from "@/lib/auth-diagnostics-shared";
 import { getAuthErrorCopy } from "@/lib/auth-error-copy";
+
+export const metadata: Metadata = {
+  title: "Sign-in Help",
+  description: "Troubleshoot a TryHabla sign-in problem or contact support.",
+  robots: { index: false, follow: false },
+};
 
 type AuthErrorPageProps = {
   searchParams: Promise<{ error?: string | string[] }>;

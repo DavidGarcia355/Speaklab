@@ -33,6 +33,14 @@ vi.mock("next/navigation", () => ({
 import StudentClassesPage from "@/app/student/dashboard/page";
 import StudentClassPage from "@/app/student/class/[classId]/page";
 
+const studentNavigationSources = [
+  "app/students/page.tsx",
+  "app/student/page.tsx",
+  "app/student/dashboard/page.tsx",
+  "app/student/class/[classId]/page.tsx",
+  "app/a/[assignmentId]/student-assignment-client.tsx",
+].map((file) => ({ file, source: readFileSync(file, "utf8") }));
+
 describe("student workspace navigation", () => {
   beforeEach(() => {
     mocks.getServerSession.mockReset().mockResolvedValue({
@@ -53,6 +61,30 @@ describe("student workspace navigation", () => {
 
     expect(source).toMatch(/href="\/student\/dashboard">My Classes<\/Link>/);
     expect(source).not.toMatch(/href="\/teacher(?:\/[^\"]*)?">My Classes<\/Link>/);
+  });
+
+  it("keeps student workspace navigation away from every teacher route", () => {
+    const studentWorkspaceLinks = studentNavigationSources.flatMap(({ file, source }) =>
+      [...source.matchAll(/<(?:Link|a)\b[\s\S]*?<\/(?:Link|a)>/g)]
+        .map((match) => match[0])
+        .filter((link) => /\bMy (?:Classes|Recordings|Submissions)\b/i.test(link))
+        .map((link) => ({ file, link }))
+    );
+
+    expect(studentWorkspaceLinks.length).toBeGreaterThan(0);
+    for (const { file, link } of studentWorkspaceLinks) {
+      expect(link, `${file} contains cross-role student navigation`).not.toMatch(
+        /href=\{?["'`]\/teacher(?:\/|["'`])/
+      );
+    }
+
+    const myClassesLinks = studentWorkspaceLinks.filter(({ link }) => /\bMy Classes\b/i.test(link));
+    expect(myClassesLinks.length).toBeGreaterThan(0);
+    for (const { file, link } of myClassesLinks) {
+      expect(link, `${file} must keep My Classes in the student workspace`).toContain(
+        'href="/student/dashboard"'
+      );
+    }
   });
 
   it("keeps a teacher-role account in the explicitly selected student classes workspace", async () => {

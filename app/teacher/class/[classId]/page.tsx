@@ -34,6 +34,8 @@ import {
   type BulkTranscriptPreflight,
 } from "@/app/components/bulk-transcript-runner";
 import { buildSubmissionDownloadFilenameBase } from "@/app/components/submission-download-filenames";
+import { MAX_ASSIGNMENT_ATTACHMENT_BYTES } from "@/lib/attachment-policy";
+import { parseCsvRows } from "@/lib/csv";
 
 type AssignmentSummary = {
   id: string;
@@ -41,6 +43,7 @@ type AssignmentSummary = {
   title: string;
   description: string;
   instructions: string;
+  targetLanguage: string;
   maxPoints: number;
   maxSubmissions: number;
   maxRecordingSeconds: number;
@@ -194,6 +197,26 @@ type AssignmentClipboard = {
 
 const ASSIGNMENT_CLIPBOARD_KEY = "habla.assignmentClipboard";
 
+const ASSIGNMENT_LANGUAGE_OPTIONS = [
+  "Spanish",
+  "French",
+  "English",
+  "German",
+  "Italian",
+  "Portuguese",
+  "Mandarin Chinese",
+  "Cantonese",
+  "Japanese",
+  "Korean",
+  "Arabic",
+  "Hindi",
+  "Russian",
+  "Ukrainian",
+  "Vietnamese",
+] as const;
+
+const CUSTOM_ASSIGNMENT_LANGUAGE_VALUE = "__custom__";
+
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
@@ -204,6 +227,25 @@ function formatDateTime(ts: number) {
 
 function pluralize(count: number, singular: string, plural?: string) {
   return count === 1 ? `${count} ${singular}` : `${count} ${plural ?? `${singular}s`}`;
+}
+
+function handleAssignmentTabKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+
+  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+  const currentIndex = tabs.findIndex((tab) => tab === document.activeElement);
+  if (currentIndex < 0) return;
+
+  event.preventDefault();
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? tabs.length - 1
+      : event.key === "ArrowRight"
+        ? (currentIndex + 1) % tabs.length
+        : (currentIndex - 1 + tabs.length) % tabs.length;
+  tabs[nextIndex]?.focus();
+  tabs[nextIndex]?.click();
 }
 
 function bulkAiLimitTitle(preflight: BulkAiPreflight) {
@@ -344,7 +386,10 @@ export default function ClassDetailPage() {
 
   const [assignmentEditOpen, setAssignmentEditOpen] = useState(false);
   const [assignmentTitleDraft, setAssignmentTitleDraft] = useState("");
+  const [assignmentDescriptionDraft, setAssignmentDescriptionDraft] = useState("");
   const [assignmentInstructionsDraft, setAssignmentInstructionsDraft] = useState("");
+  const [assignmentTargetLanguageDraft, setAssignmentTargetLanguageDraft] = useState("Spanish");
+  const [assignmentUsesCustomLanguage, setAssignmentUsesCustomLanguage] = useState(false);
   const [assignmentMaxPointsDraft, setAssignmentMaxPointsDraft] = useState("100");
   const [assignmentRubricEnabled, setAssignmentRubricEnabled] = useState(false);
   const [assignmentRubricTitleDraft, setAssignmentRubricTitleDraft] = useState("");
@@ -508,8 +553,10 @@ export default function ClassDetailPage() {
     setRosterError("");
     try {
       const text = await file.text();
-      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-      if (lines.length === 0) throw new Error("CSV file is empty.");
+      const rows = parseCsvRows(text)
+        .map((row) => row.map((cell) => cell.trim()))
+        .filter((row) => row.some(Boolean));
+      if (rows.length === 0) throw new Error("CSV file is empty.");
 
       // Detect header row — supports: name, first name/last name, first_name/last_name, email
       let nameIdx = 0;
@@ -517,7 +564,7 @@ export default function ClassDetailPage() {
       let lastNameIdx = -1;
       let emailIdx = 1;
       let dataStart = 0;
-      const firstCols = lines[0].split(",").map((c) => c.trim().toLowerCase().replace(/^"|"$/g, ""));
+      const firstCols = rows[0].map((cell) => cell.toLowerCase());
       const headerEmailIdx = firstCols.findIndex((c) => c === "email" || c === "email address");
       const headerNameIdx = firstCols.findIndex((c) => c === "name" || c === "full name" || c === "student name");
       const headerFirstIdx = firstCols.findIndex((c) => c === "first name" || c === "first_name" || c === "firstname");
@@ -537,8 +584,8 @@ export default function ClassDetailPage() {
 
       const students: { name: string; email: string }[] = [];
       const parseErrors: string[] = [];
-      for (let i = dataStart; i < lines.length; i++) {
-        const cols = lines[i].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+      for (let i = dataStart; i < rows.length; i++) {
+        const cols = rows[i];
         const name = firstNameIdx !== -1
           ? [cols[firstNameIdx] ?? "", lastNameIdx !== -1 ? (cols[lastNameIdx] ?? "") : ""].filter(Boolean).join(" ")
           : (cols[nameIdx] ?? "");
@@ -1405,8 +1452,14 @@ export default function ClassDetailPage() {
 
   function openAssignmentEditModal() {
     if (!activeAssignment) return;
+    const targetLanguage = activeAssignment.targetLanguage?.trim() || "Spanish";
     setAssignmentTitleDraft(activeAssignment.title);
+    setAssignmentDescriptionDraft(activeAssignment.description);
     setAssignmentInstructionsDraft(activeAssignment.instructions);
+    setAssignmentTargetLanguageDraft(targetLanguage);
+    setAssignmentUsesCustomLanguage(
+      !ASSIGNMENT_LANGUAGE_OPTIONS.some((language) => language === targetLanguage)
+    );
     setAssignmentMaxPointsDraft(String(activeAssignment.maxPoints));
     setAssignmentRubricEnabled(Boolean(activeAssignment.rubric));
     setAssignmentRubricTitleDraft(activeAssignment.rubric?.title ?? "");
@@ -1433,8 +1486,8 @@ export default function ClassDetailPage() {
       event.target.value = "";
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setAssignmentError("Attachment is too large. Maximum size is 10MB.");
+    if (file.size > MAX_ASSIGNMENT_ATTACHMENT_BYTES) {
+      setAssignmentError("Attachment is too large. Maximum size is 3 MB.");
       event.target.value = "";
       return;
     }
@@ -1453,7 +1506,9 @@ export default function ClassDetailPage() {
   async function saveAssignmentEdit() {
     if (!activeAssignment) return;
     const title = assignmentTitleDraft.trim();
+    const description = assignmentDescriptionDraft.trim();
     const instructions = assignmentInstructionsDraft.trim();
+    const targetLanguage = assignmentTargetLanguageDraft.trim();
     const parsedMaxPoints = Number(assignmentMaxPointsDraft);
     const parsedRubricCriteria = parseRubricCriteria(assignmentRubricCriteriaDraft);
     const rubricTotal = parsedRubricCriteria.reduce(
@@ -1462,6 +1517,10 @@ export default function ClassDetailPage() {
     );
     if (!title || !instructions) {
       setAssignmentError("Assignment name and instructions are required.");
+      return;
+    }
+    if (!targetLanguage) {
+      setAssignmentError("Choose the language students should use.");
       return;
     }
     if (assignmentRubricEnabled) {
@@ -1498,7 +1557,9 @@ export default function ClassDetailPage() {
 
     const rollback = {
       title: activeAssignment.title,
+      description: activeAssignment.description,
       instructions: activeAssignment.instructions,
+      targetLanguage: activeAssignment.targetLanguage,
       maxPoints: activeAssignment.maxPoints,
       maxSubmissions: activeAssignment.maxSubmissions,
       maxRecordingSeconds: activeAssignment.maxRecordingSeconds,
@@ -1524,7 +1585,9 @@ export default function ClassDetailPage() {
           ? {
               ...row,
               title,
+              description,
               instructions,
+              targetLanguage,
               maxPoints: assignmentRubricEnabled ? rubricTotal : parsedMaxPoints,
               maxSubmissions: assignmentMaxSubmissionsDraft.trim() === "" ? 0 : Number(assignmentMaxSubmissionsDraft),
               maxRecordingSeconds: Number(assignmentMaxRecordingSecondsDraft) || 180,
@@ -1544,7 +1607,9 @@ export default function ClassDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
+          description,
           instructions,
+          targetLanguage,
           maxPoints: assignmentRubricEnabled ? rubricTotal : parsedMaxPoints,
           maxSubmissions: assignmentMaxSubmissionsDraft.trim() === "" ? 0 : Number(assignmentMaxSubmissionsDraft),
           maxRecordingSeconds: Number(assignmentMaxRecordingSecondsDraft) || 180,
@@ -1560,6 +1625,7 @@ export default function ClassDetailPage() {
           title: string;
           description: string;
           instructions: string;
+          targetLanguage: string;
           maxPoints: number;
           maxSubmissions: number;
           maxRecordingSeconds: number;
@@ -1582,6 +1648,7 @@ export default function ClassDetailPage() {
                 title: data.item!.title,
                 description: data.item!.description,
                 instructions: data.item!.instructions,
+                targetLanguage: data.item!.targetLanguage,
                 maxPoints: data.item!.maxPoints,
                 maxSubmissions: data.item!.maxSubmissions,
                 maxRecordingSeconds: data.item!.maxRecordingSeconds,
@@ -1815,7 +1882,7 @@ export default function ClassDetailPage() {
             <h1>{payload.item.name}</h1>
             <div className="class-stat-strip" aria-label="Class summary">
               <span><BookOpen size={14} aria-hidden="true" /> {pluralize(payload.stats.assignmentCount, "assignment")}</span>
-              <span className={workspaceStats.pending > 0 ? "is-warning" : ""}><Clock3 size={14} aria-hidden="true" /> {pluralize(workspaceStats.pending, "to grade")}</span>
+              <span className={workspaceStats.pending > 0 ? "is-warning" : ""}><Clock3 size={14} aria-hidden="true" /> {workspaceStats.pending} to grade</span>
               <span><CheckCircle2 size={14} aria-hidden="true" /> {workspaceStats.graded} graded</span>
             </div>
           </div>
@@ -1861,7 +1928,7 @@ export default function ClassDetailPage() {
                 <button key={assignment.id} type="button" className={`assignment-nav-item ${assignment.id === activeAssignment?.id ? "is-selected" : ""}`} onClick={() => { setSelectedAssignmentId(assignment.id); setAssignmentView("review"); }} disabled={bulkAiWorkflowActive}>
                   <p className="assignment-nav-title">{assignment.title}</p>
                   <span className={`assignment-nav-queue status-${assignment.tone}`}>
-                    {assignment.totalSubmissions === 0 ? "No activity" : assignment.ungradedCount > 0 ? pluralize(assignment.ungradedCount, "to grade") : "Complete"}
+                    {assignment.totalSubmissions === 0 ? "No activity" : assignment.ungradedCount > 0 ? `${assignment.ungradedCount} to grade` : "Complete"}
                   </span>
                 </button>
               ))}
@@ -1879,15 +1946,15 @@ export default function ClassDetailPage() {
                   </div>
                 </div>
 
-                <div className="assignment-view-tabs" role="tablist" aria-label="Assignment workspace">
-                  <button type="button" role="tab" aria-selected={assignmentView === "review"} className={assignmentView === "review" ? "is-active" : ""} onClick={() => setAssignmentView("review")}>Review</button>
-                  <button type="button" role="tab" aria-selected={assignmentView === "details"} className={assignmentView === "details" ? "is-active" : ""} onClick={() => setAssignmentView("details")}>Assignment</button>
-                  <button type="button" role="tab" aria-selected={assignmentView === "share"} className={assignmentView === "share" ? "is-active" : ""} onClick={() => setAssignmentView("share")}>Share</button>
+                <div className="assignment-view-tabs" role="tablist" aria-label="Assignment workspace" onKeyDown={handleAssignmentTabKeyDown}>
+                  <button id="assignment-review-tab" type="button" role="tab" aria-controls="assignment-review-panel" aria-selected={assignmentView === "review"} tabIndex={assignmentView === "review" ? 0 : -1} className={assignmentView === "review" ? "is-active" : ""} onClick={() => setAssignmentView("review")}>Review</button>
+                  <button id="assignment-details-tab" type="button" role="tab" aria-controls="assignment-details-panel" aria-selected={assignmentView === "details"} tabIndex={assignmentView === "details" ? 0 : -1} className={assignmentView === "details" ? "is-active" : ""} onClick={() => setAssignmentView("details")}>Assignment</button>
+                  <button id="assignment-share-tab" type="button" role="tab" aria-controls="assignment-share-panel" aria-selected={assignmentView === "share"} tabIndex={assignmentView === "share" ? 0 : -1} className={assignmentView === "share" ? "is-active" : ""} onClick={() => setAssignmentView("share")}>Share</button>
                 </div>
 
                 {assignmentError ? <p className="card-inline-error">{assignmentError}</p> : null}
                 {assignmentView === "share" ? (
-                  <section className="assignment-tab-panel assignment-share-panel" role="tabpanel">
+                  <section id="assignment-share-panel" className="assignment-tab-panel assignment-share-panel" role="tabpanel" aria-labelledby="assignment-share-tab">
                     <div>
                       <h3>Student access</h3>
                       <p className="meta">Preview the student experience or copy the class link.</p>
@@ -1901,7 +1968,7 @@ export default function ClassDetailPage() {
                 ) : null}
 
                 {assignmentView === "details" ? (
-                  <section className="assignment-tab-panel assignment-details-panel" role="tabpanel">
+                  <section id="assignment-details-panel" className="assignment-tab-panel assignment-details-panel" role="tabpanel" aria-labelledby="assignment-details-tab">
                     <div className="assignment-detail-grid">
                       <div><span>Instructions</span><p>{activeAssignment.instructions?.trim() || "No instructions provided."}</p></div>
                       <div><span>Points</span><p>{activeAssignment.maxPoints}</p></div>
@@ -1917,7 +1984,7 @@ export default function ClassDetailPage() {
                 ) : null}
 
                 {assignmentView === "review" ? (
-                <section className="assignment-tab-panel assignment-review-panel" role="tabpanel">
+                <section id="assignment-review-panel" className="assignment-tab-panel assignment-review-panel" role="tabpanel" aria-labelledby="assignment-review-tab">
                 <div className="toolbar-compact grading-toolbar">
                   <label className="label toolbar-label" htmlFor="student-filter">Find student in this assignment</label>
                   <input id="student-filter" className="input toolbar-input" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Search by student name" />
@@ -1979,7 +2046,7 @@ export default function ClassDetailPage() {
                       </div>
                     </details>
                   ) : null}
-                  <span className="status-badge status-warning">{pluralize(activeAssignment.ungradedCount, "ungraded")}</span>
+                  <span className="status-badge status-warning">{activeAssignment.ungradedCount} ungraded</span>
                 </div>
 
                 {bulkAiError ? <p className="card-inline-error">{bulkAiError}</p> : null}
@@ -2548,11 +2615,61 @@ export default function ClassDetailPage() {
                 Close
               </button>
             </div>
-            <p id="edit-assignment-dialog-description" className="meta">Update assignment name and instructions.</p>
+            <p id="edit-assignment-dialog-description" className="meta">Update what students see and how they should respond.</p>
             <label className="label form-label-top" htmlFor="edit-assignment-title">Assignment name</label>
             <input ref={assignmentTitleInputRef} id="edit-assignment-title" className="input" value={assignmentTitleDraft} onChange={(event) => setAssignmentTitleDraft(event.target.value)} maxLength={100} />
+            <label className="label form-label-top" htmlFor="edit-assignment-description">Student directions (optional)</label>
+            <input
+              id="edit-assignment-description"
+              className="input"
+              value={assignmentDescriptionDraft}
+              onChange={(event) => setAssignmentDescriptionDraft(event.target.value)}
+              placeholder="Add a short summary students will see before they record."
+              maxLength={500}
+            />
+            <p className="meta field-meta">{assignmentDescriptionDraft.length}/500</p>
             <label className="label form-label-top" htmlFor="edit-assignment-instructions">Instructions</label>
             <textarea id="edit-assignment-instructions" className="textarea" rows={4} value={assignmentInstructionsDraft} onChange={(event) => setAssignmentInstructionsDraft(event.target.value)} maxLength={500} />
+            <label className="label form-label-top" htmlFor="edit-assignment-language">Student response language</label>
+            <div className="select-field">
+              <select
+                id="edit-assignment-language"
+                className="input select-input"
+                value={assignmentUsesCustomLanguage ? CUSTOM_ASSIGNMENT_LANGUAGE_VALUE : assignmentTargetLanguageDraft}
+                aria-describedby="edit-assignment-language-help"
+                onChange={(event) => {
+                  if (event.target.value === CUSTOM_ASSIGNMENT_LANGUAGE_VALUE) {
+                    setAssignmentUsesCustomLanguage(true);
+                    setAssignmentTargetLanguageDraft("");
+                    return;
+                  }
+                  setAssignmentUsesCustomLanguage(false);
+                  setAssignmentTargetLanguageDraft(event.target.value);
+                }}
+              >
+                {ASSIGNMENT_LANGUAGE_OPTIONS.map((language) => (
+                  <option key={language} value={language}>{language}</option>
+                ))}
+                <option value={CUSTOM_ASSIGNMENT_LANGUAGE_VALUE}>Other language...</option>
+              </select>
+              <ChevronDown size={18} aria-hidden="true" />
+            </div>
+            {assignmentUsesCustomLanguage ? (
+              <>
+                <label className="label form-label-top" htmlFor="edit-assignment-custom-language">Other response language</label>
+                <input
+                  id="edit-assignment-custom-language"
+                  className="input"
+                  value={assignmentTargetLanguageDraft}
+                  onChange={(event) => setAssignmentTargetLanguageDraft(event.target.value)}
+                  placeholder="Enter a language"
+                  maxLength={80}
+                />
+              </>
+            ) : null}
+            <p id="edit-assignment-language-help" className="meta field-meta">
+              Choose the language students will speak. AI grading evaluates responses in this language.
+            </p>
             <label className="label form-label-top" htmlFor="edit-assignment-max-points">Points possible</label>
             {assignmentRubricEnabled ? (
               <div className="notice info assignment-attachment-notice">
@@ -2640,7 +2757,7 @@ export default function ClassDetailPage() {
               accept="application/pdf,image/png,image/jpeg"
               onChange={(event) => void handleAssignmentAttachmentChange(event)}
             />
-            <p className="meta field-meta">Upload a PDF or image students can open from the assignment page.</p>
+            <p className="meta field-meta">Upload a PDF or image students can open from the assignment page. Maximum 3 MB.</p>
             {assignmentAttachmentDraft ? (
               <div className="notice info assignment-attachment-notice">
                 New attachment: <strong>{assignmentAttachmentDraft.fileName}</strong>

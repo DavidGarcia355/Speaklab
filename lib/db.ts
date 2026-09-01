@@ -30,6 +30,8 @@ import { processedAssignmentFingerprint } from "@/lib/ai/recording-identity";
 import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapter";
 import type { FeedbackDiagnosticContext } from "@/lib/feedback-context";
 import type { Rubric, RubricScore } from "@/lib/validation";
+import { AssignmentPointsBelowSavedGradeError } from "@/lib/assignment-errors";
+import { DuplicateSubmissionError, SubmissionLimitReachedError } from "@/lib/submission-errors";
 
 const QUERY_TIMEOUT_MS = 5000;
 
@@ -114,6 +116,7 @@ export type StudentSubmissionRow = {
   id: string;
   assignmentId: string;
   assignmentTitle: string;
+  classId: string;
   className: string;
   maxPoints: number;
   studentName: string;
@@ -127,6 +130,7 @@ export type StudentSubmissionRow = {
 export type StudentAssignmentHistoryRow = {
   assignmentId: string;
   assignmentTitle: string;
+  classId: string;
   className: string;
   maxPoints: number;
 };
@@ -653,6 +657,11 @@ function createDbClient(): Client {
   if (tursoUrl || tursoToken) {
     throw new Error("Both TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are required together.");
   }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are required in production; local database fallback is disabled."
+    );
+  }
 
   const dataDir = path.join(process.cwd(), "data");
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -660,7 +669,12 @@ function createDbClient(): Client {
   return createClient({ url: `file:${localPath}` });
 }
 
-const db = createDbClient();
+let dbClient: Client | null = null;
+
+function getDbClient(): Client {
+  if (!dbClient) dbClient = createDbClient();
+  return dbClient;
+}
 
 let initPromise: Promise<void> | null = null;
 
@@ -681,7 +695,7 @@ async function withTimeout<T>(label: string, fn: () => Promise<T>) {
 }
 
 async function rawExecute(sql: string, args: InValue[] = []) {
-  return db.execute({ sql, args });
+  return getDbClient().execute({ sql, args });
 }
 
 async function ensureColumn(
@@ -730,7 +744,7 @@ const MANUAL_AI_ACCESS_GRANT_SQL_LIST = MANUAL_AI_ACCESS_GRANT_SOURCES
   .join(", ");
 
 async function migrateAiAttemptDeliveryStatus() {
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     const claim = await transaction.execute({
       sql: `INSERT INTO schema_migrations (name, applied_at)
@@ -772,7 +786,7 @@ async function migrateAiAttemptDeliveryStatus() {
  * so neither the current allowlist nor the bit alone can safely infer origin.
  */
 async function migrateAiAccessGrantProvenance() {
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     const claim = await transaction.execute({
       sql: `INSERT INTO schema_migrations (name, applied_at)
@@ -799,7 +813,7 @@ async function migrateAiAccessGrantProvenance() {
 }
 
 async function migrateAdminAlertOutbox() {
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     await transaction.execute(`CREATE TABLE IF NOT EXISTS admin_alert_outbox (
       id TEXT PRIMARY KEY,
@@ -1456,12 +1470,14 @@ async function ensureInitialized() {
 
 async function query(sql: string, args: InValue[] = []) {
   await ensureInitialized();
-  return withTimeout(sql, () => db.execute({ sql, args }));
+  return withTimeout(sql, () => getDbClient().execute({ sql, args }));
 }
 
 async function writeBatch(statements: InStatement[]) {
   await ensureInitialized();
-  return withTimeout("database write batch", () => db.batch(statements, "write"));
+  return withTimeout("database write batch", () =>
+    getDbClient().batch(statements, "write")
+  );
 }
 
 function makeId(prefix: string) {
@@ -1824,7 +1840,7 @@ export async function claimPendingAdminAlertOutbox(input: {
   );
   const leaseToken = makeId("alertlease");
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     await transaction.execute({
       sql: `UPDATE admin_alert_outbox
@@ -2908,8 +2924,25 @@ export async function updateAssignment(
   await assertUniqueAssignmentTitle(current.classId, ownerEmail, input.title, assignmentId);
   const nextAutoTranscribe = input.autoTranscribe ?? current.autoTranscribe;
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
+    const highestGradeResult = await transaction.execute({
+      sql: `SELECT MAX(s.grade) as highestGrade
+        FROM submissions s
+        JOIN assignments a ON a.id = s.assignment_id
+        JOIN classes c ON c.id = a.class_id
+        WHERE a.id = ?
+          AND s.deleted_at IS NULL
+          AND a.deleted_at IS NULL
+          AND c.deleted_at IS NULL
+          AND LOWER(c.owner_email) = LOWER(?)`,
+      args: [assignmentId, ownerEmail],
+    });
+    const highestGrade = toNullableNumber(highestGradeResult.rows[0]?.highestGrade);
+    if (highestGrade !== null && input.maxPoints < highestGrade) {
+      throw new AssignmentPointsBelowSavedGradeError(highestGrade);
+    }
+
     const result = await transaction.execute({
       sql: `UPDATE assignments
         SET title = ?, description = ?, instructions = ?, target_language = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?, auto_transcribe = ?
@@ -3017,49 +3050,87 @@ export async function createSubmission(input: {
   submittedAt: number;
 }> {
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
-  const duplicate = await transaction.execute({ sql:
-    `SELECT id, submitted_at as submittedAt
-    FROM submissions
-    WHERE assignment_id = ?
-      AND LOWER(student_email) = LOWER(?)
-      AND deleted_at IS NULL
-    ORDER BY submitted_at DESC
-    LIMIT 1`,
-    args: [input.assignmentId, input.studentEmail] });
-  const recent = duplicate.rows[0];
-  if (recent && Date.now() - toNumber(recent.submittedAt) < 60_000) {
-    throw new Error("Looks like this recording was already submitted. Please wait before submitting again.");
-  }
+    const assignmentLimit = await transaction.execute({
+      sql: `SELECT COALESCE(max_submissions, 0) as maxSubmissions
+        FROM assignments
+        WHERE id = ? AND deleted_at IS NULL
+        LIMIT 1`,
+      args: [input.assignmentId],
+    });
+    const maxSubmissions = toNumber(assignmentLimit.rows[0]?.maxSubmissions);
+    if (maxSubmissions > 0) {
+      const existingCount = await transaction.execute({
+        sql: `SELECT COUNT(*) as count
+          FROM submissions
+          WHERE assignment_id = ?
+            AND LOWER(student_email) = LOWER(?)
+            AND deleted_at IS NULL`,
+        args: [input.assignmentId, input.studentEmail],
+      });
+      if (toNumber(existingCount.rows[0]?.count) >= maxSubmissions) {
+        throw new SubmissionLimitReachedError(maxSubmissions);
+      }
+    }
 
-  const item = {
-    id: input.id ?? makeId("sub"),
-    assignmentId: input.assignmentId,
-    studentName: input.studentName,
-    studentEmail: input.studentEmail,
-    audioBlobUrl: input.audioBlobUrl,
-    submittedAt: Date.now(),
-  };
-  await transaction.execute({ sql:
-    `INSERT INTO submissions (
-      id, assignment_id, student_name, student_email, audio_data, audio_blob_url, submitted_at, deleted_at
-    ) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL)`,
-    args: [item.id, item.assignmentId, item.studentName, item.studentEmail, item.audioBlobUrl, item.submittedAt] });
-  await transaction.execute({
-    sql: `INSERT INTO automatic_transcription_jobs (
-      id, submission_id, assignment_id, teacher_email, status, attempt_count,
-      next_attempt_at, lease_token, lease_expires_at, last_error_code,
-      created_at, updated_at, completed_at
-    )
-    SELECT ?, ?, a.id, c.owner_email, 'queued', 0, ?, '', 0, '', ?, ?, NULL
-    FROM assignments a JOIN classes c ON c.id = a.class_id
-    WHERE a.id = ? AND a.deleted_at IS NULL AND c.deleted_at IS NULL
-      AND COALESCE(a.auto_transcribe, 0) = 1`,
-    args: [makeId("atj"), item.id, item.submittedAt, item.submittedAt, item.submittedAt, item.assignmentId],
-  });
-  await transaction.commit();
-  return item;
+    const duplicate = await transaction.execute({
+      sql: `SELECT id, submitted_at as submittedAt
+        FROM submissions
+        WHERE assignment_id = ?
+          AND LOWER(student_email) = LOWER(?)
+          AND deleted_at IS NULL
+        ORDER BY submitted_at DESC
+        LIMIT 1`,
+      args: [input.assignmentId, input.studentEmail],
+    });
+    const recent = duplicate.rows[0];
+    if (recent && Date.now() - toNumber(recent.submittedAt) < 60_000) {
+      throw new DuplicateSubmissionError();
+    }
+
+    const item = {
+      id: input.id ?? makeId("sub"),
+      assignmentId: input.assignmentId,
+      studentName: input.studentName,
+      studentEmail: input.studentEmail,
+      audioBlobUrl: input.audioBlobUrl,
+      submittedAt: Date.now(),
+    };
+    await transaction.execute({
+      sql: `INSERT INTO submissions (
+        id, assignment_id, student_name, student_email, audio_data, audio_blob_url, submitted_at, deleted_at
+      ) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL)`,
+      args: [
+        item.id,
+        item.assignmentId,
+        item.studentName,
+        item.studentEmail,
+        item.audioBlobUrl,
+        item.submittedAt,
+      ],
+    });
+    await transaction.execute({
+      sql: `INSERT INTO automatic_transcription_jobs (
+        id, submission_id, assignment_id, teacher_email, status, attempt_count,
+        next_attempt_at, lease_token, lease_expires_at, last_error_code,
+        created_at, updated_at, completed_at
+      )
+      SELECT ?, ?, a.id, c.owner_email, 'queued', 0, ?, '', 0, '', ?, ?, NULL
+      FROM assignments a JOIN classes c ON c.id = a.class_id
+      WHERE a.id = ? AND a.deleted_at IS NULL AND c.deleted_at IS NULL
+        AND COALESCE(a.auto_transcribe, 0) = 1`,
+      args: [
+        makeId("atj"),
+        item.id,
+        item.submittedAt,
+        item.submittedAt,
+        item.submittedAt,
+        item.assignmentId,
+      ],
+    });
+    await transaction.commit();
+    return item;
   } catch (error) {
     if (!transaction.closed) await transaction.rollback();
     throw error;
@@ -3080,7 +3151,7 @@ export async function claimAutomaticTranscriptionJobs(input?: {
   await ensureInitialized();
   const now = input?.now ?? Date.now();
   const limit = Math.max(1, Math.min(5, Math.floor(input?.limit ?? 2)));
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     // Expired processing leases are retryable. A transaction plus the guarded
     // update below makes overlapping cron deliveries safe.
@@ -3231,6 +3302,7 @@ export async function listSubmissionsByStudentEmail(studentEmail: string): Promi
       s.id as id,
       s.assignment_id as assignmentId,
       a.title as assignmentTitle,
+      c.id as classId,
       c.name as className,
       a.max_points as maxPoints,
       s.student_name as studentName,
@@ -3252,6 +3324,7 @@ export async function listSubmissionsByStudentEmail(studentEmail: string): Promi
     id: toStringValue(row.id),
     assignmentId: toStringValue(row.assignmentId),
     assignmentTitle: toStringValue(row.assignmentTitle),
+    classId: toStringValue(row.classId),
     className: toStringValue(row.className),
     maxPoints: toNumber(row.maxPoints),
     studentName: toStringValue(row.studentName),
@@ -3270,6 +3343,7 @@ export async function listStudentAssignmentHistoryByEmail(
     `SELECT
       a.id as assignmentId,
       a.title as assignmentTitle,
+      c.id as classId,
       c.name as className,
       a.max_points as maxPoints,
       MAX(s.submitted_at) as lastSeenAt
@@ -3279,13 +3353,14 @@ export async function listStudentAssignmentHistoryByEmail(
     WHERE LOWER(s.student_email) = LOWER(?)
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
-    GROUP BY a.id, a.title, c.name, a.max_points
+    GROUP BY a.id, a.title, c.id, c.name, a.max_points
     ORDER BY lastSeenAt DESC, LOWER(c.name), LOWER(a.title)`,
     [studentEmail]
   );
   return result.rows.map((row) => ({
     assignmentId: toStringValue(row.assignmentId),
     assignmentTitle: toStringValue(row.assignmentTitle),
+    classId: toStringValue(row.classId),
     className: toStringValue(row.className),
     maxPoints: toNumber(row.maxPoints),
   }));
@@ -3652,7 +3727,7 @@ export async function finalizeAiGradeDelivery(input: {
     ? await getReadyStripeSubscriptionScope()
     : null;
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
 
   async function rollbackResult(
     reason: Extract<FinalizeAiGradeDeliveryResult, { status: "not_applied" }>['reason'],
@@ -5368,7 +5443,7 @@ async function grantAiReviewLifetimeBonusAtomic(input: {
   const grantedBy = requireTrimmedValue("grantedBy", input.grantedBy);
   const now = requireNonNegativeInteger("now", input.now ?? Date.now());
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     const insertion = await transaction.execute({
       sql: `INSERT INTO ai_review_lifetime_bonus_grants_v1 (
@@ -5650,7 +5725,7 @@ export async function getAiReviewAllowanceSummary(input: {
   const now = requireNonNegativeInteger("now", input.now ?? Date.now());
   const readyStripeScope = await getReadyStripeSubscriptionScope();
   await ensureInitialized();
-  const transaction = await db.transaction("read");
+  const transaction = await getDbClient().transaction("read");
   try {
     const allowance = await resolveAiReviewAllowanceInTransaction({
       transaction,
@@ -5709,7 +5784,7 @@ async function reserveAiReviewAllowanceAtomic(input: {
   const now = requireNonNegativeInteger("now", input.now ?? Date.now());
   const readyStripeScope = await getReadyStripeSubscriptionScope();
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     const allowance = await resolveAiReviewAllowanceInTransaction({
       transaction,
@@ -6099,7 +6174,7 @@ export async function recordProcessedStripeWebhookEventWithAdminAlerts(input: {
   }
   const alerts = input.alerts.map(normalizeAdminAlertOutboxInsert);
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     const marker = await transaction.execute({
       sql: `INSERT INTO stripe_webhook_events (
@@ -7588,7 +7663,7 @@ export async function finalizeSubmissionTranscriptDelivery(input: {
   const now = requireNonNegativeInteger("now", input.now ?? Date.now());
   const readyStripeScope = await getReadyStripeSubscriptionScope();
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     const existing = await transaction.execute({
       sql: `SELECT id FROM submission_transcripts
@@ -7663,7 +7738,7 @@ export async function saveUnmeteredSubmissionTranscript(input: {
   const semanticKey = requireTrimmedValue("semanticKey", input.value.semanticKey);
   const now = requireNonNegativeInteger("now", input.now ?? Date.now());
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     const existing = await transaction.execute({
       sql: `SELECT id FROM submission_transcripts
@@ -7715,7 +7790,7 @@ export async function copyConsumedReviewTranscriptToSubmission(input: {
   );
   const now = requireNonNegativeInteger("now", input.now ?? Date.now());
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     const reservation = await transaction.execute({
       sql: `SELECT source_kind as sourceKind, attempt_id as sourceResultId
@@ -7856,7 +7931,7 @@ export async function markAiGradingAttemptNotApplicable(input: {
     ? await getReadyStripeSubscriptionScope()
     : null;
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   try {
     const attemptResult = await transaction.execute({
       sql: `SELECT
@@ -8014,7 +8089,7 @@ export async function markAiGradingAttemptBillingRequired(input: {
   if (!stripeUsageScope) return false;
   const livemode = stripeUsageScope.keyMode === "live";
   await ensureInitialized();
-  const transaction = await db.transaction("write");
+  const transaction = await getDbClient().transaction("write");
   async function rollbackResult(result: boolean) {
     if (!transaction.closed) await transaction.rollback();
     return result;

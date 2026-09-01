@@ -137,6 +137,38 @@ describe("auth options", () => {
     expect(authOptions.pages).toEqual({ error: "/auth/error" });
   });
 
+  it("keeps auth redirects on the exact TryHabla origin", async () => {
+    const authOptions = await loadAuthOptions();
+    const redirect = authOptions.callbacks!.redirect!;
+    const baseUrl = "https://tryhabla.com";
+
+    await expect(redirect({ url: "/teacher?view=classes", baseUrl })).resolves.toBe(
+      "https://tryhabla.com/teacher?view=classes"
+    );
+    await expect(
+      redirect({ url: "https://tryhabla.com/student/dashboard", baseUrl })
+    ).resolves.toBe("https://tryhabla.com/student/dashboard");
+    await expect(redirect({ url: baseUrl, baseUrl })).resolves.toBe(
+      "https://tryhabla.com/student/dashboard"
+    );
+  });
+
+  it.each([
+    "https://tryhabla.com.evil.example/phish",
+    "https://tryhabla.com@evil.example/phish",
+    "http://tryhabla.com/phish",
+    "https://tryhabla.com:444/phish",
+    "//evil.example/phish",
+    "javascript:alert(1)",
+    "not a valid absolute URL",
+  ])("rejects an untrusted auth redirect: %s", async (url) => {
+    const authOptions = await loadAuthOptions();
+
+    await expect(
+      authOptions.callbacks!.redirect!({ url, baseUrl: "https://tryhabla.com" })
+    ).resolves.toBe("https://tryhabla.com");
+  });
+
   it("accepts Microsoft sign-in and upserts the exact lowercase email", async () => {
     const authOptions = await loadAuthOptions();
 

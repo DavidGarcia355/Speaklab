@@ -14,14 +14,14 @@ import {
   studentGradeProvenance,
   type StudentGradeSource,
 } from "@/lib/ai/student-provenance";
+import {
+  groupStudentRecordingsByClass,
+  type StudentRecordingAssignment,
+} from "@/lib/student-recording-groups";
 import hubStyles from "./student-hubs.module.css";
 
-type StudentSubmission = {
+type StudentSubmission = StudentRecordingAssignment & {
   id: string;
-  assignmentId: string;
-  assignmentTitle: string;
-  className: string;
-  maxPoints: number;
   studentName: string;
   audioData: string;
   submittedAt: number;
@@ -30,12 +30,7 @@ type StudentSubmission = {
   gradeSource: StudentGradeSource;
 };
 
-type StudentAssignmentHistory = {
-  assignmentId: string;
-  assignmentTitle: string;
-  className: string;
-  maxPoints: number;
-};
+type StudentAssignmentHistory = StudentRecordingAssignment;
 
 type SessionResponse = {
   user?: {
@@ -55,75 +50,6 @@ function formatDate(timestamp: number) {
 function gradeDisplay(grade: number | null, maxPoints: number) {
   if (grade === null) return { text: "Pending", tone: "pill-warning" };
   return { text: `${grade}/${maxPoints}`, tone: "pill-success" };
-}
-
-type GroupedClass = {
-  className: string;
-  assignments: {
-    assignmentId: string;
-    assignmentTitle: string;
-    maxPoints: number;
-    submissions: StudentSubmission[];
-  }[];
-};
-
-function groupByClass(
-  assignments: StudentAssignmentHistory[],
-  submissions: StudentSubmission[]
-): GroupedClass[] {
-  const classMap = new Map<
-    string,
-    Map<string, { assignmentId: string; assignmentTitle: string; maxPoints: number; submissions: StudentSubmission[] }>
-  >();
-  const classOrder: string[] = [];
-  const assignmentOrder = new Map<string, string[]>();
-
-  function ensureAssignment(
-    className: string,
-    assignmentId: string,
-    assignmentTitle: string,
-    maxPoints: number
-  ) {
-    if (!classMap.has(className)) {
-      classMap.set(className, new Map());
-      classOrder.push(className);
-      assignmentOrder.set(className, []);
-    }
-
-    const aMap = classMap.get(className)!;
-    if (!aMap.has(assignmentId)) {
-      aMap.set(assignmentId, {
-        assignmentId,
-        assignmentTitle,
-        maxPoints,
-        submissions: [],
-      });
-      assignmentOrder.get(className)!.push(assignmentId);
-    }
-  }
-
-  for (const assignment of assignments) {
-    ensureAssignment(
-      assignment.className,
-      assignment.assignmentId,
-      assignment.assignmentTitle,
-      assignment.maxPoints
-    );
-  }
-
-  for (const sub of submissions) {
-    ensureAssignment(sub.className, sub.assignmentId, sub.assignmentTitle, sub.maxPoints);
-    classMap.get(sub.className)!.get(sub.assignmentId)!.submissions.push(sub);
-  }
-
-  return classOrder.map((className) => {
-    const aMap = classMap.get(className)!;
-    const aOrder = assignmentOrder.get(className)!;
-    return {
-      className,
-      assignments: aOrder.map((assignmentId) => aMap.get(assignmentId)!),
-    };
-  });
 }
 
 export default function StudentDashboardPage() {
@@ -241,7 +167,7 @@ export default function StudentDashboardPage() {
 
   const gradedCount = submissions.filter((s) => s.grade !== null).length;
   const pendingCount = submissions.length - gradedCount;
-  const grouped = groupByClass(assignmentHistory, submissions);
+  const grouped = groupStudentRecordingsByClass(assignmentHistory, submissions);
 
   return (
     <main className={`page-wrap student-game-wrap student-home-wrap ${hubStyles.recordingsWrap}`}>
@@ -326,7 +252,7 @@ export default function StudentDashboardPage() {
         </section>
       ) : (
         grouped.map((group) => (
-          <section key={group.className} className="student-quest-section section-gap">
+          <section key={group.classId} className="student-quest-section section-gap">
             <h2 className="student-class-heading">{group.className}</h2>
             {group.assignments.map((asg) => (
               <div key={asg.assignmentId} className="student-assignment-group student-quest-card">

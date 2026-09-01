@@ -475,7 +475,7 @@ export default function TeacherPage() {
                 item.submissionCount === 0
                   ? "No student activity yet"
                   : status.pending > 0
-                    ? pluralize(status.pending, "ungraded")
+                    ? `${status.pending} ungraded`
                     : `${pluralize(status.graded, "graded")}`;
 
               const isEditing = editingClassId === item.id;

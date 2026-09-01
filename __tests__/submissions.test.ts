@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/assignments/[assignmentId]/submissions/route";
+import { GET as GET_SUBMISSION_ACCESS } from "@/app/api/student/assignments/[assignmentId]/submissions/route";
 import { HttpError } from "@/lib/http";
+import { SubmissionLimitReachedError } from "@/lib/submission-errors";
 
 const mocks = vi.hoisted(() => ({
   mockRequireSchoolStudentEmail: vi.fn(),
@@ -185,6 +187,36 @@ describe("submission route domain enforcement", () => {
     });
   }
 
+  function makeAccessRequest() {
+    return new Request("http://localhost/api/student/assignments/asg_1/submissions");
+  }
+
+  it("preflights roster access before a student starts recording", async () => {
+    process.env.REQUIRE_ROSTER_FOR_SUBMISSIONS = "true";
+    mocks.mockIsStudentOnRoster.mockResolvedValue(false);
+
+    const response = await GET_SUBMISSION_ACCESS(makeAccessRequest(), {
+      params: Promise.resolve({ assignmentId: "asg_1" }),
+    });
+    const data = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(403);
+    expect(data.error).toContain("class roster");
+    expect(mocks.mockCountStudentSubmissions).not.toHaveBeenCalled();
+  });
+
+  it("returns the submission count after a student passes the access preflight", async () => {
+    mocks.mockCountStudentSubmissions.mockResolvedValue(2);
+
+    const response = await GET_SUBMISSION_ACCESS(makeAccessRequest(), {
+      params: Promise.resolve({ assignmentId: "asg_1" }),
+    });
+    const data = (await response.json()) as { count: number; maxSubmissions: number };
+
+    expect(response.status).toBe(200);
+    expect(data).toEqual({ count: 2, maxSubmissions: 0 });
+  });
+
   it("allows a valid student when domain restriction is disabled", async () => {
     const response = await POST(makeRequest(), {
       params: Promise.resolve({ assignmentId: "asg_1" }),
@@ -314,6 +346,32 @@ describe("submission route domain enforcement", () => {
 
     expect(mocks.mockDeleteSubmissionAudio).toHaveBeenCalledWith(
       "submissions/asg_1/orphan.webm"
+    );
+  });
+
+  it("cleans up the losing upload when the atomic submission limit check wins a race", async () => {
+    mocks.mockFindAssignmentById.mockResolvedValue({
+      id: "asg_1",
+      classId: "class_1",
+      ownerEmail: "teacher@school.edu",
+      maxSubmissions: 1,
+      maxRecordingSeconds: 60,
+      createdAt: 1_000,
+    });
+    mocks.mockCountStudentSubmissions.mockResolvedValue(0);
+    mocks.mockUploadSubmissionAudio.mockResolvedValue("submissions/asg_1/losing-upload.webm");
+    mocks.mockCreateSubmission.mockRejectedValue(new SubmissionLimitReachedError(1));
+
+    const response = await POST(makeRequest(), {
+      params: Promise.resolve({ assignmentId: "asg_1" }),
+    });
+    const data = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(403);
+    expect(data.error).toContain("maximum of 1 submission");
+    expect(data.error).toContain("ask your teacher");
+    expect(mocks.mockDeleteSubmissionAudio).toHaveBeenCalledWith(
+      "submissions/asg_1/losing-upload.webm"
     );
   });
 

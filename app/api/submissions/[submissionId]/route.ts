@@ -76,6 +76,9 @@ export async function PATCH(
       feedback,
       rubricScores,
     });
+    if (!updated) {
+      return NextResponse.json({ error: "Submission not found." }, { status: 404 });
+    }
     return NextResponse.json({ item: updated });
   });
 }

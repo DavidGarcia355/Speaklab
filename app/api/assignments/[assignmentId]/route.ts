@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireTeacherEmail } from "@/lib/authz";
+import { AssignmentPointsBelowSavedGradeError } from "@/lib/assignment-errors";
 import { uploadAssignmentAttachment } from "@/lib/attachment-storage";
 import { deleteBlobObjects } from "@/lib/blob-deletion";
 import {
@@ -96,6 +97,9 @@ export async function PATCH(
         await deleteBlobObjects([newlyUploadedAttachment], { objectClass: "attachment" });
       }
       if (error instanceof Error && error.message.toLowerCase().includes("already exists")) {
+        throw new HttpError(409, error.message);
+      }
+      if (error instanceof AssignmentPointsBelowSavedGradeError) {
         throw new HttpError(409, error.message);
       }
       throw error;

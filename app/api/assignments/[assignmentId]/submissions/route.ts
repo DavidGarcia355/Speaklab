@@ -15,6 +15,11 @@ import { enforceSubmissionRateLimit } from "@/lib/rate-limit";
 import { enforceStudentAssignmentAccessPolicy } from "@/lib/student-assignment-access";
 import { getEnv } from "@/lib/env";
 import { parseAudioDataUrl, parseOrThrow400, submissionCreateSchema } from "@/lib/validation";
+import {
+  DuplicateSubmissionError,
+  SubmissionLimitReachedError,
+  submissionLimitReachedMessage,
+} from "@/lib/submission-errors";
 
 export const runtime = "nodejs";
 
@@ -41,10 +46,7 @@ export async function POST(
     if (assignment.maxSubmissions > 0) {
       const existing = await countStudentSubmissions(assignmentId, studentEmail);
       if (existing >= assignment.maxSubmissions) {
-        throw new HttpError(
-          403,
-          `You have reached the maximum of ${assignment.maxSubmissions} submission${assignment.maxSubmissions === 1 ? "" : "s"} for this assignment. Delete a previous submission to submit again.`
-        );
+        throw new HttpError(403, submissionLimitReachedMessage(assignment.maxSubmissions));
       }
     }
 
@@ -99,6 +101,12 @@ export async function POST(
           assignmentId,
           errorName: cleanupError instanceof Error ? cleanupError.name : "unknown",
         });
+      }
+      if (error instanceof SubmissionLimitReachedError) {
+        throw new HttpError(403, error.message);
+      }
+      if (error instanceof DuplicateSubmissionError) {
+        throw new HttpError(409, error.message);
       }
       throw error;
     }
