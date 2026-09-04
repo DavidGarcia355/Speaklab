@@ -5,7 +5,7 @@ import {
 } from "@/lib/ai/student-provenance";
 
 describe("student-visible AI grade provenance", () => {
-  it("labels automatically saved AI output without attributing it to the teacher", () => {
+  it("labels teacher-approved AI-assisted output without attributing it to the teacher", () => {
     expect(studentGradeProvenance("ai")).toEqual({
       badge: "AI-generated · teacher editable",
       feedbackLabel: "AI-generated feedback",
@@ -21,9 +21,10 @@ describe("student-visible AI grade provenance", () => {
     expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("recorded answer");
     expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("configured for this TryHabla deployment");
     expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("may store the transcript");
-    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("may be visible before your teacher reviews");
-    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("AI-generated grades and feedback are labeled");
-    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("teacher can review, edit, or replace them");
+    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("suggestions stay private to your teacher");
+    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("reviews them and saves the final grade or feedback");
+    expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("edit, replace, or decline any suggestion");
+    expect(STUDENT_AI_GRADING_DISCLOSURE).not.toContain("visible before your teacher reviews");
     expect(STUDENT_AI_GRADING_DISCLOSURE).toContain("whether AI is authorized");
     expect(STUDENT_AI_GRADING_DISCLOSURE).not.toContain("school's approved AI provider");
   });

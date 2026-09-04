@@ -40,6 +40,120 @@ export type BulkAiGradeItemResult = {
   message: string;
 };
 
+export type BulkAiBatchStatus =
+  | "queued"
+  | "processing"
+  | "review_ready"
+  | "partial_failure"
+  | "saved"
+  | "cancelled";
+
+export type BulkAiBatchItemStatus =
+  | "queued"
+  | "processing"
+  | "review_ready"
+  | "failed"
+  | "skipped"
+  | "saved"
+  | "conflict";
+
+export type BulkAiRubricScore = {
+  criterionId: string;
+  criterionName: string;
+  maxPoints: number;
+  awarded: number;
+};
+
+export type BulkAiBatchItem = {
+  id: string;
+  submissionId: string;
+  studentName: string;
+  studentEmail: string;
+  submittedAt: number;
+  ordinal: number;
+  status: BulkAiBatchItemStatus;
+  attemptId: string | null;
+  errorCode: string;
+  errorMessage: string;
+  retryCount: number;
+  teacherEdited: boolean;
+  draft: {
+    grade: number | null;
+    rubricScores: BulkAiRubricScore[] | null;
+    feedback: string;
+  };
+  attempt: BulkAiAttempt | null;
+  updatedAt: number;
+};
+
+export type BulkAiBatch = {
+  id: string;
+  assignmentId: string;
+  assignmentTitle: string;
+  assignmentFingerprint: string;
+  status: BulkAiBatchStatus;
+  eligibleCount: number;
+  newUnitsRequired: number;
+  transcriptsRequired: number;
+  savedTranscripts: number;
+  enhanced: boolean;
+  counts: {
+    total: number;
+    queued: number;
+    processing: number;
+    reviewReady: number;
+    failed: number;
+    skipped: number;
+    saved: number;
+    conflict: number;
+  };
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+  savedAt: number | null;
+  items: BulkAiBatchItem[];
+};
+
+export type BulkAiBatchSaveItem = {
+  itemId: string;
+  grade: number;
+  feedback: string;
+  rubricScores: BulkAiRubricScore[] | null;
+};
+
+export class BulkAiBatchRequestError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly payload: Record<string, unknown> | null;
+
+  constructor(input: {
+    message: string;
+    status: number;
+    code?: string;
+    payload?: Record<string, unknown> | null;
+  }) {
+    super(input.message);
+    this.name = "BulkAiBatchRequestError";
+    this.status = input.status;
+    this.code = input.code ?? "";
+    this.payload = input.payload ?? null;
+  }
+}
+
+export function bulkAiPreflightFromScopeError<T extends { assignmentId: string }>(
+  error: unknown,
+  expectedAssignmentId: string,
+): T | null {
+  if (!(error instanceof BulkAiBatchRequestError)) return null;
+  if (error.code !== "confirmation_scope_changed") return null;
+  const preflight = error.payload?.preflight;
+  if (!preflight || typeof preflight !== "object") return null;
+  if ((preflight as { assignmentId?: unknown }).assignmentId !== expectedAssignmentId) {
+    return null;
+  }
+  return preflight as T;
+}
+
 type BulkAiGradeRunInput = {
   submissionIds: string[];
   cooldownSeconds: number;
@@ -90,6 +204,203 @@ function uniqueSubmissionIds(values: string[]) {
 
 function snapshot(summary: BulkAiGradeRunSummary) {
   return { ...summary };
+}
+
+async function batchJson<T>(response: Response): Promise<T> {
+  const payload = (await response.json().catch(() => null)) as
+    | (Record<string, unknown> & { error?: unknown; code?: unknown })
+    | null;
+  if (!response.ok) {
+    throw new BulkAiBatchRequestError({
+      message:
+        typeof payload?.error === "string" && payload.error.trim()
+          ? payload.error
+          : `AI grading request failed (status ${response.status}).`,
+      status: response.status,
+      code: typeof payload?.code === "string" ? payload.code : "",
+      payload,
+    });
+  }
+  if (!payload) {
+    throw new BulkAiBatchRequestError({
+      message: "TryHabla could not confirm the AI grading response. Reload before retrying.",
+      status: response.status,
+      code: "invalid_response",
+    });
+  }
+  return payload as T;
+}
+
+export async function createOrResumeBulkAiBatch(input: {
+  assignmentId: string;
+  idempotencyKey: string;
+  confirmationToken: string;
+  enhanced?: boolean;
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+}) {
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const response = await fetchImpl(
+    `/api/assignments/${encodeURIComponent(input.assignmentId)}/ai-grade-all`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        idempotencyKey: input.idempotencyKey,
+        confirmationToken: input.confirmationToken,
+        confirmed: true,
+        enhanced: input.enhanced === true,
+      }),
+      signal: input.signal,
+    },
+  );
+  return batchJson<{ created: boolean; batch: BulkAiBatch }>(response);
+}
+
+export async function saveBulkAiBatchDraft(input: {
+  batchId: string;
+  items: BulkAiBatchSaveItem[];
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+}) {
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const response = await fetchImpl(
+    `/api/ai-grading-batches/${encodeURIComponent(input.batchId)}/draft`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: input.items }),
+      cache: "no-store",
+      signal: input.signal,
+    },
+  );
+  return batchJson<{ batch: BulkAiBatch }>(response);
+}
+
+export async function closeBulkAiBatch(input: {
+  batchId: string;
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+}) {
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const response = await fetchImpl(
+    `/api/ai-grading-batches/${encodeURIComponent(input.batchId)}/close`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+      cache: "no-store",
+      signal: input.signal,
+    },
+  );
+  return batchJson<{ closed: boolean; batch: BulkAiBatch }>(response);
+}
+
+export async function loadBulkAiBatch(input: {
+  batchId: string;
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+}) {
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const response = await fetchImpl(
+    `/api/ai-grading-batches/${encodeURIComponent(input.batchId)}`,
+    { cache: "no-store", signal: input.signal },
+  );
+  return (await batchJson<{ batch: BulkAiBatch }>(response)).batch;
+}
+
+export async function advanceBulkAiBatch(input: {
+  batchId: string;
+  retryFailed?: boolean;
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+}) {
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const response = await fetchImpl(
+    `/api/ai-grading-batches/${encodeURIComponent(input.batchId)}/next`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ retryFailed: input.retryFailed === true }),
+      signal: input.signal,
+    },
+  );
+  return batchJson<{
+    processedItemId: string | null;
+    done: boolean;
+    batch: BulkAiBatch;
+  }>(response);
+}
+
+/**
+ * Advances the server-persisted batch one item at a time. The batch itself is
+ * the progress checkpoint, so closing or reloading the page never restarts
+ * successful items and never turns a lost response into a duplicate charge.
+ */
+export async function runBulkAiBatch(input: {
+  batch: BulkAiBatch;
+  retryFailed?: boolean;
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+  onProgress?: (batch: BulkAiBatch) => void;
+}) {
+  let batch = input.batch;
+  const retryBudget = input.retryFailed ? batch.counts.failed : 0;
+  const retriedItems = new Set<string>();
+
+  while (true) {
+    throwIfAborted(input.signal);
+    const hasQueuedWork =
+      batch.status === "queued" ||
+      batch.status === "processing" ||
+      batch.counts.queued > 0 ||
+      batch.counts.processing > 0;
+    const untriedFailedItems = batch.items.filter(
+      (item) => item.status === "failed" && !retriedItems.has(item.id),
+    );
+    const canRetryFailure =
+      input.retryFailed === true &&
+      !hasQueuedWork &&
+      untriedFailedItems.length > 0 &&
+      retriedItems.size < retryBudget;
+    if (!hasQueuedWork && !canRetryFailure) break;
+
+    const result = await advanceBulkAiBatch({
+      batchId: batch.id,
+      retryFailed: canRetryFailure,
+      fetchImpl: input.fetchImpl,
+      signal: input.signal,
+    });
+    batch = result.batch;
+    input.onProgress?.(batch);
+
+    if (canRetryFailure && result.processedItemId) {
+      if (retriedItems.has(result.processedItemId)) break;
+      retriedItems.add(result.processedItemId);
+    }
+    if (!result.processedItemId && result.done) break;
+  }
+
+  return batch;
+}
+
+export async function saveBulkAiBatch(input: {
+  batchId: string;
+  items: BulkAiBatchSaveItem[];
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+}) {
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const response = await fetchImpl(
+    `/api/ai-grading-batches/${encodeURIComponent(input.batchId)}/save`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true, items: input.items }),
+      signal: input.signal,
+    },
+  );
+  return batchJson<{ saved: boolean; batch: BulkAiBatch }>(response);
 }
 
 /**

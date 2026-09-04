@@ -14,7 +14,9 @@ describe("public legal surface", () => {
     expect(markup).toContain("Information TryHabla handles");
     expect(markup).toContain("Optional AI transcription and grading");
     expect(markup).toContain("recorded answer");
-    expect(markup).toContain("may be shown to the student before a teacher");
+    expect(markup).toContain("remain teacher-only until a teacher reviews");
+    expect(markup).toContain("explicitly saves the final score and feedback");
+    expect(markup).not.toContain("shown to the student before a teacher");
     expect(markup).toContain("production service identifies OpenAI");
     expect(markup).toContain("does not promise a particular provider retention mode");
     expect(markup).toContain("30-day");

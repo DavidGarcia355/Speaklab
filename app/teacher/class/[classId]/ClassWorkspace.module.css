@@ -1,0 +1,974 @@
+.viewNav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.28rem;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-soft) 62%, var(--surface));
+}
+
+.headerActions {
+  margin-left: auto;
+}
+
+.viewTab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.6rem 0.9rem;
+  border: 2px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.viewTab:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary-soft) 72%, var(--surface));
+  color: var(--primary-strong);
+}
+
+.viewTab:focus-visible {
+  outline: 3px solid var(--mango);
+  outline-offset: 3px;
+}
+
+.viewTabActive {
+  border-color: var(--house-ink);
+  border-left-color: var(--mango);
+  background: color-mix(in srgb, var(--primary-soft) 82%, var(--surface));
+  color: var(--primary-strong);
+  box-shadow: 3px 3px 0 var(--house-blue-shadow);
+}
+
+.classworkShell {
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.assignmentPicker {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.55fr) minmax(280px, 1fr);
+  align-items: end;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border: 2px solid var(--house-ink);
+  border-left: 7px solid var(--primary);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 5px 5px 0 var(--house-blue-shadow);
+}
+
+.assignmentPickerCopy {
+  display: grid;
+  align-content: center;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.assignmentPickerCopy > strong,
+.assignmentPickerCopy > h2,
+.assignmentPickerCopy > p {
+  margin: 0;
+}
+
+.assignmentPickerCopy > label,
+.assignmentPickerCopy > strong,
+.assignmentPickerCopy > h2 {
+  color: var(--text);
+  font-size: 0.98rem;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.assignmentPickerCopy > span,
+.assignmentPickerCopy > p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.assignmentSelect {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0.62rem 2.5rem 0.62rem 0.78rem;
+  border: 2px solid var(--line-strong);
+  border-radius: 7px;
+  background-color: var(--surface-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.assignmentSelect:hover {
+  border-color: var(--primary);
+}
+
+.assignmentSelect:focus-visible {
+  border-color: var(--primary);
+  outline: 3px solid var(--mango);
+  outline-offset: 2px;
+}
+
+.assignmentSelect:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
+.queueBadge[data-status="success"] {
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+
+.reviewWorkspace {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: start;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.submissionQueue {
+  min-width: 0;
+  overflow: hidden;
+  border: 2px solid var(--house-ink);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 5px 5px 0 var(--house-blue-shadow);
+}
+
+.queueHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  min-height: 48px;
+  padding: 0.65rem 0.72rem;
+  border-bottom: 2px solid var(--line);
+}
+
+.queueHeader > div {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.queueHeader > div > strong {
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 850;
+}
+
+.queueHeader > div > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.queueHeader > h2,
+.queueHeader > h3,
+.queueHeader > strong {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.queueCount {
+  flex: 0 0 auto;
+  min-width: 1.7rem;
+  padding: 0.22rem 0.42rem;
+  border: 1px solid var(--primary-soft-border);
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 850;
+  line-height: 1;
+  text-align: center;
+}
+
+.queueList {
+  display: grid;
+  gap: 0.35rem;
+  max-height: min(68vh, 720px);
+  padding: 0.42rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.queueItem {
+  display: grid;
+  gap: 0.24rem;
+  width: 100%;
+  min-width: 0;
+  min-height: 68px;
+  padding: 0.58rem 0.62rem;
+  border: 2px solid var(--line);
+  border-left: 5px solid transparent;
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.queueItem:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary-soft) 58%, var(--surface));
+  transform: translateY(-1px);
+}
+
+.queueItem:focus-visible {
+  outline: 3px solid var(--mango);
+  outline-offset: 2px;
+}
+
+.queueItemActive {
+  border-color: var(--primary);
+  border-left-color: var(--mango);
+  background: color-mix(in srgb, var(--primary-soft) 78%, var(--surface));
+  box-shadow: 3px 3px 0 var(--house-blue-shadow);
+}
+
+.queueName {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queueMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.22rem 0.4rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.queueBadge {
+  justify-self: start;
+  padding: 0.18rem 0.38rem;
+  border: 1px solid var(--status-warning-border);
+  border-radius: 999px;
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.focusedSubmission {
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+  padding: 0.9rem;
+  border: 2px solid var(--house-ink);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 5px 5px 0 var(--house-coral-shadow);
+}
+
+.focusedSubmission :global(.assignment-submissions) {
+  margin: 0;
+}
+
+.focusedSubmission :global(.submission-card) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.focusedNav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  padding-bottom: 0.72rem;
+  border-bottom: 2px solid var(--line);
+}
+
+.focusedPosition {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+.focusedPosition > strong,
+.focusedPosition > h2,
+.focusedPosition > h3 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focusedNavActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.focusedNavActions :global(.btn) {
+  min-height: 42px;
+}
+
+.bulkAiActionPanel {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr);
+  gap: clamp(0.9rem, 2vw, 1.35rem);
+  min-width: 0;
+  margin-bottom: 0.9rem;
+  padding: clamp(0.9rem, 2.2vw, 1.25rem);
+  overflow: hidden;
+  border: 2px solid var(--house-ink);
+  border-left: 8px solid var(--mango);
+  border-radius: 9px;
+  background:
+    linear-gradient(118deg, color-mix(in srgb, var(--primary-soft) 76%, var(--surface)) 0 56%, transparent 56%),
+    var(--surface);
+  box-shadow: 6px 6px 0 var(--house-coral-shadow);
+}
+
+.bulkAiActionPanel::after {
+  position: absolute;
+  right: -28px;
+  bottom: -52px;
+  width: 180px;
+  height: 180px;
+  border: 24px solid color-mix(in srgb, var(--mango) 16%, transparent);
+  border-radius: 999px;
+  content: "";
+  pointer-events: none;
+}
+
+.bulkAiActionPanel[data-state="review"] {
+  border-left-color: var(--mint);
+  box-shadow: 6px 6px 0 var(--house-mint-shadow);
+}
+
+.bulkAiActionPanel[data-state="limited"] {
+  border-left-color: var(--coral);
+}
+
+.bulkAiActionPanel[data-state="complete"] {
+  border-left-color: var(--mint);
+  background:
+    linear-gradient(118deg, color-mix(in srgb, var(--status-success-bg) 82%, var(--surface)) 0 56%, transparent 56%),
+    var(--surface);
+  box-shadow: 6px 6px 0 var(--house-mint-shadow);
+}
+
+.bulkAiActionCopy,
+.bulkAiActionSide {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.bulkAiActionCopy h3,
+.bulkAiActionCopy p,
+.bulkAiUpgrade,
+.bulkAiSafety {
+  margin: 0;
+}
+
+.bulkAiActionCopy h3 {
+  max-width: 24ch;
+  color: var(--text);
+  font-size: clamp(1.25rem, 2.8vw, 1.85rem);
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+}
+
+.bulkAiActionCopy > p {
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.bulkAiEyebrow,
+.individualAiEyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  width: fit-content;
+  color: var(--primary-strong);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.bulkAiLiveStatus,
+.bulkAiTranscriptNote,
+.bulkAiCelebration {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: fit-content;
+  margin-top: 0.12rem !important;
+  padding: 0.38rem 0.5rem;
+  border: 1px solid var(--primary-soft-border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text) !important;
+  font-size: 0.76rem !important;
+  font-weight: 700;
+}
+
+.bulkAiCelebration {
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+  color: var(--status-success-text) !important;
+}
+
+.bulkAiActionSide {
+  padding: 0.76rem;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 3px 3px 0 var(--house-blue-shadow);
+}
+
+.bulkAiMath {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.42rem;
+  margin: 0;
+}
+
+.bulkAiMath > div {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+  padding: 0.48rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.bulkAiMath dt {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.bulkAiMath dd {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.bulkAiActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 0.45rem;
+}
+
+.bulkAiActions :global(.btn) {
+  width: 100%;
+  min-height: 48px;
+  min-width: 0;
+}
+
+.bulkAiPrimaryAction {
+  border-color: var(--primary-strong) !important;
+  box-shadow: 4px 4px 0 var(--house-blue-shadow) !important;
+}
+
+.bulkAiUpgrade,
+.bulkAiSafety {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.bulkAiUpgrade a {
+  color: var(--primary-strong);
+  font-weight: 850;
+  text-underline-offset: 0.16em;
+}
+
+.manualGradingWorkspace {
+  min-width: 0;
+  scroll-margin-top: 1rem;
+}
+
+.individualAiAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 0.72rem;
+  border: 2px solid var(--primary-soft-border);
+  border-left: 6px solid var(--mango);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary-soft) 68%, var(--surface));
+  box-shadow: 3px 3px 0 var(--house-coral-shadow);
+}
+
+.individualAiAction > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.individualAiAction h4,
+.individualAiAction p {
+  margin: 0;
+}
+
+.individualAiAction h4 {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.individualAiAction p {
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.individualAiAction > :global(.btn) {
+  flex: 0 0 auto;
+  min-height: 46px;
+}
+
+.studentActions {
+  margin-left: 0.2rem;
+}
+
+.focusedSubmission .studentActions {
+  position: static;
+}
+
+.studentActions :global(.workspace-more-popover) {
+  right: auto;
+  left: 0;
+  width: min(210px, calc(100vw - 3rem));
+  max-width: calc(100vw - 3rem);
+}
+
+.focusedSubmission :global(.submission-name-row) {
+  position: relative;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.focusedSubmission :global(.submission-name-row) > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.studentActions :global(.workspace-more-popover) .dangerAction {
+  color: var(--danger);
+}
+
+.studentActions :global(.workspace-more-popover) .dangerAction:hover,
+.studentActions :global(.workspace-more-popover) .dangerAction:focus-visible {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--danger);
+  box-shadow: inset 4px 0 0 var(--danger);
+}
+
+.rosterView {
+  display: grid;
+  gap: 0.9rem;
+  min-width: 0;
+  padding: clamp(0.85rem, 2vw, 1.15rem);
+  border: 2px solid var(--house-ink);
+  border-left: 7px solid var(--mint);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 6px 6px 0 var(--house-mint-shadow);
+}
+
+.rosterView :global(.toolbar-compact) {
+  margin: 0;
+}
+
+:global(html.dark) .viewNav {
+  border-color: var(--line-strong);
+  background: var(--surface-soft);
+}
+
+:global(html.dark) .viewTab,
+:global(html.dark) .assignmentPicker,
+:global(html.dark) .submissionQueue,
+:global(html.dark) .focusedSubmission,
+:global(html.dark) .rosterView,
+:global(html.dark) .bulkAiActionPanel,
+:global(html.dark) .bulkAiActionSide,
+:global(html.dark) .individualAiAction {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+:global(html.dark) .bulkAiActionPanel {
+  border-left-color: var(--mango);
+  background:
+    linear-gradient(118deg, color-mix(in srgb, var(--primary) 15%, var(--surface)) 0 56%, transparent 56%),
+    var(--surface);
+}
+
+:global(html.dark) .bulkAiActionPanel[data-state="review"],
+:global(html.dark) .bulkAiActionPanel[data-state="complete"] {
+  border-left-color: var(--mint);
+}
+
+:global(html.dark) .bulkAiEyebrow,
+:global(html.dark) .individualAiEyebrow,
+:global(html.dark) .bulkAiUpgrade a {
+  color: var(--dark-accent-cyan);
+}
+
+:global(html.dark) .individualAiAction {
+  border-left-color: var(--mango);
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+}
+
+:global(html.dark) .assignmentPicker {
+  border-left-color: var(--primary);
+}
+
+:global(html.dark) .rosterView {
+  border-left-color: var(--mint);
+}
+
+:global(html.dark) .viewTab:hover {
+  border-color: var(--dark-accent-cyan);
+  color: var(--dark-accent-cyan);
+}
+
+:global(html.dark) .viewTabActive {
+  border-color: var(--dark-accent-cyan);
+  border-left-color: var(--mango);
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface));
+  color: var(--dark-accent-cyan);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--primary) 42%, transparent);
+}
+
+:global(html.dark) .assignmentSelect {
+  border-color: var(--line-strong);
+  background-color: var(--surface-soft);
+  color: var(--text);
+}
+
+:global(html.dark) .assignmentSelect:hover,
+:global(html.dark) .assignmentSelect:focus-visible {
+  border-color: var(--dark-accent-cyan);
+}
+
+:global(html.dark) .queueHeader,
+:global(html.dark) .focusedNav {
+  border-color: var(--line-strong);
+}
+
+:global(html.dark) .queueCount {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 20%, var(--surface));
+  color: var(--dark-accent-cyan);
+}
+
+:global(html.dark) .queueItem {
+  border-color: var(--line);
+  border-left-color: transparent;
+  background: var(--surface);
+}
+
+:global(html.dark) .queueItem:hover {
+  border-color: var(--dark-accent-cyan);
+  background: var(--surface-soft);
+}
+
+:global(html.dark) .queueItemActive {
+  border-color: var(--dark-accent-cyan);
+  border-left-color: var(--mango);
+  background: color-mix(in srgb, var(--primary) 17%, var(--surface));
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--primary) 42%, transparent);
+}
+
+:global(html.dark) .studentActions :global(.workspace-more-popover) .dangerAction {
+  color: var(--status-danger-text);
+}
+
+:global(html.dark) .studentActions :global(.workspace-more-popover) .dangerAction:hover,
+:global(html.dark) .studentActions :global(.workspace-more-popover) .dangerAction:focus-visible {
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
+  box-shadow: inset 4px 0 0 var(--danger);
+}
+
+@media (max-width: 800px) {
+  .headerActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 0.5rem;
+  }
+
+  .headerActions .viewNav {
+    grid-column: 1 / -1;
+  }
+
+  .headerActions > :global(.workspace-more-menu),
+  .headerActions > :global(.btn),
+  .headerActions :global(.workspace-more-trigger) {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .headerActions > :global(.btn),
+  .headerActions :global(.workspace-more-trigger) {
+    padding-inline: 0.55rem;
+    font-size: 0.86rem;
+    white-space: nowrap;
+  }
+
+  .headerActions > :global(.workspace-more-menu) :global(.workspace-more-popover) {
+    right: auto;
+    left: 0;
+    width: min(280px, calc(100vw - 3rem));
+  }
+
+  .viewNav {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 0.38rem;
+  }
+
+  .viewTab {
+    width: 100%;
+    padding-inline: 0.58rem;
+  }
+
+  .assignmentPicker {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 0.58rem;
+    padding: 0.72rem;
+  }
+
+  .reviewWorkspace {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.68rem;
+  }
+
+  .queueHeader {
+    min-height: 44px;
+    padding: 0.56rem 0.65rem;
+  }
+
+  .queueList {
+    display: flex;
+    gap: 0.42rem;
+    max-height: none;
+    padding: 0.42rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    scrollbar-gutter: auto;
+  }
+
+  .queueItem {
+    flex: 0 0 min(76vw, 270px);
+    min-height: 62px;
+    scroll-snap-align: start;
+  }
+
+  .focusedSubmission {
+    gap: 0.7rem;
+    padding: 0.75rem;
+    box-shadow: 4px 4px 0 var(--house-coral-shadow);
+  }
+
+  .focusedNav {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.58rem;
+  }
+
+  .focusedNavActions {
+    width: 100%;
+  }
+
+  .focusedNavActions :global(.btn) {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .rosterView {
+    padding: 0.78rem;
+  }
+
+  .rosterView :global(.toolbar-compact) {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .rosterView :global(.toolbar-compact .btn),
+  .rosterView :global(.toolbar-compact .input) {
+    width: 100%;
+  }
+
+  .gradingToolbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .gradingToolbar :global(.toolbar-label),
+  .gradingToolbar :global(.toolbar-input) {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .gradingToolbar > :global(.btn),
+  .gradingToolbar > :global(.workspace-more-menu),
+  .gradingToolbar :global(.workspace-more-trigger) {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .bulkAiActionPanel {
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--surface);
+  }
+
+  .bulkAiActionCopy h3 {
+    max-width: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .viewNav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .queueItem {
+    flex-basis: min(82vw, 250px);
+  }
+
+  .focusedNav {
+    display: grid;
+  }
+
+  .focusedNavActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .focusedNavActions :global(.btn) {
+    width: 100%;
+  }
+
+  .gradingToolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gradingToolbar > :global(.btn),
+  .gradingToolbar > :global(.workspace-more-menu) {
+    grid-column: 1 / -1;
+  }
+
+  .bulkAiActions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bulkAiMath {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .bulkAiMath > div {
+    min-width: 0;
+  }
+
+  .bulkAiMath dt {
+    font-size: 0.58rem;
+    overflow-wrap: anywhere;
+  }
+
+  .bulkAiMath dd {
+    font-size: 0.92rem;
+  }
+
+  .individualAiAction {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .individualAiAction > :global(.btn) {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewTab,
+  .queueItem {
+    transition: none;
+  }
+}

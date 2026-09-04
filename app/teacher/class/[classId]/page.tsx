@@ -1,19 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Check, CheckCircle2, ChevronDown, Clock3, Pencil, Trash2, X } from "lucide-react";
+import { BookOpen, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock3, Pencil, Sparkles, Trash2, X } from "lucide-react";
 import AiGradeReviewBadge from "@/app/components/AiGradeReviewBadge";
 import AudioPlayer from "@/app/components/AudioPlayer";
+import BatchAiReviewWorkspace from "@/app/components/BatchAiReviewWorkspace";
 import BrandBar from "@/app/components/BrandBar";
 import {
   BULK_AI_CANCEL_LABEL,
   BULK_AI_CONFIRM_LABEL,
+  BULK_AI_QUEUE_CLEAR_COPY,
   BULK_AI_REVIEW_DISCLOSURE,
+  BULK_AI_SUPPORT_COPY,
+  INDIVIDUAL_AI_ACTION_LABEL,
+  INDIVIDUAL_AI_SUPPORT_COPY,
   bulkAiConfirmationTitle,
+  bulkAiPrimaryLabel,
 } from "@/app/components/bulk-ai-grading-presentation";
+import {
+  applyBatchSavedGrades,
+  cleanBatchSavedDraftIds,
+  gradingDraftIsDirty,
+  mergeGradingDraftsFromServer,
+  type GradingDraftState,
+} from "@/app/components/grading-draft-reconciliation";
 import ConfirmModal from "@/app/components/ConfirmModal";
 import GoogleDriveExportButton from "@/app/components/GoogleDriveExportButton";
 import PageTitle from "@/app/components/PageTitle";
@@ -23,9 +36,15 @@ import SubmissionTranscript from "@/app/components/SubmissionTranscript";
 import StudentOralPortfolio from "@/app/components/StudentOralPortfolio";
 import UndoToast from "@/app/components/UndoToast";
 import {
-  runBulkAiGradeRequests,
+  BulkAiBatchRequestError,
+  bulkAiPreflightFromScopeError,
+  closeBulkAiBatch,
+  createOrResumeBulkAiBatch,
+  runBulkAiBatch,
+  saveBulkAiBatch,
   type BulkAiAttempt,
-  type BulkAiGradeRunSummary,
+  type BulkAiBatch,
+  type BulkAiBatchSaveItem,
 } from "@/app/components/bulk-ai-grade-runner";
 import { prepareBulkTranscriptDownload } from "@/app/components/bulk-transcript-download";
 import {
@@ -36,6 +55,7 @@ import {
 import { buildSubmissionDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 import { MAX_ASSIGNMENT_ATTACHMENT_BYTES } from "@/lib/attachment-policy";
 import { parseCsvRows } from "@/lib/csv";
+import styles from "./ClassWorkspace.module.css";
 
 type AssignmentSummary = {
   id: string;
@@ -90,12 +110,7 @@ type ClassPayload = {
   stats: { assignmentCount: number; submissionCount: number };
 };
 
-type DraftState = {
-  gradeInput: string;
-  feedback: string;
-  saving: boolean;
-  rubricScoreInputs: Record<string, string>;
-};
+type DraftState = GradingDraftState;
 type AiAttempt = BulkAiAttempt;
 type AiReviewAllowance = {
   status:
@@ -113,6 +128,15 @@ type AiReviewAllowance = {
 };
 type BulkAiPreflight = {
   assignmentId: string;
+  confirmationToken: string;
+  confirmationScope: {
+    assignmentId: string;
+    assignmentFingerprint: string;
+    submissionIds: string[];
+    eligibleCount: number;
+    newUnitsRequired: number;
+    transcriptsRequired: number;
+  };
   ungradedCount: number;
   submissionIds: string[];
   newUnitsRequired: number;
@@ -121,8 +145,10 @@ type BulkAiPreflight = {
   estimatedSeconds: number;
   cooldownSeconds: number;
   allowance: AiReviewAllowance | null;
+  transcriptsRequired: number;
+  savedTranscripts: number;
+  activeBatch: BulkAiBatch | null;
 };
-type BulkAiResult = BulkAiGradeRunSummary;
 type BulkTranscriptResult = {
   total: number;
   included: number;
@@ -285,11 +311,10 @@ function bulkAiLimitDescription(preflight: BulkAiPreflight) {
 }
 
 function bulkAiRunDescription(preflight: BulkAiPreflight) {
-  const minutes = Math.max(1, Math.round(preflight.estimatedSeconds / 60));
   const usage = preflight.newUnitsRequired === 0
     ? "Every eligible recording already has a saved transcript, so this run uses no new AI-assisted recording units."
     : `${pluralize(preflight.newUnitsRequired, "new AI-assisted recording unit")} will be used. Recordings already transcribed for this assignment are not counted again.`;
-  return `${usage} ${BULK_AI_REVIEW_DISCLOSURE} You can review and edit every saved grade afterward. This takes about ${minutes} minute${minutes === 1 ? "" : "s"}.`;
+  return `${usage} ${BULK_AI_REVIEW_DISCLOSURE} You can review and edit every suggestion before saving any scores.`;
 }
 
 function autoResizeTextarea(element: HTMLTextAreaElement) {
@@ -369,8 +394,12 @@ function readAssignmentClipboard() {
 
 export default function ClassDetailPage() {
   const params = useParams<{ classId?: string }>();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const classId = params?.classId;
+  const workspaceView = searchParams.get("view") === "roster" ? "roster" : "classwork";
+  const requestedAssignmentId = searchParams.get("assignment")?.trim() ?? "";
+  const requestedSubmissionId = searchParams.get("submission")?.trim() ?? "";
 
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
@@ -414,9 +443,12 @@ export default function ClassDetailPage() {
   const [localAiTestMode, setLocalAiTestMode] = useState(false);
 
   const [bulkAiPreflight, setBulkAiPreflight] = useState<BulkAiPreflight | null>(null);
+  const [bulkAiConfirmOpen, setBulkAiConfirmOpen] = useState(false);
   const [bulkAiChecking, setBulkAiChecking] = useState(false);
   const [bulkAiRunning, setBulkAiRunning] = useState(false);
-  const [bulkAiResult, setBulkAiResult] = useState<BulkAiResult | null>(null);
+  const [bulkAiBatch, setBulkAiBatch] = useState<BulkAiBatch | null>(null);
+  const [bulkAiReviewOpen, setBulkAiReviewOpen] = useState(false);
+  const [bulkAiSaving, setBulkAiSaving] = useState(false);
   const [bulkAiProgress, setBulkAiProgress] = useState<{ processed: number; total: number } | null>(null);
   const [bulkAiError, setBulkAiError] = useState("");
   const [bulkTranscriptDownloading, setBulkTranscriptDownloading] = useState(false);
@@ -445,9 +477,13 @@ export default function ClassDetailPage() {
   const assignmentSavingRef = useRef(false);
   const bulkAiRunRef = useRef(false);
   const bulkAiAbortRef = useRef<AbortController | null>(null);
+  const bulkAiIdempotencyKeyRef = useRef("");
+  const hydratedAiAttemptRef = useRef(new Set<string>());
   const selectedAssignmentIdRef = useRef("");
   const bulkTranscriptUrlRef = useRef<string | null>(null);
   const bulkTranscriptAbortRef = useRef<AbortController | null>(null);
+  const submissionQueueListRef = useRef<HTMLDivElement>(null);
+  const manualGradingRef = useRef<HTMLDivElement>(null);
   const pendingDeleteRef = useRef<{
     key: string;
     rollback: () => void;
@@ -455,6 +491,23 @@ export default function ClassDetailPage() {
     onError: (message: string) => void;
     timerId: number;
   } | null>(null);
+
+  const updateWorkspaceUrl = useCallback((
+    updates: Record<string, string | null>,
+    historyMode: "push" | "replace" = "push",
+  ) => {
+    if (typeof window === "undefined") return;
+    const next = new URLSearchParams(window.location.search);
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    }
+    const query = next.toString();
+    const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (nextUrl === currentUrl) return;
+    window.history[historyMode === "replace" ? "replaceState" : "pushState"](null, "", nextUrl);
+  }, []);
 
   const loadRoster = useCallback(async (targetClassId: string) => {
     setRosterLoading(true);
@@ -614,7 +667,10 @@ export default function ClassDetailPage() {
     }
   }
 
-  const loadData = useCallback(async (targetClassId: string, options?: { background?: boolean }) => {
+  const loadData = useCallback(async (
+    targetClassId: string,
+    options?: { background?: boolean; resetDraftSubmissionIds?: ReadonlySet<string> },
+  ) => {
     const background = options?.background ?? false;
     if (!background) {
       setLoading(true);
@@ -628,19 +684,12 @@ export default function ClassDetailPage() {
       }
       const data = (await response.json()) as ClassPayload;
       setPayload(data);
-      setDrafts((prev) => {
-        const next = { ...prev };
-        for (const submission of data.submissions) {
-          const assignment = data.assignments.find((item) => item.id === submission.assignmentId) ?? null;
-          next[submission.id] = {
-            gradeInput: prev[submission.id]?.gradeInput ?? (submission.grade === null ? "" : String(submission.grade)),
-            feedback: prev[submission.id]?.feedback ?? submission.feedback ?? "",
-            saving: false,
-            rubricScoreInputs: prev[submission.id]?.rubricScoreInputs ?? rubricInputsFromSubmission(submission, assignment),
-          };
-        }
-        return next;
-      });
+      setDrafts((prev) => mergeGradingDraftsFromServer({
+        previousDrafts: prev,
+        submissions: data.submissions,
+        assignments: data.assignments,
+        resetSubmissionIds: options?.resetDraftSubmissionIds,
+      }));
     } catch (error) {
       setErrorMsg(error instanceof Error ? error.message : "Failed to load class.");
     } finally {
@@ -648,8 +697,7 @@ export default function ClassDetailPage() {
         setLoading(false);
       }
     }
-    void loadRoster(targetClassId);
-  }, [loadRoster]);
+  }, []);
 
   useEffect(() => {
     if (!classId) {
@@ -675,6 +723,11 @@ export default function ClassDetailPage() {
       window.removeEventListener("storage", onStorage);
     };
   }, [classId, loadData]);
+
+  useEffect(() => {
+    if (!classId || workspaceView !== "roster") return;
+    void loadRoster(classId);
+  }, [classId, loadRoster, workspaceView]);
 
   useEffect(() => {
     let active = true;
@@ -784,8 +837,13 @@ export default function ClassDetailPage() {
   useEffect(() => {
     selectedAssignmentIdRef.current = selectedAssignmentId;
     setBulkAiPreflight(null);
+    setBulkAiConfirmOpen(false);
+    setBulkAiBatch(null);
+    setBulkAiReviewOpen(false);
+    setBulkAiProgress(null);
+    setBulkAiSaving(false);
+    bulkAiIdempotencyKeyRef.current = "";
     if (!bulkAiRunRef.current) {
-      setBulkAiResult(null);
       setBulkAiError("");
     }
     bulkTranscriptAbortRef.current?.abort();
@@ -846,21 +904,162 @@ export default function ClassDetailPage() {
       setSelectedAssignmentId("");
       return;
     }
-    if (!assignmentViews.some((a) => a.id === selectedAssignmentId)) {
-      setSelectedAssignmentId(assignmentViews[0].id);
+    const requestedAssignment = assignmentViews.find((assignment) => assignment.id === requestedAssignmentId);
+    const nextAssignmentId = requestedAssignment?.id ?? assignmentViews[0].id;
+    if (nextAssignmentId !== selectedAssignmentId) {
+      setSelectedAssignmentId(nextAssignmentId);
     }
-  }, [assignmentViews, selectedAssignmentId]);
+    if (requestedAssignmentId && !requestedAssignment) {
+      updateWorkspaceUrl({ assignment: nextAssignmentId, submission: null }, "replace");
+    }
+  }, [assignmentViews, requestedAssignmentId, selectedAssignmentId, updateWorkspaceUrl]);
 
   const activeAssignment = assignmentViews.find((assignment) => assignment.id === selectedAssignmentId) ?? assignmentViews[0] ?? null;
+  const activeAssignmentId = activeAssignment?.id ?? "";
   const activeAllSubmissions = activeAssignment ? submissionsByAssignment[activeAssignment.id] ?? [] : [];
   const activeFilteredSubmissions = activeAssignment ? filteredByAssignment[activeAssignment.id] ?? [] : [];
+  const focusedSubmission = activeFilteredSubmissions.find((submission) => submission.id === requestedSubmissionId)
+    ?? activeFilteredSubmissions[0]
+    ?? null;
+  const focusedSubmissionIndex = focusedSubmission
+    ? activeFilteredSubmissions.findIndex((submission) => submission.id === focusedSubmission.id)
+    : -1;
+  const previousSubmission = focusedSubmissionIndex > 0
+    ? activeFilteredSubmissions[focusedSubmissionIndex - 1]
+    : null;
+  const nextSubmission = focusedSubmissionIndex >= 0 && focusedSubmissionIndex < activeFilteredSubmissions.length - 1
+    ? activeFilteredSubmissions[focusedSubmissionIndex + 1]
+    : null;
+
+  useEffect(() => {
+    if (!aiBulkGradingEnabled || !activeAssignmentId || assignmentView !== "review") return;
+    const assignmentId = activeAssignmentId;
+    const controller = new AbortController();
+    setBulkAiChecking(true);
+
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/assignments/${encodeURIComponent(assignmentId)}/ai-grade-all`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        const data = (await response.json()) as BulkAiPreflight & { error?: string };
+        if (!response.ok) throw new Error(data.error ?? "Could not check AI grading.");
+        if (controller.signal.aborted || selectedAssignmentIdRef.current !== assignmentId) return;
+        setBulkAiPreflight({ ...data, activeBatch: data.activeBatch ?? null });
+        setBulkAiBatch(data.activeBatch ?? null);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setBulkAiError(error instanceof Error ? error.message : "Could not check AI grading.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setBulkAiChecking(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [activeAssignmentId, aiBulkGradingEnabled, assignmentView]);
+
+  useEffect(() => {
+    if (!aiGradingEnabled || !focusedSubmission || focusedSubmission.grade !== null) return;
+    const submissionId = focusedSubmission.id;
+    if (aiSuggestions[submissionId] || hydratedAiAttemptRef.current.has(submissionId)) return;
+    const controller = new AbortController();
+
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/submissions/${encodeURIComponent(submissionId)}/ai-grade`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        if (!response.ok) return;
+        const data = (await response.json()) as { latest?: AiAttempt | null };
+        const attempt = data.latest;
+        if (
+          controller.signal.aborted ||
+          !attempt ||
+          attempt.status !== "completed" ||
+          attempt.suggestedScore === null ||
+          attempt.teacherAttention === "unable_to_grade"
+        ) return;
+
+        hydratedAiAttemptRef.current.add(submissionId);
+        const stagedAttempt = { ...attempt, gradeApplied: false };
+        setAiSuggestions((previous) => ({ ...previous, [submissionId]: stagedAttempt }));
+        setDrafts((previous) => ({
+          ...previous,
+          [submissionId]: {
+            gradeInput: String(attempt.suggestedScore),
+            feedback: attempt.feedback,
+            saving: previous[submissionId]?.saving ?? false,
+            rubricScoreInputs: Object.fromEntries(
+              attempt.rubricScores.map((score) => [score.criterionId, String(score.awarded)]),
+            ),
+          },
+        }));
+      } catch {
+        // Loading a saved suggestion is a convenience. Manual grading remains available.
+      }
+    })();
+
+    return () => controller.abort();
+  }, [aiGradingEnabled, aiSuggestions, focusedSubmission]);
+
+  useEffect(() => {
+    const queue = submissionQueueListRef.current;
+    if (!queue || !focusedSubmission) return;
+
+    const activeItem = Array.from(
+      queue.querySelectorAll<HTMLElement>("[data-submission-id]")
+    ).find((item) => item.dataset.submissionId === focusedSubmission.id);
+    if (!activeItem) return;
+
+    const queueRect = queue.getBoundingClientRect();
+    const itemRect = activeItem.getBoundingClientRect();
+    let nextLeft = queue.scrollLeft;
+    let nextTop = queue.scrollTop;
+
+    if (itemRect.left < queueRect.left) nextLeft -= queueRect.left - itemRect.left + 8;
+    else if (itemRect.right > queueRect.right) nextLeft += itemRect.right - queueRect.right + 8;
+
+    if (itemRect.top < queueRect.top) nextTop -= queueRect.top - itemRect.top + 8;
+    else if (itemRect.bottom > queueRect.bottom) nextTop += itemRect.bottom - queueRect.bottom + 8;
+
+    if (nextLeft === queue.scrollLeft && nextTop === queue.scrollTop) return;
+    queue.scrollTo({
+      left: Math.max(0, nextLeft),
+      top: Math.max(0, nextTop),
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }, [focusedSubmission]);
+
   const bulkAiWorkflowActive =
-    bulkAiChecking ||
     bulkAiRunning ||
-    bulkAiPreflight !== null ||
+    bulkAiSaving ||
     bulkTranscriptChecking ||
     bulkTranscriptDownloading ||
     bulkTranscriptPreflight !== null;
+  const bulkAiBatchNeedsReview = Boolean(
+    bulkAiBatch &&
+    ["review_ready", "partial_failure"].includes(bulkAiBatch.status) &&
+    bulkAiBatch.counts.reviewReady > 0,
+  );
+  const bulkAiBatchNeedsAttention = Boolean(
+    bulkAiBatch &&
+    bulkAiBatch.status === "partial_failure" &&
+    bulkAiBatch.counts.reviewReady === 0 &&
+    bulkAiBatch.counts.failed + bulkAiBatch.counts.skipped + bulkAiBatch.counts.conflict > 0,
+  );
+  const bulkAiEligibleCount = bulkAiBatch?.eligibleCount ?? bulkAiPreflight?.ungradedCount ?? 0;
+  const bulkAiTranscriptsRequired =
+    bulkAiPreflight?.transcriptsRequired ?? bulkAiPreflight?.newUnitsRequired ?? 0;
+  const bulkAiProcessed = bulkAiProgress?.processed ?? (
+    bulkAiBatch
+      ? bulkAiBatch.counts.total - bulkAiBatch.counts.queued - bulkAiBatch.counts.processing
+      : 0
+  );
+  const bulkAiTotal = bulkAiProgress?.total ?? bulkAiBatch?.counts.total ?? bulkAiEligibleCount;
+  const bulkAiProcessingItem = bulkAiBatch?.items.find((item) => item.status === "processing") ?? null;
 
   function updatePayloadSubmissions(updater: (items: SubmissionItem[]) => SubmissionItem[]) {
     setPayload((prev) => (prev ? { ...prev, submissions: updater(prev.submissions) } : prev));
@@ -887,23 +1086,7 @@ export default function ClassDetailPage() {
     submission: SubmissionItem,
     assignment: AssignmentSummary | AssignmentView,
   ) {
-    const draft = drafts[submission.id];
-    if (!draft) return false;
-    if (draft.saving || draft.feedback !== (submission.feedback ?? "")) return true;
-
-    if (assignment.rubric) {
-      return assignment.rubric.criteria.some((criterion) => {
-        const saved = submission.rubricScores?.find(
-          (score) => score.criterionId === criterion.id,
-        );
-        return (draft.rubricScoreInputs[criterion.id]?.trim() ?? "") !==
-          (saved ? String(saved.awarded) : "");
-      });
-    }
-
-    const value = draft.gradeInput.trim();
-    if (submission.grade === null) return value !== "";
-    return value === "" || !Number.isFinite(Number(value)) || Number(value) !== submission.grade;
+    return gradingDraftIsDirty(drafts[submission.id], submission, assignment);
   }
 
   function dirtyDraftCountForAssignment(assignmentId: string) {
@@ -917,6 +1100,28 @@ export default function ClassDetailPage() {
         isSubmissionDraftDirty(submission, assignment),
     ).length;
   }
+
+  function unsavedDraftCountForAssignment(assignmentId: string) {
+    const assignment = assignmentViews.find((item) => item.id === assignmentId);
+    if (!assignment) return 0;
+    return (submissionsByAssignment[assignmentId] ?? []).filter((submission) =>
+      isSubmissionDraftDirty(submission, assignment)
+    ).length;
+  }
+
+  const hasUnsavedDrafts = assignmentViews.some(
+    (assignment) => unsavedDraftCountForAssignment(assignment.id) > 0,
+  );
+
+  useEffect(() => {
+    if (!hasUnsavedDrafts) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [hasUnsavedDrafts]);
 
   async function saveSubmission(submissionId: string) {
     const draft = drafts[submissionId];
@@ -1061,11 +1266,18 @@ export default function ClassDetailPage() {
 
   function applySavedAiAttempt(submissionId: string, attempt: AiAttempt) {
     setAiSuggestions((prev) => ({ ...prev, [submissionId]: attempt }));
-    if (!attempt.gradeApplied || attempt.suggestedScore === null) return;
+    if (attempt.suggestedScore === null) return;
 
     const rubricScoreInputs = Object.fromEntries(
       attempt.rubricScores.map((score) => [score.criterionId, String(score.awarded)]),
     );
+    setDraft(submissionId, {
+      gradeInput: String(attempt.suggestedScore),
+      feedback: attempt.feedback,
+      rubricScoreInputs,
+    });
+    if (!attempt.gradeApplied) return;
+
     updatePayloadSubmissions((items) =>
       items.map((row) =>
         row.id === submissionId
@@ -1079,11 +1291,6 @@ export default function ClassDetailPage() {
           : row,
       ),
     );
-    setDraft(submissionId, {
-      gradeInput: String(attempt.suggestedScore),
-      feedback: attempt.feedback,
-      rubricScoreInputs,
-    });
   }
 
   async function aiGradeSubmission(submissionId: string) {
@@ -1092,6 +1299,8 @@ export default function ClassDetailPage() {
     try {
       const response = await fetch(`/api/submissions/${submissionId}/ai-grade`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewOnly: true }),
       });
       const data = (await response.json()) as {
         attempt?: AiAttempt;
@@ -1106,14 +1315,8 @@ export default function ClassDetailPage() {
         : null;
       if (attempt) applySavedAiAttempt(submissionId, attempt);
       else setAiSuggestions((prev) => ({ ...prev, [submissionId]: null }));
-      if (attempt?.gradeApplied) {
-        setAiGradeErrors((prev) => ({
-          ...prev,
-          [submissionId]: "AI score entered and saved automatically. Review or edit it anytime.",
-        }));
-      }
       if (data.attempt?.status === "failed") {
-        setAiGradeErrors((prev) => ({ ...prev, [submissionId]: "AI could not save a grade for this submission." }));
+        setAiGradeErrors((prev) => ({ ...prev, [submissionId]: "AI could not prepare a suggestion for this submission." }));
       }
     } catch (error) {
       setAiGradeErrors((prev) => ({
@@ -1125,41 +1328,82 @@ export default function ClassDetailPage() {
     }
   }
 
-  // Ask the server what a bulk run would involve before showing the confirm
-  // dialog, so the teacher sees real counts rather than an optimistic guess.
+  async function fetchBulkAiSummary(assignmentId: string, signal?: AbortSignal) {
+    const response = await fetch(
+      `/api/assignments/${assignmentId}/ai-grade-all`,
+      { cache: "no-store", signal },
+    );
+    const data = (await response.json()) as BulkAiPreflight & { error?: string };
+    if (!response.ok) throw new Error(data.error ?? "Could not check AI grading.");
+    return { ...data, activeBatch: data.activeBatch ?? null };
+  }
+
+  // Refresh immediately before opening a paid workflow so the count, allowance,
+  // and durable active batch always come from the server rather than page state.
   async function openBulkAiConfirm(assignmentId: string) {
     if (bulkAiRunRef.current) return;
     if (Object.values(aiGrading).some(Boolean)) {
-      setBulkAiError("Wait for the current AI grade to finish before grading the assignment.");
+      setBulkAiError("Wait for the current AI suggestion to finish before grading the assignment.");
       return;
     }
+    if (bulkAiBatch?.assignmentId === assignmentId) {
+      if (["review_ready", "partial_failure"].includes(bulkAiBatch.status)) {
+        setBulkAiReviewOpen(true);
+        return;
+      }
+      if (["queued", "processing"].includes(bulkAiBatch.status)) {
+        const summary = bulkAiPreflight ?? {
+          assignmentId,
+          confirmationToken: "",
+          ungradedCount: bulkAiBatch.eligibleCount,
+          submissionIds: bulkAiBatch.items.map((item) => item.submissionId),
+          newUnitsRequired: bulkAiBatch.newUnitsRequired,
+          remaining: 0,
+          fits: true,
+          estimatedSeconds: 0,
+          cooldownSeconds: 0,
+          allowance: null,
+          transcriptsRequired: bulkAiBatch.transcriptsRequired,
+          savedTranscripts: bulkAiBatch.savedTranscripts,
+          activeBatch: bulkAiBatch,
+          confirmationScope: {
+            assignmentId,
+            assignmentFingerprint: bulkAiBatch.assignmentFingerprint,
+            submissionIds: bulkAiBatch.items.map((item) => item.submissionId),
+            eligibleCount: bulkAiBatch.eligibleCount,
+            newUnitsRequired: bulkAiBatch.newUnitsRequired,
+            transcriptsRequired: bulkAiBatch.transcriptsRequired,
+          },
+        };
+        void runBulkAiGrade({ ...summary, activeBatch: bulkAiBatch });
+        return;
+      }
+    }
+
     const dirtyBeforeCheck = dirtyDraftCountForAssignment(assignmentId);
     if (dirtyBeforeCheck > 0) {
       setBulkAiError(
         `Save or clear unsaved grading changes for ${pluralize(dirtyBeforeCheck, "submission")} before starting AI grading.`,
       );
+      manualGradingRef.current?.scrollIntoView({ block: "start" });
       return;
     }
     setBulkAiChecking(true);
     setBulkAiError("");
-    setBulkAiResult(null);
     try {
-      const response = await fetch(`/api/assignments/${assignmentId}/ai-grade-all`, { cache: "no-store" });
-      const data = (await response.json()) as BulkAiPreflight & { error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Could not check AI grading.");
-      const dirtyAfterCheck = dirtyDraftCountForAssignment(assignmentId);
-      if (dirtyAfterCheck > 0) {
-        throw new Error(
-          `Save or clear unsaved grading changes for ${pluralize(dirtyAfterCheck, "submission")} before starting AI grading.`,
-        );
-      }
-      if (data.assignmentId !== assignmentId) {
-        throw new Error("The assignment changed while AI grading was being checked. Try again.");
-      }
+      const data = await fetchBulkAiSummary(assignmentId);
       if (selectedAssignmentIdRef.current !== assignmentId) {
         throw new Error("The selected assignment changed. Check AI grading again.");
       }
       setBulkAiPreflight(data);
+      setBulkAiBatch(data.activeBatch);
+      if (data.activeBatch && ["review_ready", "partial_failure"].includes(data.activeBatch.status)) {
+        setBulkAiReviewOpen(true);
+      } else if (data.activeBatch && ["queued", "processing"].includes(data.activeBatch.status)) {
+        void runBulkAiGrade(data);
+      } else {
+        setBulkAiConfirmOpen(true);
+      }
     } catch (error) {
       setBulkAiError(error instanceof Error ? error.message : "Could not check AI grading.");
     } finally {
@@ -1169,13 +1413,13 @@ export default function ClassDetailPage() {
 
   async function runBulkAiGrade(preflight: BulkAiPreflight) {
     if (bulkAiRunRef.current) return;
-    setBulkAiPreflight(null);
+    setBulkAiConfirmOpen(false);
     if (activeAssignment?.id !== preflight.assignmentId) {
       setBulkAiError("The selected assignment changed. Check the AI grading run again.");
       return;
     }
     if (Object.values(aiGrading).some(Boolean)) {
-      setBulkAiError("Wait for the current AI grade to finish before grading the assignment.");
+      setBulkAiError("Wait for the current AI suggestion to finish before grading the assignment.");
       return;
     }
     const dirtyCount = dirtyDraftCountForAssignment(preflight.assignmentId);
@@ -1191,55 +1435,72 @@ export default function ClassDetailPage() {
     bulkAiAbortRef.current = controller;
     bulkAiRunRef.current = true;
     setBulkAiRunning(true);
-    setBulkAiProgress({
-      processed: 0,
-      total: new Set(preflight.submissionIds).size,
-    });
-    setBulkAiResult(null);
     setBulkAiError("");
     try {
-      const result = await runBulkAiGradeRequests({
-        submissionIds: preflight.submissionIds,
-        cooldownSeconds: preflight.cooldownSeconds,
+      let batch = preflight.activeBatch;
+      if (!batch) {
+        if (!bulkAiIdempotencyKeyRef.current) {
+          bulkAiIdempotencyKeyRef.current = `assignment-${preflight.assignmentId}-${crypto.randomUUID()}`;
+        }
+        const created = await createOrResumeBulkAiBatch({
+          assignmentId: preflight.assignmentId,
+          idempotencyKey: bulkAiIdempotencyKeyRef.current,
+          confirmationToken: preflight.confirmationToken,
+          signal: controller.signal,
+        });
+        batch = created.batch;
+        setBulkAiBatch(batch);
+      }
+
+      setBulkAiProgress({
+        processed: batch.counts.total - batch.counts.queued - batch.counts.processing,
+        total: batch.counts.total,
+      });
+      const result = await runBulkAiBatch({
+        batch,
         signal: controller.signal,
-        onItem: (item) => {
-          if (item.attempt) applySavedAiAttempt(item.submissionId, item.attempt);
-          if (item.outcome === "graded") {
-            setAiGradeErrors((prev) => ({
-              ...prev,
-              [item.submissionId]:
-                "AI score entered and saved automatically. Review or edit it anytime.",
-            }));
-          } else if (item.outcome === "review_only") {
-            setAiGradeErrors((prev) => ({
-              ...prev,
-              [item.submissionId]:
-                "AI produced a review-only suggestion; no score was entered.",
-            }));
-          } else {
-            setAiGradeErrors((prev) => ({
-              ...prev,
-              [item.submissionId]: item.message,
-            }));
-          }
-        },
-        onProgress: (summary, processed) => {
-          setBulkAiResult(summary);
-          setBulkAiProgress({ processed, total: summary.total });
+        onProgress: (progressBatch) => {
+          setBulkAiBatch(progressBatch);
+          setBulkAiProgress({
+            processed:
+              progressBatch.counts.total -
+              progressBatch.counts.queued -
+              progressBatch.counts.processing,
+            total: progressBatch.counts.total,
+          });
         },
       });
-      setBulkAiResult(result);
-      if (result.terminalError) {
-        setBulkAiError(
-          `AI grading paused: ${result.terminalError}${
-            result.notProcessed > 0
-              ? ` ${pluralize(result.notProcessed, "submission")} can be retried later.`
-              : ""
-          }`,
-        );
-      }
+      setBulkAiBatch(result);
+      setBulkAiPreflight((previous) => previous ? { ...previous, activeBatch: result } : previous);
     } catch (error) {
       if (!controller.signal.aborted) {
+        if (error instanceof BulkAiBatchRequestError) {
+          const serverBatch = error.payload?.batch as BulkAiBatch | undefined;
+          if (serverBatch) setBulkAiBatch(serverBatch);
+          if (error.code === "confirmation_scope_changed") {
+            const freshPreflight = bulkAiPreflightFromScopeError<BulkAiPreflight>(
+              error,
+              preflight.assignmentId,
+            );
+            if (freshPreflight) {
+              setBulkAiPreflight({
+                ...freshPreflight,
+                activeBatch: freshPreflight.activeBatch ?? null,
+              });
+              setBulkAiBatch(freshPreflight.activeBatch ?? null);
+              bulkAiIdempotencyKeyRef.current = "";
+            }
+          } else if (error.code === "assignment_changed") {
+            try {
+              const freshPreflight = await fetchBulkAiSummary(preflight.assignmentId);
+              setBulkAiPreflight(freshPreflight);
+              setBulkAiBatch(freshPreflight.activeBatch);
+              bulkAiIdempotencyKeyRef.current = "";
+            } catch {
+              // Preserve the actionable server error if the follow-up refresh fails.
+            }
+          }
+        }
         setBulkAiError(error instanceof Error ? error.message : "Bulk AI grading failed.");
       }
     } finally {
@@ -1249,6 +1510,143 @@ export default function ClassDetailPage() {
         setBulkAiRunning(false);
         setBulkAiProgress(null);
       }
+    }
+  }
+
+  async function retryBulkAiFailures(latestBatch?: BulkAiBatch) {
+    const batchToRetry = latestBatch ?? bulkAiBatch;
+    if (!batchToRetry || bulkAiRunRef.current) return;
+    const controller = new AbortController();
+    bulkAiAbortRef.current?.abort();
+    bulkAiAbortRef.current = controller;
+    bulkAiRunRef.current = true;
+    setBulkAiRunning(true);
+    setBulkAiReviewOpen(false);
+    setBulkAiError("");
+    try {
+      const result = await runBulkAiBatch({
+        batch: batchToRetry,
+        retryFailed: true,
+        signal: controller.signal,
+        onProgress: (progressBatch) => {
+          setBulkAiBatch(progressBatch);
+          setBulkAiProgress({
+            processed: progressBatch.counts.total - progressBatch.counts.queued - progressBatch.counts.processing,
+            total: progressBatch.counts.total,
+          });
+        },
+      });
+      setBulkAiBatch(result);
+      setBulkAiReviewOpen(["review_ready", "partial_failure"].includes(result.status));
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setBulkAiError(error instanceof Error ? error.message : "Could not retry AI grading.");
+        setBulkAiReviewOpen(true);
+      }
+    } finally {
+      if (bulkAiAbortRef.current === controller) bulkAiAbortRef.current = null;
+      bulkAiRunRef.current = false;
+      if (!controller.signal.aborted) {
+        setBulkAiRunning(false);
+        setBulkAiProgress(null);
+      }
+    }
+  }
+
+  async function dismissTerminalBulkAiBatch() {
+    const batchToDismiss = bulkAiBatch;
+    if (
+      !batchToDismiss ||
+      bulkAiSaving ||
+      batchToDismiss.counts.reviewReady > 0 ||
+      batchToDismiss.counts.queued > 0 ||
+      batchToDismiss.counts.processing > 0
+    ) return;
+    if (!window.confirm(
+      "Dismiss this finished AI batch? Its failed or skipped submissions will stay ungraded so you can grade them manually or start a new AI run.",
+    )) return;
+
+    setBulkAiSaving(true);
+    setBulkAiError("");
+    try {
+      const result = await closeBulkAiBatch({ batchId: batchToDismiss.id });
+      bulkAiIdempotencyKeyRef.current = "";
+      setBulkAiBatch(result.batch);
+      setBulkAiReviewOpen(false);
+      setInfoMsg("The finished AI batch was dismissed. Unscored submissions are still waiting for you.");
+      try {
+        const summary = await fetchBulkAiSummary(batchToDismiss.assignmentId);
+        setBulkAiPreflight(summary);
+        setBulkAiBatch(summary.activeBatch);
+      } catch {
+        setBulkAiError("The batch was dismissed, but the refreshed grading queue could not load. Reload before starting another AI run.");
+      }
+    } catch (error) {
+      if (error instanceof BulkAiBatchRequestError) {
+        const serverBatch = error.payload?.batch as BulkAiBatch | undefined;
+        if (serverBatch) setBulkAiBatch(serverBatch);
+      }
+      setBulkAiError(error instanceof Error ? error.message : "Could not dismiss this AI grading batch.");
+    } finally {
+      setBulkAiSaving(false);
+    }
+  }
+
+  async function saveReviewedBulkAiGrades(items: BulkAiBatchSaveItem[]) {
+    if (!bulkAiBatch || bulkAiSaving) return;
+    setBulkAiSaving(true);
+    setBulkAiError("");
+    try {
+      const result = await saveBulkAiBatch({ batchId: bulkAiBatch.id, items });
+      const resetDraftSubmissionIds = cleanBatchSavedDraftIds({
+        batchItems: result.batch.items,
+        drafts,
+        submissions: payload?.submissions ?? [],
+        assignments: payload?.assignments ?? [],
+      });
+      const synchronizedSubmissions = applyBatchSavedGrades({
+        submissions: payload?.submissions ?? [],
+        batchItems: result.batch.items,
+      });
+      setBulkAiBatch(result.batch);
+      setBulkAiReviewOpen(false);
+      if (payload) {
+        setPayload((previous) => previous ? {
+          ...previous,
+          submissions: applyBatchSavedGrades({
+            submissions: previous.submissions,
+            batchItems: result.batch.items,
+          }),
+        } : previous);
+        setDrafts((previous) => mergeGradingDraftsFromServer({
+          previousDrafts: previous,
+          submissions: synchronizedSubmissions,
+          assignments: payload.assignments,
+          resetSubmissionIds: resetDraftSubmissionIds,
+        }));
+      }
+      setInfoMsg(result.saved ? "All reviewed AI scores were saved." : "These reviewed scores were already saved.");
+      try {
+        if (classId) {
+          await loadData(classId, {
+            background: true,
+            resetDraftSubmissionIds,
+          });
+        }
+        const summary = await fetchBulkAiSummary(bulkAiBatch.assignmentId);
+        setBulkAiPreflight(summary);
+        setBulkAiBatch(summary.activeBatch);
+      } catch {
+        setBulkAiError("The scores were saved, but the refreshed queue could not load. Reload to see the latest grading status.");
+      }
+    } catch (error) {
+      if (error instanceof BulkAiBatchRequestError) {
+        const serverBatch = error.payload?.batch as BulkAiBatch | undefined;
+        if (serverBatch) setBulkAiBatch(serverBatch);
+      }
+      setBulkAiError(error instanceof Error ? error.message : "Could not save the reviewed scores.");
+    } finally {
+      setBulkAiSaving(false);
     }
   }
 
@@ -1739,6 +2137,7 @@ export default function ClassDetailPage() {
       }
       await loadData(classId);
       setSelectedAssignmentId(data.item.id);
+      updateWorkspaceUrl({ view: null, assignment: data.item.id, submission: null });
       setInfoMsg(`Assignment "${data.item.title}" pasted into this class.`);
     } catch (error) {
       setErrorMsg(error instanceof Error ? error.message : "Unable to paste assignment.");
@@ -1886,9 +2285,27 @@ export default function ClassDetailPage() {
               <span><CheckCircle2 size={14} aria-hidden="true" /> {workspaceStats.graded} graded</span>
             </div>
           </div>
-          <div className="actions teacher-class-primary-actions">
-            <a className="btn btn-ghost" href="#roster">Roster</a>
-            <details className="workspace-more-menu">
+          <div className={`actions teacher-class-primary-actions ${styles.headerActions}`}>
+            <nav className={styles.viewNav} aria-label="Class workspace sections">
+              <button
+                type="button"
+                className={`${styles.viewTab} ${workspaceView === "classwork" ? styles.viewTabActive : ""}`}
+                aria-current={workspaceView === "classwork" ? "page" : undefined}
+                onClick={() => updateWorkspaceUrl({ view: null })}
+              >
+                Classwork
+              </button>
+              <button
+                type="button"
+                className={`${styles.viewTab} ${workspaceView === "roster" ? styles.viewTabActive : ""}`}
+                aria-current={workspaceView === "roster" ? "page" : undefined}
+                onClick={() => updateWorkspaceUrl({ view: "roster" })}
+              >
+                Roster
+              </button>
+            </nav>
+            {workspaceView === "classwork" ? (
+            <details className="workspace-more-menu" name="teacher-class-menu">
               <summary className="btn btn-ghost workspace-more-trigger">
                 <span>More actions</span>
                 <span className="workspace-more-chevron" aria-hidden="true">
@@ -1906,7 +2323,10 @@ export default function ClassDetailPage() {
                 <a href={`/api/classes/${payload.item.id}/gradebook.csv`}>Export gradebook CSV</a>
               </div>
             </details>
-            <Link className="btn btn-primary" href={`/teacher/class/${payload.item.id}/assignment/new`}>New assignment</Link>
+            ) : null}
+            {workspaceView === "classwork" ? (
+              <Link className="btn btn-primary" href={`/teacher/class/${payload.item.id}/assignment/new`}>New assignment</Link>
+            ) : null}
           </div>
         </div>
       </div>
@@ -1914,26 +2334,39 @@ export default function ClassDetailPage() {
       {errorMsg ? <p className="notice danger" role="alert">{errorMsg}</p> : null}
       {infoMsg ? <p className="notice success" role="status" aria-live="polite">{infoMsg}</p> : null}
 
-      {assignmentViews.length === 0 ? (
+      {workspaceView === "classwork" ? (assignmentViews.length === 0 ? (
         <section className="card section-gap"><h2 className="surface-title">Assignments</h2><p className="empty">No assignments yet. Create one to start collecting recordings.</p></section>
       ) : (
-        <section className="workspace-split section-gap">
-          <aside className="card assignment-nav panel-subtle">
-            <div className="assignment-nav-heading">
-              <h2 className="surface-title">Assignments</h2>
-              <span>{assignmentViews.length}</span>
+        <section className={`section-gap ${styles.classworkShell}`}>
+          <div className={styles.assignmentPicker}>
+            <div className={styles.assignmentPickerCopy}>
+              <label htmlFor="assignment-selector">Assignment</label>
+              <span>{pluralize(assignmentViews.length, "assignment")}</span>
             </div>
-            <div className="assignment-list">
-              {assignmentViews.map((assignment) => (
-                <button key={assignment.id} type="button" className={`assignment-nav-item ${assignment.id === activeAssignment?.id ? "is-selected" : ""}`} onClick={() => { setSelectedAssignmentId(assignment.id); setAssignmentView("review"); }} disabled={bulkAiWorkflowActive}>
-                  <p className="assignment-nav-title">{assignment.title}</p>
-                  <span className={`assignment-nav-queue status-${assignment.tone}`}>
-                    {assignment.totalSubmissions === 0 ? "No activity" : assignment.ungradedCount > 0 ? `${assignment.ungradedCount} to grade` : "Complete"}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </aside>
+            <select
+              id="assignment-selector"
+              className={styles.assignmentSelect}
+              value={activeAssignment?.id ?? ""}
+              onChange={(event) => {
+                setSelectedAssignmentId(event.target.value);
+                setAssignmentView("review");
+                setStudentFilter("");
+                setShowUngradedOnly(false);
+                updateWorkspaceUrl({ view: null, assignment: event.target.value, submission: null });
+              }}
+              disabled={bulkAiWorkflowActive}
+            >
+              {assignmentViews.map((assignment) => {
+                const unsavedCount = unsavedDraftCountForAssignment(assignment.id);
+                return (
+                  <option key={assignment.id} value={assignment.id}>
+                    {assignment.title} — {assignment.totalSubmissions === 0 ? "No activity" : assignment.ungradedCount > 0 ? `${assignment.ungradedCount} to grade` : "Complete"}
+                    {unsavedCount > 0 ? ` · ${unsavedCount} unsaved` : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
 
           <div className="card assignment-main">
             {!activeAssignment ? null : (
@@ -1947,7 +2380,7 @@ export default function ClassDetailPage() {
                 </div>
 
                 <div className="assignment-view-tabs" role="tablist" aria-label="Assignment workspace" onKeyDown={handleAssignmentTabKeyDown}>
-                  <button id="assignment-review-tab" type="button" role="tab" aria-controls="assignment-review-panel" aria-selected={assignmentView === "review"} tabIndex={assignmentView === "review" ? 0 : -1} className={assignmentView === "review" ? "is-active" : ""} onClick={() => setAssignmentView("review")}>Review</button>
+                  <button id="assignment-review-tab" type="button" role="tab" aria-controls="assignment-review-panel" aria-selected={assignmentView === "review"} tabIndex={assignmentView === "review" ? 0 : -1} className={assignmentView === "review" ? "is-active" : ""} onClick={() => setAssignmentView("review")}>Submissions</button>
                   <button id="assignment-details-tab" type="button" role="tab" aria-controls="assignment-details-panel" aria-selected={assignmentView === "details"} tabIndex={assignmentView === "details" ? 0 : -1} className={assignmentView === "details" ? "is-active" : ""} onClick={() => setAssignmentView("details")}>Assignment</button>
                   <button id="assignment-share-tab" type="button" role="tab" aria-controls="assignment-share-panel" aria-selected={assignmentView === "share"} tabIndex={assignmentView === "share" ? 0 : -1} className={assignmentView === "share" ? "is-active" : ""} onClick={() => setAssignmentView("share")}>Share</button>
                 </div>
@@ -1985,28 +2418,156 @@ export default function ClassDetailPage() {
 
                 {assignmentView === "review" ? (
                 <section id="assignment-review-panel" className="assignment-tab-panel assignment-review-panel" role="tabpanel" aria-labelledby="assignment-review-tab">
-                <div className="toolbar-compact grading-toolbar">
+                {aiBulkGradingEnabled ? (
+                  <section
+                    className={styles.bulkAiActionPanel}
+                    data-state={
+                      bulkAiRunning
+                        ? "processing"
+                        : bulkAiBatchNeedsReview || bulkAiBatchNeedsAttention
+                          ? "review"
+                          : bulkAiPreflight && bulkAiPreflight.ungradedCount === 0
+                            ? "complete"
+                            : bulkAiPreflight && !bulkAiPreflight.fits
+                              ? "limited"
+                              : "ready"
+                    }
+                    aria-labelledby="bulk-ai-action-title"
+                  >
+                    <div className={styles.bulkAiActionCopy}>
+                      <span className={styles.bulkAiEyebrow}>
+                        <Sparkles size={16} aria-hidden="true" /> AI grading assistant
+                      </span>
+                      <h3 id="bulk-ai-action-title">
+                        {bulkAiBatchNeedsReview
+                          ? "Your AI suggestions are ready"
+                          : bulkAiBatchNeedsAttention
+                            ? "This batch needs your attention"
+                          : bulkAiPreflight?.ungradedCount === 0
+                            ? "This grading queue is clear"
+                            : "Turn this queue into one review pass"}
+                      </h3>
+                      <p>{BULK_AI_SUPPORT_COPY}</p>
+                      {bulkAiRunning ? (
+                        <p className={styles.bulkAiLiveStatus} role="status" aria-live="polite" aria-atomic="true">
+                          {bulkAiProcessingItem
+                            ? `Preparing the transcript and grade for ${bulkAiProcessingItem.studentName}. `
+                            : "Preparing transcripts and grades. "}
+                          {bulkAiProcessed} of {bulkAiTotal} finished. You can leave and resume safely.
+                        </p>
+                      ) : bulkAiBatchNeedsReview ? (
+                        <p className={styles.bulkAiLiveStatus} role="status">
+                          {bulkAiBatch?.counts.reviewReady} suggested score{bulkAiBatch?.counts.reviewReady === 1 ? " is" : "s are"} waiting for your approval. Students cannot see them yet.
+                        </p>
+                      ) : bulkAiBatchNeedsAttention ? (
+                        <p className={styles.bulkAiLiveStatus} role="status">
+                          {bulkAiBatch?.counts.failed ?? 0} failed, {bulkAiBatch?.counts.skipped ?? 0} skipped, and {bulkAiBatch?.counts.conflict ?? 0} changed. No scores were saved.
+                        </p>
+                      ) : bulkAiPreflight?.ungradedCount === 0 ? (
+                        <p className={styles.bulkAiCelebration} role="status">
+                          <CheckCircle2 size={17} aria-hidden="true" /> No ungraded recordings are waiting for AI review.
+                        </p>
+                      ) : bulkAiPreflight && bulkAiTranscriptsRequired > 0 ? (
+                        <p className={styles.bulkAiTranscriptNote}>
+                          {pluralize(bulkAiTranscriptsRequired, "recording")} need transcripts; TryHabla will prepare them during this run.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className={styles.bulkAiActionSide}>
+                      <dl className={styles.bulkAiMath} aria-label="AI grading allowance">
+                        <div><dt>Eligible</dt><dd>{bulkAiChecking && !bulkAiPreflight ? "…" : bulkAiEligibleCount}</dd></div>
+                        <div><dt>New units</dt><dd>{bulkAiChecking && !bulkAiPreflight ? "…" : bulkAiBatch?.newUnitsRequired ?? bulkAiPreflight?.newUnitsRequired ?? 0}</dd></div>
+                        <div><dt>Available</dt><dd>{bulkAiChecking && !bulkAiPreflight ? "…" : bulkAiPreflight?.allowance?.remaining ?? bulkAiPreflight?.remaining ?? "—"}</dd></div>
+                      </dl>
+                      <div className={styles.bulkAiActions}>
+                        <button
+                          type="button"
+                          className={`btn btn-primary ${styles.bulkAiPrimaryAction}`}
+                          onClick={() => void openBulkAiConfirm(activeAssignment.id)}
+                          disabled={
+                            bulkAiChecking ||
+                            bulkAiRunning ||
+                            bulkAiSaving ||
+                            Object.values(aiGrading).some(Boolean) ||
+                            (bulkAiPreflight?.ungradedCount === 0 && !bulkAiBatchNeedsReview && !bulkAiBatchNeedsAttention)
+                          }
+                        >
+                          <Sparkles size={18} aria-hidden="true" />
+                          {bulkAiRunning
+                            ? `Grading ${bulkAiProcessed} of ${bulkAiTotal}`
+                            : bulkAiChecking && !bulkAiPreflight
+                              ? "Checking eligible recordings…"
+                              : bulkAiBatchNeedsReview
+                                ? "Review AI grades"
+                                : bulkAiBatchNeedsAttention
+                                  ? "Review batch"
+                                : bulkAiBatch && ["queued", "processing"].includes(bulkAiBatch.status)
+                                  ? "Resume AI grading"
+                                  : bulkAiPreflight
+                                    ? bulkAiPrimaryLabel(bulkAiEligibleCount)
+                                    : "Check AI grading"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          onClick={() => {
+                            setBulkAiReviewOpen(false);
+                            window.requestAnimationFrame(() => {
+                              manualGradingRef.current?.scrollIntoView({ block: "start" });
+                              document.getElementById("student-filter")?.focus();
+                            });
+                          }}
+                          disabled={bulkAiRunning || bulkAiSaving}
+                        >
+                          Enter scores manually
+                        </button>
+                      </div>
+                      {bulkAiBatchNeedsReview || bulkAiBatchNeedsAttention ? (
+                        <p className={styles.bulkAiSafety}>Nothing is student-visible until you review and save.</p>
+                      ) : bulkAiPreflight?.ungradedCount === 0 ? (
+                        <p className={styles.bulkAiSafety}>{BULK_AI_QUEUE_CLEAR_COPY}</p>
+                      ) : bulkAiPreflight && !bulkAiPreflight.fits ? (
+                        <p className={styles.bulkAiUpgrade}>
+                          Keep grading manually, or <Link href="/billing">see AI allowance options</Link>.
+                        </p>
+                      ) : (
+                        <p className={styles.bulkAiSafety}>Nothing is student-visible until you review and save.</p>
+                      )}
+                    </div>
+                  </section>
+                ) : null}
+
+                {bulkAiReviewOpen && bulkAiBatch ? (
+                  <BatchAiReviewWorkspace
+                    key={bulkAiBatch.id}
+                    batch={bulkAiBatch}
+                    maxPoints={activeAssignment.maxPoints}
+                    rubric={activeAssignment.rubric}
+                    saving={bulkAiSaving}
+                    saveError={bulkAiError}
+                    onSave={saveReviewedBulkAiGrades}
+                    onRetryFailed={retryBulkAiFailures}
+                    onDismiss={dismissTerminalBulkAiBatch}
+                    onBatchUpdated={(nextBatch) => {
+                      setBulkAiBatch(nextBatch);
+                      setBulkAiPreflight((previous) => previous
+                        ? { ...previous, activeBatch: nextBatch }
+                        : previous);
+                    }}
+                    onBackToManual={() => {
+                      setBulkAiReviewOpen(false);
+                      window.requestAnimationFrame(() => manualGradingRef.current?.scrollIntoView({ block: "start" }));
+                    }}
+                  />
+                ) : (
+                <div ref={manualGradingRef} className={styles.manualGradingWorkspace}>
+                <div className={`toolbar-compact grading-toolbar ${styles.gradingToolbar}`}>
                   <label className="label toolbar-label" htmlFor="student-filter">Find student in this assignment</label>
                   <input id="student-filter" className="input toolbar-input" value={studentFilter} onChange={(event) => setStudentFilter(event.target.value)} placeholder="Search by student name" />
                   <button type="button" className={`btn ${showUngradedOnly ? "btn-primary" : "btn-ghost"}`} onClick={() => setShowUngradedOnly((prev) => !prev)}>{showUngradedOnly ? "Ungraded only: on" : "Ungraded only"}</button>
-                  {aiBulkGradingEnabled && activeAssignment.ungradedCount > 0 ? (
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      onClick={() => void openBulkAiConfirm(activeAssignment.id)}
-                      disabled={bulkAiChecking || bulkAiRunning || Object.values(aiGrading).some(Boolean)}
-                    >
-                      {bulkAiRunning
-                        ? bulkAiProgress
-                          ? `AI grading ${bulkAiProgress.processed}/${bulkAiProgress.total}...`
-                          : "AI grading..."
-                        : bulkAiChecking
-                          ? "Checking..."
-                          : "AI grade & enter eligible scores"}
-                    </button>
-                  ) : null}
                   {activeAllSubmissions.length > 0 ? (
-                    <details className="workspace-more-menu grading-download-menu">
+                    <details className="workspace-more-menu grading-download-menu" name="teacher-class-menu">
                       <summary className="btn btn-ghost workspace-more-trigger">
                         <span>
                           {bulkTranscriptChecking || bulkTranscriptDownloading ? "Preparing downloads..." : "Download options"}
@@ -2046,37 +2607,10 @@ export default function ClassDetailPage() {
                       </div>
                     </details>
                   ) : null}
-                  <span className="status-badge status-warning">{activeAssignment.ungradedCount} ungraded</span>
                 </div>
 
                 {bulkAiError ? <p className="card-inline-error">{bulkAiError}</p> : null}
                 {bulkTranscriptError ? <p className="card-inline-error">{bulkTranscriptError}</p> : null}
-                {bulkAiRunning ? (
-                  <div className="notice info">
-                    Generating AI grades one submission at a time. Scores that pass safeguards are entered automatically and marked for teacher review. You can safely rerun this action later if the page closes.
-                  </div>
-                ) : null}
-                {bulkAiResult ? (
-                  <div className="notice info">
-                    <strong>
-                      {bulkAiResult.graded} of {bulkAiResult.total} eligible submissions had an AI score entered and saved.
-                    </strong>{" "}
-                    {bulkAiResult.reviewOnly > 0
-                      ? `${bulkAiResult.reviewOnly} produced review-only suggestions with no score entered. `
-                      : ""}
-                    {bulkAiResult.skipped > 0 ? `${bulkAiResult.skipped} skipped. ` : ""}
-                    {bulkAiResult.failed > 0 ? `${bulkAiResult.failed} failed. ` : ""}
-                    {bulkAiResult.uncertain > 0
-                      ? `${bulkAiResult.uncertain} could not be confirmed; reload before retrying. `
-                      : ""}
-                    {bulkAiResult.notProcessed > 0
-                      ? `${bulkAiResult.notProcessed} not processed and safe to retry. `
-                      : ""}
-                    {bulkAiResult.graded > 0
-                      ? "Students can see entered scores immediately; review or edit every AI grade below."
-                      : "No student-visible score was entered by this run."}
-                  </div>
-                ) : null}
                 {bulkTranscriptResult ? (
                   <div className="notice info" role="status" aria-live="polite">
                     <strong>
@@ -2123,8 +2657,86 @@ export default function ClassDetailPage() {
                 ) : null}
 
                 {activeAllSubmissions.length === 0 ? <p className="empty">No submissions yet for this assignment.</p> : activeFilteredSubmissions.length === 0 ? <p className="empty">No submissions match current filters.</p> : (
-                  <div className="grid submission-grid assignment-submissions">
-                    {activeFilteredSubmissions.map((submission) => {
+                  <div className={styles.reviewWorkspace}>
+                    <aside className={styles.submissionQueue} aria-label="Submission queue">
+                      <div className={styles.queueHeader}>
+                        <div>
+                          <strong>Students</strong>
+                          <span>Choose one to grade</span>
+                        </div>
+                        <span className={styles.queueCount}>{activeFilteredSubmissions.length}</span>
+                      </div>
+                      <div ref={submissionQueueListRef} className={styles.queueList}>
+                        {activeFilteredSubmissions.map((submission, index) => {
+                          const isDirty = isSubmissionDraftDirty(submission, activeAssignment);
+                          return (
+                            <button
+                              key={submission.id}
+                              type="button"
+                              data-submission-id={submission.id}
+                              className={`${styles.queueItem} ${submission.id === focusedSubmission?.id ? styles.queueItemActive : ""}`}
+                              aria-current={submission.id === focusedSubmission?.id ? "true" : undefined}
+                              onClick={() => updateWorkspaceUrl({
+                                view: null,
+                                assignment: activeAssignment.id,
+                                submission: submission.id,
+                              })}
+                            >
+                              <span className={styles.queueName}>{submission.studentName}</span>
+                              <span className={styles.queueMeta}>{index + 1} · {formatDateTime(submission.submittedAt)}</span>
+                              <span className={styles.queueBadge} data-status={isDirty ? "warning" : submission.grade === null ? "warning" : "success"}>
+                                {isDirty ? "Unsaved" : submission.grade === null ? "To grade" : `${submission.grade}/${activeAssignment.maxPoints}`}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </aside>
+
+                    <div
+                      className={styles.focusedSubmission}
+                      role="region"
+                      aria-label={focusedSubmission ? `Grade ${focusedSubmission.studentName}` : "Grade submission"}
+                    >
+                      <span className="sr-only" aria-live="polite" aria-atomic="true">
+                        {focusedSubmission
+                          ? `Now grading ${focusedSubmission.studentName}. Student ${focusedSubmissionIndex + 1} of ${activeFilteredSubmissions.length}.`
+                          : ""}
+                      </span>
+                      <div className={styles.focusedNav}>
+                        <div className={styles.focusedPosition}>
+                          <span>Grading queue</span>
+                          <strong>Student {focusedSubmissionIndex + 1} of {activeFilteredSubmissions.length}</strong>
+                        </div>
+                        <div className={styles.focusedNavActions}>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            disabled={!previousSubmission}
+                            onClick={() => previousSubmission && updateWorkspaceUrl({
+                              view: null,
+                              assignment: activeAssignment.id,
+                              submission: previousSubmission.id,
+                            })}
+                          >
+                            <ChevronLeft size={15} aria-hidden="true" /> Previous
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            disabled={!nextSubmission}
+                            onClick={() => nextSubmission && updateWorkspaceUrl({
+                              view: null,
+                              assignment: activeAssignment.id,
+                              submission: nextSubmission.id,
+                            })}
+                          >
+                            Next <ChevronRight size={15} aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid submission-grid assignment-submissions">
+                    {focusedSubmission ? [focusedSubmission].map((submission) => {
                       const draft = drafts[submission.id] ?? {
                         gradeInput: submission.grade === null ? "" : String(submission.grade),
                         feedback: submission.feedback ?? "",
@@ -2187,26 +2799,33 @@ export default function ClassDetailPage() {
                               ) : (
                                 <div className="submission-name-row">
                                   <strong>{submission.studentName}</strong>
-                                  <button
-                                    type="button"
-                                    className="btn btn-ghost btn-sm"
-                                    onClick={() => { setEditingSubmissionId(submission.id); setEditingSubmissionName(submission.studentName); }}
-                                    disabled={bulkAiWorkflowActive}
-                                    aria-label={`Edit student name for ${submission.studentName}`}
-                                  >
-                                    <Pencil size={14} aria-hidden="true" />
-                                    Rename
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn btn-danger btn-sm"
-                                    onClick={() => setDeleteTarget({ type: "submission", submission })}
-                                    disabled={bulkAiWorkflowActive}
-                                    aria-label={`Delete submission from ${submission.studentName}`}
-                                  >
-                                    <Trash2 size={14} aria-hidden="true" />
-                                    Delete
-                                  </button>
+                                  <details className={`workspace-more-menu ${styles.studentActions}`} name="teacher-class-menu">
+                                    <summary className="btn btn-ghost btn-sm workspace-more-trigger">
+                                      <span>Student actions</span>
+                                      <span className="workspace-more-chevron" aria-hidden="true">
+                                        <ChevronDown size={15} />
+                                      </span>
+                                    </summary>
+                                    <div className="workspace-more-popover">
+                                      <button
+                                        type="button"
+                                        onClick={() => { setEditingSubmissionId(submission.id); setEditingSubmissionName(submission.studentName); }}
+                                        disabled={bulkAiWorkflowActive}
+                                        aria-label={`Edit student name for ${submission.studentName}`}
+                                      >
+                                        <Pencil size={14} aria-hidden="true" /> Rename student
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={styles.dangerAction}
+                                        onClick={() => setDeleteTarget({ type: "submission", submission })}
+                                        disabled={bulkAiWorkflowActive}
+                                        aria-label={`Delete submission from ${submission.studentName}`}
+                                      >
+                                        <Trash2 size={14} aria-hidden="true" /> Delete submission
+                                      </button>
+                                    </div>
+                                  </details>
                                 </div>
                               )}
                               <div className="meta">{formatDateTime(submission.submittedAt)}</div>
@@ -2229,6 +2848,24 @@ export default function ClassDetailPage() {
                             grade={submission.grade}
                             gradeSource={submission.gradeSource}
                           />
+                          {aiGradingEnabled && submission.grade === null ? (
+                            <section className={styles.individualAiAction} aria-labelledby={`individual-ai-title-${submission.id}`}>
+                              <div>
+                                <span className={styles.individualAiEyebrow}><Sparkles size={15} aria-hidden="true" /> AI suggestion</span>
+                                <h4 id={`individual-ai-title-${submission.id}`}>{INDIVIDUAL_AI_ACTION_LABEL}</h4>
+                                <p>{INDIVIDUAL_AI_SUPPORT_COPY}</p>
+                              </div>
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                onClick={() => void aiGradeSubmission(submission.id)}
+                                disabled={aiGrading[submission.id] || bulkAiWorkflowActive || draft.saving}
+                              >
+                                <Sparkles size={16} aria-hidden="true" />
+                                {aiGrading[submission.id] ? "Preparing suggestion…" : INDIVIDUAL_AI_ACTION_LABEL}
+                              </button>
+                            </section>
+                          ) : null}
                           <AudioPlayer
                             src={submission.audioData}
                             variant="compact"
@@ -2301,10 +2938,10 @@ export default function ClassDetailPage() {
                               <p className="meta" style={{ marginBottom: "0.35rem" }}>
                                 <span className="status-badge status-warning">
                                   {aiSuggestion.teacherAttention === "unable_to_grade"
-                                    ? "AI could not grade this"
+                                   ? "AI could not grade this"
                                     : aiSuggestion.gradeApplied
                                       ? "AI grade saved: teacher review needed"
-                                      : "AI suggestion: review before applying"}
+                                      : "AI suggestion: review before saving"}
                                 </span>{" "}
                                 {aiSuggestion.confidence ? (
                                   <span className="pill pill-subtle">AI confidence: {aiSuggestion.confidence}</span>
@@ -2337,7 +2974,7 @@ export default function ClassDetailPage() {
                                 aiSuggestion.suggestedScore !== null &&
                                 aiSuggestion.teacherAttention !== "unable_to_grade" ? (
                                   <button type="button" className="btn btn-ghost" onClick={() => applyAiSuggestion(submission.id, aiSuggestion)} disabled={bulkAiWorkflowActive}>
-                                    Use this grade
+                                    Restore suggestion to fields
                                   </button>
                                 ) : null}
                                 <button type="button" className="btn btn-ghost" onClick={() => setAiSuggestions((prev) => ({ ...prev, [submission.id]: null }))}>
@@ -2347,17 +2984,18 @@ export default function ClassDetailPage() {
                             </div>
                           ) : null}
                           <div className="actions submission-actions">
-                            {aiGradingEnabled ? (
-                              <button type="button" className="btn btn-ghost" onClick={() => void aiGradeSubmission(submission.id)} disabled={aiGrading[submission.id] || bulkAiWorkflowActive || draft.saving}>{aiGrading[submission.id] ? "Grading & saving..." : "Optional: AI grade & enter score"}</button>
-                            ) : null}
                             <button type="button" className="btn btn-primary" onClick={() => void saveSubmission(submission.id)} disabled={draft.saving || bulkAiWorkflowActive}>{draft.saving ? "Saving..." : "Save grade"}</button>
                           </div>
                           {aiGradeErrors[submission.id] ? <p className="card-inline-error">{aiGradeErrors[submission.id]}</p> : null}
                           {submissionErrors[submission.id] ? <p className="card-inline-error">{submissionErrors[submission.id]}</p> : null}
                         </div>
                       );
-                    })}
+                    }) : null}
                   </div>
+                    </div>
+                  </div>
+                )}
+                </div>
                 )}
                 </section>
                 ) : null}
@@ -2365,9 +3003,10 @@ export default function ClassDetailPage() {
             )}
           </div>
         </section>
-      )}
+      )) : null}
 
-      <section id="roster" className="card section-gap">
+      {workspaceView === "roster" ? (
+      <section id="roster" className={`${styles.rosterView} card section-gap`}>
         <div className="dense-row">
           <div>
             <h2 className="surface-title">Roster</h2>
@@ -2520,6 +3159,7 @@ export default function ClassDetailPage() {
           </div>
         ) : null}
       </section>
+      ) : null}
 
       <ConfirmModal
         open={deleteTarget !== null}
@@ -2536,7 +3176,7 @@ export default function ClassDetailPage() {
       />
 
       <ConfirmModal
-        open={bulkAiPreflight !== null}
+        open={bulkAiConfirmOpen && bulkAiPreflight !== null}
         title={
           bulkAiPreflight && !bulkAiPreflight.fits
             ? bulkAiLimitTitle(bulkAiPreflight)
@@ -2549,14 +3189,15 @@ export default function ClassDetailPage() {
               ? bulkAiRunDescription(bulkAiPreflight)
               : ""
         }
-        confirmLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "OK" : BULK_AI_CONFIRM_LABEL}
-        cancelLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "Close" : BULK_AI_CANCEL_LABEL}
-        onCancel={() => setBulkAiPreflight(null)}
+        confirmLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "View AI allowance options" : BULK_AI_CONFIRM_LABEL}
+        cancelLabel={bulkAiPreflight && !bulkAiPreflight.fits ? "Keep grading manually" : BULK_AI_CANCEL_LABEL}
+        onCancel={() => setBulkAiConfirmOpen(false)}
         onConfirm={() => {
           const preflight = bulkAiPreflight;
           const canRun = preflight?.fits === true;
-          setBulkAiPreflight(null);
+          setBulkAiConfirmOpen(false);
           if (canRun && preflight) void runBulkAiGrade(preflight);
+          else if (preflight) router.push("/billing");
         }}
       />
 

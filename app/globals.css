@@ -39,35 +39,42 @@
 }
 
 html.dark {
-  --background: #101722;
-  --surface: #192333;
-  --surface-soft: #152c3a;
-  --surface-muted: #282a39;
-  --text: #f7f7ef;
-  --muted: #afbccb;
-  --line: #344459;
-  --line-strong: #4b627a;
-  --primary: #66c5ef;
-  --primary-strong: #8bd5f5;
-  --primary-soft: #17374a;
-  --primary-soft-border: #35677d;
-  --coral: #ff8174;
-  --mascot-orange: #ff8b49;
-  --mint: #5dd5a3;
-  --mango: #ff8b49;
-  --lavender: #ad9ae8;
-  --danger: #ff747c;
-  --success: #63d7a5;
+  /* Dark mode is the light identity on black, not a separate navy palette. */
+  --background: #000000;
+  --surface: #0a0a0a;
+  --surface-soft: #121212;
+  --surface-muted: #1b1b1b;
+  --text: #fffdf4;
+  --muted: #bdbdbd;
+  --line: #3d3d3d;
+  --line-strong: #6b6b6b;
 
-  --status-warning-bg: #fff7da;
-  --status-warning-border: #f9d96b;
-  --status-warning-text: #87530d;
-  --status-success-bg: #edfced;
-  --status-success-border: #9be6a9;
-  --status-success-text: #166534;
-  --status-neutral-bg: #eef9ff;
-  --status-neutral-border: #b9dbe8;
-  --status-neutral-text: #345165;
+  /* Keep the canonical light-mode brand colors intact. */
+  --primary: #1374ad;
+  --primary-strong: #0b5f91;
+  --primary-soft: #071b25;
+  --primary-soft-border: #1374ad;
+  --coral: #f26c5e;
+  --mascot-orange: #f06f25;
+  --mint: #3ebf8a;
+  --mango: #f06f25;
+  --lavender: #8d77d8;
+  --danger: #d73d45;
+  --success: #16865d;
+  --dark-accent-cyan: #65caff;
+
+  --status-warning-bg: #241803;
+  --status-warning-border: #fcd34d;
+  --status-warning-text: #ffe08a;
+  --status-success-bg: #072118;
+  --status-success-border: #3ebf8a;
+  --status-success-text: #86e6bb;
+  --status-neutral-bg: #141414;
+  --status-neutral-border: #6b6b6b;
+  --status-neutral-text: #e6e6e6;
+  --status-danger-bg: #28090c;
+  --status-danger-border: #d73d45;
+  --status-danger-text: #ffabb0;
   color-scheme: dark;
 }
 
@@ -10923,4 +10930,571 @@ html.dark .unsubscribe-card h1 {
     line-height: 1.05;
     white-space: nowrap;
   }
+}
+
+/*
+ * Dark mode: preserve the light-mode identity on a true black canvas.
+ * Keep this final so older route-specific dark rules cannot reintroduce navy
+ * surfaces or override semantic control states.
+ */
+html.dark body {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(rgb(101 202 255 / 4.5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(101 202 255 / 4.5%) 1px, transparent 1px);
+  color: var(--text);
+}
+
+html.dark .site-footer {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+}
+
+html.dark .theme-toggle,
+html.dark .card,
+html.dark .panel-subtle,
+html.dark .workspace-header,
+html.dark .topbar,
+html.dark .assignment-main,
+html.dark .admin-funnel-visual,
+html.dark .assignment-instructions,
+html.dark .score-field,
+html.dark .submission-card,
+html.dark .modal-card,
+html.dark .undo-toast {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+
+html.dark .workspace-header,
+html.dark .topbar {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 16px 32px rgb(0 0 0 / 48%);
+}
+
+html.dark .theme-toggle {
+  border-color: var(--line-strong);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--primary) 42%, transparent);
+}
+
+html.dark .theme-toggle:hover {
+  border-color: var(--dark-accent-cyan);
+  background: var(--primary-soft);
+  color: var(--dark-accent-cyan);
+}
+
+html.dark .input,
+html.dark .textarea,
+html.dark .score-input,
+html.dark .submission-transcript-text {
+  border-color: var(--line-strong);
+  background: #050505;
+  color: var(--text);
+  color-scheme: dark;
+}
+
+html.dark .input::placeholder,
+html.dark .textarea::placeholder {
+  color: #969696;
+  opacity: 1;
+}
+
+html.dark .input:hover,
+html.dark .textarea:hover {
+  border-color: #949494;
+}
+
+html.dark .input:focus,
+html.dark .textarea:focus,
+html.dark .score-input:focus {
+  outline: none;
+  border-color: var(--dark-accent-cyan);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dark-accent-cyan) 28%, transparent);
+}
+
+html.dark .input[aria-invalid="true"],
+html.dark .textarea[aria-invalid="true"] {
+  border-color: var(--status-danger-text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+html.dark .input:disabled,
+html.dark .textarea:disabled,
+html.dark .input[aria-disabled="true"],
+html.dark .textarea[aria-disabled="true"] {
+  border-color: var(--line);
+  background: var(--surface-muted);
+  color: #a8a8a8;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+html.dark .select-field > svg {
+  color: var(--dark-accent-cyan);
+}
+
+html.dark .select-input option {
+  background: var(--surface);
+  color: var(--text);
+}
+
+html.dark .btn {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 4px 0 #303030;
+}
+
+html.dark .btn:hover {
+  border-color: #969696;
+  background: var(--surface-soft);
+}
+
+html.dark .btn.btn-primary {
+  border-color: #126d9e;
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 5px 0 #0e5d87;
+}
+
+html.dark .btn.btn-primary:hover {
+  border-color: var(--dark-accent-cyan);
+  background: var(--primary-strong);
+  color: #ffffff;
+  box-shadow: 0 7px 0 #073f60;
+}
+
+html.dark .btn.btn-danger {
+  border-color: var(--status-danger-border);
+  background: #8f252d;
+  color: #ffffff;
+  box-shadow: 0 5px 0 #541116;
+}
+
+html.dark .btn.btn-danger:hover {
+  border-color: var(--status-danger-text);
+  background: #a92c35;
+  color: #ffffff;
+  box-shadow: 0 7px 0 #541116;
+}
+
+html.dark .btn:disabled,
+html.dark .btn.btn-primary:disabled,
+html.dark .btn.btn-danger:disabled {
+  border-color: #4c4c4c;
+  background: #202020;
+  color: #adadad;
+  box-shadow: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+html.dark .btn-ghost,
+html.dark .home-beta-actions .btn-ghost,
+html.dark .home-links .btn-ghost,
+html.dark .home-cta-actions .btn-ghost {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 4px 0 #303030;
+}
+
+html.dark .btn-ghost:hover,
+html.dark .btn-ghost:focus-visible {
+  border-color: var(--dark-accent-cyan);
+  background: var(--primary-soft);
+  color: var(--dark-accent-cyan);
+}
+
+html.dark .btn:focus-visible,
+html.dark .theme-toggle:focus-visible,
+html.dark .assignment-nav-item:focus-visible,
+html.dark .assignment-view-tabs button:focus-visible,
+html.dark .workspace-more-trigger:focus-visible,
+html.dark .faq-summary:focus-visible,
+html.dark .network-notice-dismiss:focus-visible,
+html.dark .billing-back-link:focus-visible,
+html.dark .icon-btn:focus-visible {
+  outline: 3px solid var(--mango);
+  outline-offset: 3px;
+}
+
+html.dark .pill,
+html.dark .status-badge {
+  border-color: var(--primary-soft-border);
+  background: var(--primary-soft);
+  color: var(--dark-accent-cyan);
+}
+
+html.dark .pill-subtle {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
+}
+
+html.dark .status-warning,
+html.dark .pill-warning {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
+}
+
+html.dark .status-success,
+html.dark .pill-success {
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+
+html.dark .status-neutral,
+html.dark .pill-neutral {
+  border-color: var(--status-neutral-border);
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-text);
+}
+
+html.dark .notice.success {
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+
+html.dark .notice.info {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: #9edfff;
+}
+
+html.dark .notice.warning {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
+}
+
+html.dark .notice.danger,
+html.dark .card-inline-error,
+html.dark .billing-action-error,
+html.dark .billing-panel-error {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
+}
+
+html.dark .billing-action-error {
+  padding: 0.7rem 0.8rem;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: var(--radius-sm);
+}
+
+html.dark .state-banner {
+  border-color: var(--status-neutral-border);
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-text);
+}
+
+html.dark .state-banner.state-idle {
+  border-color: var(--status-neutral-border);
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-text);
+}
+
+html.dark .state-banner.state-requesting-permission,
+html.dark .state-banner.state-submitting {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: #9edfff;
+}
+
+html.dark .state-ready,
+html.dark .state-success,
+html.dark .state-banner.state-ready,
+html.dark .state-banner.state-success,
+html.dark .submission-confirm {
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+
+html.dark .state-banner.state-recording,
+html.dark .state-banner.state-error {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
+}
+
+html.dark .status-danger {
+  color: var(--status-danger-text);
+}
+
+html.dark .status-ok {
+  color: var(--status-success-text);
+}
+
+html.dark .mini-icon {
+  background: var(--primary-soft);
+  color: var(--dark-accent-cyan);
+}
+
+html.dark .text-link,
+html.dark .student-text-link,
+html.dark .teacher-back-link,
+html.dark .about-company-links a,
+html.dark .billing-back-link {
+  color: var(--dark-accent-cyan);
+}
+
+html.dark .assignment-nav-item {
+  border-color: var(--line);
+  background: #070707;
+  color: var(--text);
+}
+
+html.dark .assignment-nav-item:hover {
+  border-color: var(--dark-accent-cyan);
+  background: var(--surface-soft);
+}
+
+html.dark .assignment-nav-item.is-selected,
+html.dark .route-stage-teacher .assignment-nav-item.is-selected {
+  border-color: var(--primary);
+  border-left-color: var(--dark-accent-cyan);
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface));
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--primary) 38%, transparent);
+}
+
+html.dark .assignment-view-tabs button.is-active {
+  border-bottom-color: var(--dark-accent-cyan);
+  color: var(--dark-accent-cyan);
+}
+
+html.dark .workspace-more-popover {
+  border-color: var(--dark-accent-cyan);
+  border-top-color: var(--mango);
+  background: var(--surface);
+  box-shadow: 0 18px 38px rgb(0 0 0 / 58%);
+}
+
+html.dark .workspace-more-popover button:hover,
+html.dark .workspace-more-popover a:hover,
+html.dark .workspace-more-popover button:focus-visible,
+html.dark .workspace-more-popover a:focus-visible {
+  outline: none;
+  background: var(--primary-soft);
+  color: var(--dark-accent-cyan);
+  box-shadow: inset 4px 0 0 var(--mango);
+}
+
+html.dark .workspace-more-popover button:disabled,
+html.dark .pill-button:disabled {
+  background: transparent;
+  color: #929292;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+html.dark .icon-btn {
+  border-color: var(--line-strong);
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+html.dark .icon-btn:hover {
+  border-color: var(--dark-accent-cyan);
+  background: var(--primary-soft);
+}
+
+html.dark .icon-btn-danger {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
+}
+
+html.dark .icon-btn-confirm {
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+}
+
+html.dark .audio-shell,
+html.dark .audio-speed,
+html.dark .submission-transcript {
+  border-color: var(--line);
+  background: #050505;
+}
+
+html.dark .audio-toggle {
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--primary) 38%, transparent);
+}
+
+html.dark .audio-toggle:hover {
+  background: var(--primary-strong);
+}
+
+html.dark .audio-toggle.is-playing {
+  background: var(--mango);
+  color: #1a0900;
+}
+
+html.dark .audio-range,
+html.dark .audio-range::-moz-range-track {
+  background: var(--line);
+}
+
+html.dark .audio-range::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, var(--primary), var(--dark-accent-cyan));
+}
+
+html.dark .audio-range::-webkit-slider-thumb,
+html.dark .audio-range::-moz-range-thumb {
+  border-color: var(--background);
+  background: var(--dark-accent-cyan);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+html.dark .audio-speed-btn {
+  color: var(--muted);
+}
+
+html.dark .audio-speed-btn.active {
+  background: var(--primary-soft);
+  color: var(--dark-accent-cyan);
+}
+
+html.dark .audio-toggle:focus-visible,
+html.dark .audio-speed-btn:focus-visible {
+  outline: 3px solid var(--mango);
+  outline-offset: 3px;
+}
+
+html.dark .home-entry-student .home-entry-btn {
+  border-color: #2d8f6b;
+  background: var(--mint);
+  color: #04170f;
+  box-shadow: 0 5px 0 #236f54;
+}
+
+html.dark .home-entry-student .home-entry-btn:hover {
+  border-color: #78d7af;
+  background: var(--mint);
+}
+
+html.dark .home-cta {
+  border-color: var(--text);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 7px 7px 0 var(--coral);
+}
+
+html.dark .home-cta-copy,
+html.dark .home-cta .meta {
+  color: var(--text);
+}
+
+html.dark .home-mascot-note-bottom,
+html.dark .teacher-hero-sticker {
+  border-color: var(--mango);
+  background: color-mix(in srgb, var(--mango) 18%, var(--surface));
+  color: #ffe7b0;
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--mango) 62%, transparent);
+}
+
+html.dark .student-reward-strip span {
+  border-color: var(--mint);
+  background: color-mix(in srgb, var(--mint) 16%, var(--surface));
+  color: var(--status-success-text);
+}
+
+html.dark .student-public-hero::before,
+html.dark .student-game-hero::before {
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--mango) 38%, transparent) 0 20%, transparent 20% 100%),
+    linear-gradient(128deg, transparent 0 48%, color-mix(in srgb, var(--text) 74%, transparent) 48% 52%, transparent 52% 100%),
+    linear-gradient(
+      135deg,
+      var(--surface) 0%,
+      color-mix(in srgb, var(--primary) 48%, var(--surface)) 42%,
+      color-mix(in srgb, var(--coral) 36%, var(--surface)) 72%,
+      color-mix(in srgb, var(--mango) 40%, var(--surface)) 100%
+    );
+}
+
+html.dark .student-public-copy::before,
+html.dark .student-game-copy::before {
+  background: rgb(0 0 0 / 74%);
+}
+
+html.dark .student-public-copy h1,
+html.dark .student-game-copy h1,
+html.dark .student-dash-headline {
+  color: var(--text);
+  text-shadow:
+    3px 3px 0 var(--background),
+    6px 6px 0 color-mix(in srgb, var(--coral) 36%, transparent);
+}
+
+html.dark .page-wrap > .hero:not(.student-hero),
+html.dark .billing-hero,
+html.dark .unsubscribe-card {
+  background:
+    linear-gradient(112deg, color-mix(in srgb, var(--primary) 28%, var(--surface)) 0 28%, transparent 28% 72%, color-mix(in srgb, var(--coral) 28%, var(--surface)) 72% 100%),
+    var(--surface);
+}
+
+html.dark .route-stage-teacher .teacher-hero::before {
+  background:
+    linear-gradient(112deg, color-mix(in srgb, var(--primary) 32%, var(--surface)) 0 29%, transparent 29% 70%, color-mix(in srgb, var(--coral) 28%, var(--surface)) 70% 100%),
+    linear-gradient(68deg, transparent 0 54%, color-mix(in srgb, var(--mango) 58%, var(--surface)) 54% 60%, transparent 60% 100%),
+    var(--surface);
+}
+
+html.dark .home-choice-hero::before,
+html.dark .audience-hero::before {
+  border-color: var(--line);
+  background:
+    linear-gradient(118deg, color-mix(in srgb, var(--primary) 28%, var(--surface)) 0 28%, transparent 28% 70%, color-mix(in srgb, var(--coral) 28%, var(--surface)) 70% 100%),
+    linear-gradient(68deg, transparent 0 58%, color-mix(in srgb, var(--mango) 58%, var(--surface)) 58% 64%, transparent 64% 100%),
+    var(--surface);
+}
+
+html.dark .audience-hero-district::before {
+  background:
+    linear-gradient(116deg, color-mix(in srgb, var(--lavender) 28%, var(--surface)) 0 30%, transparent 30% 68%, color-mix(in srgb, var(--primary) 30%, var(--surface)) 68% 100%),
+    linear-gradient(66deg, transparent 0 56%, color-mix(in srgb, var(--mango) 58%, var(--surface)) 56% 62%, transparent 62% 100%),
+    var(--surface);
+}
+
+html.dark .pricing-hero {
+  border-color: var(--line-strong);
+  background:
+    linear-gradient(
+      135deg,
+      var(--surface) 0 46%,
+      color-mix(in srgb, var(--primary) 40%, var(--surface)) 46% 72%,
+      color-mix(in srgb, var(--mango) 34%, var(--surface)) 72% 100%
+    );
+  box-shadow: 10px 10px 0 color-mix(in srgb, var(--coral) 30%, transparent);
+}
+
+html.dark .pricing-signal-orbit-one,
+html.dark .pricing-estimate-head,
+html.dark .pricing-control {
+  background: var(--surface-soft);
+}
+
+html.dark .billing-usage-card {
+  border-color: var(--text);
+  background:
+    linear-gradient(150deg, #050505, #101010 62%, color-mix(in srgb, var(--mint) 36%, #050505));
+  color: var(--text);
+}
+
+html.dark .billing-usage-card > span,
+html.dark .billing-usage-card > small,
+html.dark .billing-usage-card dt,
+html.dark .billing-usage-caveat {
+  color: #d0d0d0;
 }

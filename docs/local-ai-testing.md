@@ -30,6 +30,7 @@ For isolated local mock mode, set these values in `.env.local`:
 
 ```env
 AI_GRADING_ENABLED=true
+AI_BULK_GRADING_ENABLED=true
 AI_TRANSCRIPTION_PROVIDER=mock
 AI_GRADING_PROVIDER=mock
 LOCAL_DEV_BYPASS_AUTH=true
@@ -44,11 +45,12 @@ Mock mode never contacts OpenAI, Ollama, Vercel Blob, Upstash Redis, OAuth, Rese
 3. Open `http://localhost:3000/teacher`.
 4. Open `Local AI Test Class`.
 5. Select `Local AI Speaking Test`.
-6. Click `Optional: AI grade & enter score`.
-7. Confirm a panel appears with `Local AI test mode` and the saved mock result.
-8. Confirm the score, rubric fields, and feedback are filled and marked for teacher review.
-9. Refresh and confirm the AI-saved grade persists with its review indicator.
-10. Edit the result and press `Save grade` only when you want to replace or confirm it manually.
+6. Confirm the assignment panel shows `Grade all 1 with AI`, the maximum new-unit requirement, and the available allowance.
+7. Choose `Grade all 1 with AI`, review the confirmation, and start the batch.
+8. Confirm progress advances to the batch-review workspace without saving a grade to the student submission.
+9. Refresh and confirm the staged suggestion, score, rubric fields, feedback, and transcript remain available for review.
+10. Edit the suggestion and choose `Save all scores`; only this explicit action should publish the grade.
+11. To test one submission instead, choose `Enter scores manually`, then `Grade this submission with AI`. Confirm the editable suggestion appears without publishing until `Save grade` is pressed.
 
 ## Failure Modes
 

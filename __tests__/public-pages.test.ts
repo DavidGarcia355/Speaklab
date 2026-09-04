@@ -215,7 +215,10 @@ describe("faq pricing copy", () => {
     expect(markup).toContain("does not currently include a school admin console");
     expect(markup).toContain("Does AI save the grade automatically?");
     expect(markup).toContain("generate, copy, or download a transcript without requesting an AI grade");
-    expect(markup).toContain("saves a whole-point score");
+    expect(markup).toContain("prepares suggested whole-point scores");
+    expect(markup).toContain("remain teacher-only");
+    expect(markup).toContain("explicitly saves the final grades");
+    expect(markup).not.toContain("saves a whole-point score");
     expect(markup).toContain("Getting started");
     expect(markup).toContain("Students and submissions");
     expect(markup).toContain("production storage settings must be verified");

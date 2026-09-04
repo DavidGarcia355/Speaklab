@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({
   createAttempt: vi.fn(),
   copyConsumedTranscript: vi.fn(),
   finalizeDelivery: vi.fn(),
+  stageBatchReview: vi.fn(),
+  markNotApplicable: vi.fn(),
+  withholdResult: vi.fn(),
   getReusableAttempt: vi.fn(),
   findTranscriptById: vi.fn(),
   findTranscriptForOwner: vi.fn(),
@@ -28,10 +31,11 @@ vi.mock("@/lib/db", () => ({
   findSubmissionTranscriptForOwnerBySemanticKey:
     mocks.findTranscriptForOwnerBySemanticKey,
   hasAudioTooLongFailure: vi.fn(async () => false),
-  markAiGradingAttemptNotApplicable: vi.fn(),
+  markAiGradingAttemptNotApplicable: mocks.markNotApplicable,
   releaseAiReviewAllowanceReservation: mocks.releaseAllowance,
   reserveAiReviewAllowance: mocks.reserveAllowance,
-  withholdAiGradingAttemptResult: vi.fn(),
+  stageAiGradingAttemptForBatchReview: mocks.stageBatchReview,
+  withholdAiGradingAttemptResult: mocks.withholdResult,
 }));
 
 vi.mock("@/lib/ai/audio", () => ({
@@ -172,6 +176,12 @@ describe("AI review semantic retry", () => {
     mocks.findTranscriptById.mockResolvedValue(null);
     mocks.findTranscriptForOwner.mockResolvedValue(null);
     mocks.findTranscriptForOwnerBySemanticKey.mockResolvedValue(null);
+    mocks.stageBatchReview.mockResolvedValue({
+      status: "staged",
+      itemStatus: "review_ready",
+    });
+    mocks.markNotApplicable.mockResolvedValue(true);
+    mocks.withholdResult.mockResolvedValue(true);
   });
 
   it("returns the durable source for an exact retry without another attempt or provider", async () => {
@@ -209,6 +219,91 @@ describe("AI review semantic retry", () => {
     expect(mocks.transcribe).not.toHaveBeenCalled();
     expect(mocks.directPipeline).not.toHaveBeenCalled();
     expect(mocks.transcriptPipeline).not.toHaveBeenCalled();
+  });
+
+  it("reuses a consumed semantic result as a private batch suggestion without finalizing a grade", async () => {
+    const ungraded = {
+      ...data,
+      finalGrade: null,
+      finalGradeSource: "teacher" as const,
+      finalFeedback: "",
+    };
+    const stagedAttempt = {
+      ...source,
+      id: "ai_staged_copy",
+      submissionId: ungraded.submissionId,
+      deliveryStatus: "pending" as const,
+      cacheHit: true,
+    };
+    mocks.createAttempt.mockResolvedValue(stagedAttempt);
+
+    await expect(
+      gradeOneSubmission({
+        config,
+        teacherEmail: source.teacherEmail,
+        data: ungraded,
+        deliveryMode: "suggestion_only",
+        batchSuggestion: { itemId: "item_1", leaseToken: "lease_1" },
+      }),
+    ).resolves.toMatchObject({
+      status: "completed",
+      attemptId: "ai_staged_copy",
+      attempt: stagedAttempt,
+      gradeApplied: false,
+    });
+
+    expect(mocks.createAttempt).toHaveBeenCalledOnce();
+    expect(mocks.stageBatchReview).toHaveBeenCalledWith({
+      batchItemId: "item_1",
+      leaseToken: "lease_1",
+      attemptId: "ai_staged_copy",
+      ownerEmail: source.teacherEmail,
+      reviewReservationId: undefined,
+      allowWithoutReservation: true,
+    });
+    expect(mocks.finalizeDelivery).not.toHaveBeenCalled();
+    expect(mocks.markNotApplicable).not.toHaveBeenCalled();
+    expect(mocks.transcribe).not.toHaveBeenCalled();
+    expect(mocks.directPipeline).not.toHaveBeenCalled();
+    expect(mocks.transcriptPipeline).not.toHaveBeenCalled();
+  });
+
+  it("fails closed and withholds the attempt when durable batch staging loses its lease", async () => {
+    const ungraded = {
+      ...data,
+      finalGrade: null,
+      finalGradeSource: "teacher" as const,
+      finalFeedback: "",
+    };
+    mocks.createAttempt.mockResolvedValue({
+      ...source,
+      id: "ai_lost_lease",
+      deliveryStatus: "pending",
+    });
+    mocks.stageBatchReview.mockResolvedValueOnce({
+      status: "not_staged",
+      reason: "submission_changed",
+    });
+
+    await expect(
+      gradeOneSubmission({
+        config,
+        teacherEmail: source.teacherEmail,
+        data: ungraded,
+        deliveryMode: "suggestion_only",
+        batchSuggestion: { itemId: "item_1", leaseToken: "expired_lease" },
+      }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      code: "result_not_delivered",
+    });
+
+    expect(mocks.withholdResult).toHaveBeenCalledWith({
+      attemptId: "ai_lost_lease",
+      ownerEmail: source.teacherEmail,
+      reason: "AI batch staging was rejected: submission_changed.",
+    });
+    expect(mocks.finalizeDelivery).not.toHaveBeenCalled();
   });
 
   it("releases a reservation when provider work fails", async () => {

@@ -119,11 +119,15 @@ export async function POST(
     }
     const { submissionId } = await context.params;
     const requestBody = request.headers.get("content-type")?.includes("application/json")
-      ? ((await request.json().catch(() => null)) as { enhanced?: unknown } | null)
+      ? ((await request.json().catch(() => null)) as {
+          enhanced?: unknown;
+          reviewOnly?: unknown;
+        } | null)
       : null;
     const enhanced = requestBody?.enhanced === true;
+    const reviewOnly = requestBody?.reviewOnly === true;
     const gradeCandidate = await findSubmissionForAiGrade(submissionId, teacherEmail);
-    const retryCandidate = gradeCandidate
+    const retryCandidate = gradeCandidate || reviewOnly
       ? null
       : await findOwnedSubmissionForAiReview(submissionId, teacherEmail);
     const data =
@@ -156,7 +160,13 @@ export async function POST(
     }
 
     const wasAlreadyGraded = data.finalGrade !== null;
-    const outcome = await gradeOneSubmission({ config, teacherEmail, data, enhanced });
+    const outcome = await gradeOneSubmission({
+      config,
+      teacherEmail,
+      data,
+      enhanced,
+      deliveryMode: reviewOnly ? "suggestion_only" : "apply",
+    });
     if (outcome.status === "skipped") {
       throw new HttpError(
         outcome.reason === "audio_too_long" ? 413 : 404,

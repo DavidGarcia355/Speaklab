@@ -70,12 +70,12 @@ const FAQ_SECTIONS = [
       {
         question: "How do I add students to my class roster?",
         answer:
-          "Students are added to your roster automatically the first time they submit an assignment. You can also add them manually from the Roster section inside your class by entering a name and email.",
+          "Students are added to your roster automatically the first time they submit an assignment. You can also add them manually by opening the class, choosing Roster, and entering a name and email.",
       },
       {
         question: "How does CSV roster import work?",
         answer:
-          "In your class, scroll to the Roster section and click \"Upload CSV.\" Your file should have a name column and an email column, either as \"name, email\" or \"first name, last name, email\" with a header row. TryHabla will tell you how many students were added and how many were already on the roster.",
+          "Open the class, choose Roster, and click \"Upload CSV.\" Your file should have a name column and an email column, either as \"name, email\" or \"first name, last name, email\" with a header row. TryHabla will tell you how many students were added and how many were already on the roster.",
       },
     ],
   },
@@ -150,7 +150,7 @@ const FAQ_SECTIONS = [
       {
         question: "Does AI save the grade automatically?",
         answer:
-          "A teacher can generate, copy, or download a transcript without requesting an AI grade, generate missing transcripts in a confirmed batch, or opt a specific assignment into automatic transcription for future submissions. Students see when automatic transcription is on. If the teacher chooses grading, a successful run saves a whole-point score, rubric breakdown when applicable, and feedback onto an ungraded submission. The result is visible to that student immediately. The teacher can review the transcript and evidence, edit the grade, or replace the feedback. If the AI cannot produce a valid grade, TryHabla saves no score.",
+          "No. A teacher can generate, copy, or download a transcript without requesting an AI grade, generate missing transcripts in a confirmed batch, or opt a specific assignment into automatic transcription for future submissions. Students see when automatic transcription is on. If the teacher chooses AI grading, TryHabla prepares suggested whole-point scores, rubric breakdowns when applicable, and editable feedback. Those suggestions remain teacher-only until the teacher reviews them and explicitly saves the final grades. If the AI cannot produce a valid suggestion, TryHabla saves no score.",
       },
       {
         question: "What does the current workflow include?",

@@ -87,12 +87,12 @@ export default function PrivacyPage() {
             status with the submission.
           </p>
           <p>
-            AI-generated grades and feedback are labeled and may be shown to the student before a
-            teacher reviews them. Teachers can review, edit, or replace a result. TryHabla does not
-            promise that a transcript or AI result is accurate, and teachers remain responsible for
-            classroom grading decisions. The teacher or school is responsible for deciding whether
-            AI is authorized for the activity. That decision does not remove TryHabla&apos;s
-            responsibility for its own processing and notices.
+            AI-generated grading suggestions remain teacher-only until a teacher reviews and
+            explicitly saves the final score and feedback. Teachers can edit, replace, or decline a
+            suggestion. TryHabla does not promise that a transcript or AI result is accurate, and
+            teachers remain responsible for classroom grading decisions. The teacher or school is
+            responsible for deciding whether AI is authorized for the activity. That decision does
+            not remove TryHabla&apos;s responsibility for its own processing and notices.
           </p>
           <p>
             As of this notice&apos;s update date, the production service identifies OpenAI as its

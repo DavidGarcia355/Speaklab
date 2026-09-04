@@ -11,6 +11,7 @@ import {
   markAiGradingAttemptNotApplicable,
   releaseAiReviewAllowanceReservation,
   reserveAiReviewAllowance,
+  stageAiGradingAttemptForBatchReview,
   withholdAiGradingAttemptResult,
   type AiGradingAttemptRow,
   type SubmissionForAiGradeRow,
@@ -57,6 +58,13 @@ type TranscriptSnapshot = {
   detectedLanguage: string;
   quality: string;
   durationSeconds: number;
+};
+
+export type GradeOneDeliveryMode = "apply" | "suggestion_only";
+
+type BatchSuggestionDelivery = {
+  itemId: string;
+  leaseToken: string;
 };
 
 async function saveTooLongAttempt(input: {
@@ -108,6 +116,8 @@ async function finalizeCompletedAiGrade(input: {
   billingCandidate: boolean;
   allowUnmeteredAccess: boolean;
   reviewReservationId?: string;
+  deliveryMode: GradeOneDeliveryMode;
+  batchSuggestion?: BatchSuggestionDelivery;
   suggestion: {
     suggestedScore: number | null;
     rubricScores: AiGradingAttemptRow["rubricScores"];
@@ -132,6 +142,40 @@ async function finalizeCompletedAiGrade(input: {
       resultVisible: false,
     };
   };
+
+  if (input.deliveryMode === "suggestion_only") {
+    if (input.batchSuggestion) {
+      const staged = await stageAiGradingAttemptForBatchReview({
+        batchItemId: input.batchSuggestion.itemId,
+        leaseToken: input.batchSuggestion.leaseToken,
+        attemptId: input.attemptId,
+        ownerEmail: input.teacherEmail,
+        reviewReservationId: input.reviewReservationId,
+        allowWithoutReservation: input.allowUnmeteredAccess,
+      });
+      if (staged.status !== "staged") {
+        return withholdResult(`AI batch staging was rejected: ${staged.reason}.`);
+      }
+      return {
+        gradeApplied: false,
+        billingMarked: false,
+        resultVisible: true,
+      };
+    }
+    const marked = await markAiGradingAttemptNotApplicable({
+      attemptId: input.attemptId,
+      ownerEmail: input.teacherEmail,
+      reviewReservationId: input.reviewReservationId,
+    });
+    if (!marked) {
+      return withholdResult("AI suggestion delivery could not be persisted.");
+    }
+    return {
+      gradeApplied: false,
+      billingMarked: false,
+      resultVisible: true,
+    };
+  }
 
   if (
     input.suggestion.suggestedScore === null ||
@@ -221,6 +265,8 @@ async function deliverReusableAiReview(input: {
   source: AiGradingAttemptRow;
   data: SubmissionForAiGradeRow;
   teacherEmail: string;
+  deliveryMode: GradeOneDeliveryMode;
+  batchSuggestion?: BatchSuggestionDelivery;
 }): Promise<GradeOneOutcome> {
   const { source, data, teacherEmail } = input;
   if (source.submissionId === data.submissionId && data.finalGrade !== null) {
@@ -302,6 +348,8 @@ async function deliverReusableAiReview(input: {
     suggestion,
     billingCandidate: false,
     allowUnmeteredAccess: true,
+    deliveryMode: input.deliveryMode,
+    batchSuggestion: input.batchSuggestion,
   });
   if (!delivery.resultVisible) {
     return {
@@ -332,8 +380,11 @@ export async function gradeOneSubmission(input: {
   teacherEmail: string;
   data: SubmissionForAiGradeRow;
   enhanced?: boolean;
+  deliveryMode?: GradeOneDeliveryMode;
+  batchSuggestion?: BatchSuggestionDelivery;
 }): Promise<GradeOneOutcome> {
   const { config, teacherEmail, data } = input;
+  const deliveryMode = input.deliveryMode ?? "apply";
   const submissionId = data.submissionId;
 
   if (!data.audioBlobUrl) return { status: "skipped", reason: "no_audio" };
@@ -481,7 +532,13 @@ export async function gradeOneSubmission(input: {
                 "The saved transcript could not be verified. Contact support before retrying.",
             };
           }
-          return deliverReusableAiReview({ source, data, teacherEmail });
+          return deliverReusableAiReview({
+            source,
+            data,
+            teacherEmail,
+            deliveryMode,
+            batchSuggestion: input.batchSuggestion,
+          });
         }
       }
       if (reservation.reservationStatus === "reserved") {
@@ -615,8 +672,11 @@ export async function gradeOneSubmission(input: {
           suggestion,
           billingCandidate:
             false,
-          allowUnmeteredAccess: config.accessMode === "all",
+          allowUnmeteredAccess:
+            config.accessMode === "all" || isLocalMockAi(config),
           reviewReservationId: reviewReservationId ?? undefined,
+          deliveryMode,
+          batchSuggestion: input.batchSuggestion,
         });
         if (!resultVisible) {
           return {
@@ -732,8 +792,11 @@ export async function gradeOneSubmission(input: {
       suggestion,
       billingCandidate:
         false,
-      allowUnmeteredAccess: config.accessMode === "all",
+      allowUnmeteredAccess:
+        config.accessMode === "all" || isLocalMockAi(config),
       reviewReservationId: reviewReservationId ?? undefined,
+      deliveryMode,
+      batchSuggestion: input.batchSuggestion,
     });
 
     if (!resultVisible) {

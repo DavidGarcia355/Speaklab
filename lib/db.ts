@@ -29,7 +29,7 @@ import { TEACHER_AI_PRICE_BOOK } from "@/lib/teacher-ai-pricing";
 import { processedAssignmentFingerprint } from "@/lib/ai/recording-identity";
 import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapter";
 import type { FeedbackDiagnosticContext } from "@/lib/feedback-context";
-import type { Rubric, RubricScore } from "@/lib/validation";
+import { LIMITS, type Rubric, type RubricScore } from "@/lib/validation";
 import { AssignmentPointsBelowSavedGradeError } from "@/lib/assignment-errors";
 import { DuplicateSubmissionError, SubmissionLimitReachedError } from "@/lib/submission-errors";
 
@@ -511,6 +511,87 @@ export type AiReviewReservationResult =
   | ({ reservationStatus: "exhausted" } & AiReviewAllowanceSummary)
   | ({ reservationStatus: "subscription_unavailable" } & AiReviewAllowanceSummary);
 
+export type AiGradingBatchStatus =
+  | "queued"
+  | "processing"
+  | "review_ready"
+  | "partial_failure"
+  | "saved"
+  | "cancelled";
+
+export type AiGradingBatchItemStatus =
+  | "queued"
+  | "processing"
+  | "review_ready"
+  | "failed"
+  | "skipped"
+  | "saved"
+  | "conflict";
+
+export type AiGradingBatchDraft = {
+  grade: number | null;
+  rubricScores: RubricScore[] | null;
+  feedback: string;
+};
+
+export type AiGradingBatchItemRow = {
+  id: string;
+  batchId: string;
+  submissionId: string;
+  studentName: string;
+  studentEmail: string;
+  submittedAt: number;
+  ordinal: number;
+  status: AiGradingBatchItemStatus;
+  attemptId: string | null;
+  attempt: AiGradingAttemptRow | null;
+  errorCode: string;
+  errorMessage: string;
+  retryCount: number;
+  teacherEdited: boolean;
+  draft: AiGradingBatchDraft;
+  updatedAt: number;
+};
+
+export type AiGradingBatchCounts = {
+  total: number;
+  queued: number;
+  processing: number;
+  reviewReady: number;
+  failed: number;
+  skipped: number;
+  saved: number;
+  conflict: number;
+};
+
+export type AiGradingBatchRow = {
+  id: string;
+  teacherEmail: string;
+  assignmentId: string;
+  assignmentTitle: string;
+  assignmentFingerprint: string;
+  status: AiGradingBatchStatus;
+  eligibleCount: number;
+  newUnitsRequired: number;
+  transcriptsRequired: number;
+  savedTranscripts: number;
+  enhanced: boolean;
+  counts: AiGradingBatchCounts;
+  items: AiGradingBatchItemRow[];
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+  savedAt: number | null;
+};
+
+export type ClaimedAiGradingBatchItem = {
+  batchId: string;
+  itemId: string;
+  submissionId: string;
+  leaseToken: string;
+  enhanced: boolean;
+};
+
 export type StripeWebhookEventRow = {
   eventId: string;
   eventType: string;
@@ -708,6 +789,7 @@ async function ensureColumn(
     | "users"
     | "stripe_billing_accounts"
     | "ai_grading_attempts"
+    | "ai_grading_batches"
     | "ai_review_allowance_reservations_v1",
   columnName: string,
   definition: string
@@ -1124,6 +1206,56 @@ async function ensureInitialized() {
           created_at INTEGER NOT NULL CHECK (created_at >= 0),
           PRIMARY KEY(teacher_email, grant_key)
         )`,
+        `CREATE TABLE IF NOT EXISTS ai_grading_batches (
+          id TEXT PRIMARY KEY,
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          assignment_id TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL,
+          assignment_fingerprint TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'queued'
+            CHECK (status IN ('queued', 'processing', 'review_ready', 'partial_failure', 'saved', 'cancelled')),
+          eligible_count INTEGER NOT NULL CHECK (eligible_count > 0),
+          new_units_required INTEGER NOT NULL CHECK (new_units_required >= 0),
+          transcripts_required INTEGER NOT NULL DEFAULT 0 CHECK (transcripts_required >= 0),
+          enhanced INTEGER NOT NULL DEFAULT 0 CHECK (enhanced IN (0, 1)),
+          created_at INTEGER NOT NULL CHECK (created_at >= 0),
+          updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+          completed_at INTEGER,
+          saved_at INTEGER,
+          UNIQUE(teacher_email, assignment_id, idempotency_key),
+          FOREIGN KEY(assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS ai_grading_batch_items (
+          id TEXT PRIMARY KEY,
+          batch_id TEXT NOT NULL,
+          submission_id TEXT NOT NULL,
+          ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+          status TEXT NOT NULL DEFAULT 'queued'
+            CHECK (status IN ('queued', 'processing', 'review_ready', 'failed', 'skipped', 'saved', 'conflict')),
+          attempt_id TEXT,
+          draft_grade INTEGER,
+          draft_rubric_scores TEXT,
+          draft_feedback TEXT NOT NULL DEFAULT '',
+          teacher_edited INTEGER NOT NULL DEFAULT 0 CHECK (teacher_edited IN (0, 1)),
+          error_code TEXT NOT NULL DEFAULT '',
+          error_message TEXT NOT NULL DEFAULT '',
+          retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+          lease_token TEXT NOT NULL DEFAULT '',
+          lease_expires_at INTEGER NOT NULL DEFAULT 0 CHECK (lease_expires_at >= 0),
+          created_at INTEGER NOT NULL CHECK (created_at >= 0),
+          updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+          UNIQUE(batch_id, submission_id),
+          UNIQUE(batch_id, ordinal),
+          FOREIGN KEY(batch_id) REFERENCES ai_grading_batches(id) ON DELETE CASCADE,
+          FOREIGN KEY(submission_id) REFERENCES submissions(id) ON DELETE CASCADE,
+          FOREIGN KEY(attempt_id) REFERENCES ai_grading_attempts(id) ON DELETE SET NULL
+        )`,
+        `CREATE TABLE IF NOT EXISTS ai_daily_generation_quota_reservations (
+          id TEXT PRIMARY KEY,
+          teacher_email TEXT NOT NULL COLLATE NOCASE,
+          created_at INTEGER NOT NULL CHECK (created_at >= 0),
+          expires_at INTEGER NOT NULL CHECK (expires_at >= created_at)
+        )`,
         `CREATE TABLE IF NOT EXISTS ai_billing_credit_periods (
           teacher_email TEXT NOT NULL COLLATE NOCASE,
           billing_month TEXT NOT NULL,
@@ -1290,6 +1422,11 @@ async function ensureInitialized() {
         "CREATE INDEX IF NOT EXISTS idx_stripe_webhook_events_processed ON stripe_webhook_events(processed_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_ai_review_allowance_scope ON ai_review_allowance_reservations_v1(teacher_email, scope_key, status)",
         "CREATE INDEX IF NOT EXISTS idx_ai_review_lifetime_bonus_teacher ON ai_review_lifetime_bonus_grants_v1(teacher_email, created_at)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_grading_batches_active_assignment ON ai_grading_batches(teacher_email, assignment_id) WHERE status IN ('queued', 'processing', 'review_ready', 'partial_failure')",
+        "CREATE INDEX IF NOT EXISTS idx_ai_grading_batches_owner_updated ON ai_grading_batches(teacher_email, updated_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_grading_batch_items_next ON ai_grading_batch_items(batch_id, status, ordinal)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_daily_generation_quota_teacher ON ai_daily_generation_quota_reservations(teacher_email, expires_at)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_daily_generation_quota_expiry ON ai_daily_generation_quota_reservations(expires_at)",
         "CREATE INDEX IF NOT EXISTS idx_ai_billing_period_teacher_month ON ai_billing_credit_periods(teacher_email, billing_month)",
         "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_pending ON ai_billing_usage(status, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_ai_billing_usage_teacher_month ON ai_billing_usage(teacher_email, billing_month, created_at)",
@@ -1348,6 +1485,11 @@ async function ensureInitialized() {
         "ai_review_allowance_reservations_v1",
         "source_kind",
         "TEXT NOT NULL DEFAULT 'grading'",
+      );
+      await ensureColumn(
+        "ai_grading_batches",
+        "transcripts_required",
+        "INTEGER NOT NULL DEFAULT 0",
       );
       await ensureColumn("users", "is_paid", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn(
@@ -7104,7 +7246,7 @@ export async function listUngradedSubmissionsForAiGrade(
       AND a.deleted_at IS NULL
       AND c.deleted_at IS NULL
       AND LOWER(c.owner_email) = LOWER(?)
-    ORDER BY s.submitted_at ASC`,
+    ORDER BY s.submitted_at ASC, s.id ASC`,
     [ownerEmail, ownerEmail, ownerEmail, assignmentId, ownerEmail]
   );
   return result.rows.map((row) => ({
@@ -9410,4 +9552,2042 @@ export async function listStudentAssignmentSummaries(
     grade: toNullableNumber(row.grade),
     feedback: toStringValue(row.feedback),
   }));
+}
+
+const AI_DAILY_GENERATION_QUOTA_LEASE_MS = 16 * 60 * 1000;
+
+export type AiDailyGenerationQuotaReservation =
+  | { status: "reserved"; reservationId: string }
+  | { status: "teacher_limit" | "global_limit" };
+
+/** Atomically counts started attempts plus live leases and claims one generation slot. */
+export async function reserveAiDailyGenerationQuota(input: {
+  teacherEmail: string;
+  since: number;
+  dailyTeacherLimit: number;
+  dailyGlobalLimit: number;
+  now?: number;
+}): Promise<AiDailyGenerationQuotaReservation> {
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const now = Math.max(0, Math.floor(input.now ?? Date.now()));
+  const since = Math.max(0, Math.floor(input.since));
+  const teacherLimit = Math.max(0, Math.floor(input.dailyTeacherLimit));
+  const globalLimit = Math.max(0, Math.floor(input.dailyGlobalLimit));
+  const reservationId = `daily_quota_${crypto.randomUUID()}`;
+  const result = await query(
+    `INSERT INTO ai_daily_generation_quota_reservations (id, teacher_email, created_at, expires_at)
+    SELECT ?, ?, ?, ?
+    WHERE (
+      (SELECT COUNT(*) FROM ai_grading_attempts
+        WHERE LOWER(teacher_email) = LOWER(?) AND created_at >= ?)
+      + (SELECT COUNT(*) FROM ai_daily_generation_quota_reservations
+        WHERE LOWER(teacher_email) = LOWER(?) AND expires_at > ?)
+    ) < ?
+      AND (
+        (SELECT COUNT(*) FROM ai_grading_attempts WHERE created_at >= ?)
+        + (SELECT COUNT(*) FROM ai_daily_generation_quota_reservations WHERE expires_at > ?)
+      ) < ?`,
+    [reservationId, teacherEmail, now, now + AI_DAILY_GENERATION_QUOTA_LEASE_MS,
+      teacherEmail, since, teacherEmail, now, teacherLimit, since, now, globalLimit],
+  );
+  if (toNumber(result.rowsAffected) === 1) {
+    await query(
+      `DELETE FROM ai_daily_generation_quota_reservations WHERE expires_at <= ? AND id <> ?`,
+      [now, reservationId],
+    ).catch(() => undefined);
+    return { status: "reserved", reservationId };
+  }
+  const counts = await query(
+    `SELECT
+      (SELECT COUNT(*) FROM ai_grading_attempts
+        WHERE LOWER(teacher_email) = LOWER(?) AND created_at >= ?)
+      + (SELECT COUNT(*) FROM ai_daily_generation_quota_reservations
+        WHERE LOWER(teacher_email) = LOWER(?) AND expires_at > ?) AS teacher_used,
+      (SELECT COUNT(*) FROM ai_grading_attempts WHERE created_at >= ?)
+      + (SELECT COUNT(*) FROM ai_daily_generation_quota_reservations WHERE expires_at > ?) AS global_used`,
+    [teacherEmail, since, teacherEmail, now, since, now],
+  );
+  return toNumber(counts.rows[0]?.teacher_used) >= teacherLimit
+    ? { status: "teacher_limit" }
+    : { status: "global_limit" };
+}
+
+export async function releaseAiDailyGenerationQuota(input: {
+  reservationId: string;
+  teacherEmail: string;
+}): Promise<boolean> {
+  const result = await query(
+    `DELETE FROM ai_daily_generation_quota_reservations
+     WHERE id = ? AND LOWER(teacher_email) = LOWER(?)`,
+    [requireTrimmedValue("reservationId", input.reservationId), input.teacherEmail],
+  );
+  return toNumber(result.rowsAffected) === 1;
+}
+
+// Keep the item lease just beyond the processed-recording allowance lease. If
+// a serverless invocation disappears after reserving a unit, the next worker
+// must not reclaim the item while that allowance reservation is still live.
+const AI_GRADING_BATCH_ITEM_LEASE_MS = 16 * 60 * 1_000;
+
+function aiGradingAssignmentFromRow(row: Row): SubmissionForAiGradeRow {
+  return {
+    submissionId: toStringValue(row.submissionId),
+    assignmentId: toStringValue(row.assignmentId),
+    assignmentTitle: toStringValue(row.assignmentTitle),
+    audioBlobUrl: toStringValue(row.audioBlobUrl),
+    description: toStringValue(row.assignmentDescription),
+    instructions: toStringValue(row.assignmentInstructions),
+    targetLanguage: toStringValue(row.assignmentTargetLanguage) || "Spanish",
+    rubric: parseJsonValue<Rubric>(row.assignmentRubric),
+    maxPoints: toNumber(row.assignmentMaxPoints),
+    finalGrade: toNullableNumber(row.finalGrade),
+    finalGradeSource:
+      toStringValue(row.finalGradeSource) === "ai" ? "ai" : "teacher",
+    finalFeedback: toStringValue(row.finalFeedback),
+  };
+}
+
+async function selectAiGradingAssignmentInTransaction(
+  transaction: Transaction,
+  assignmentId: string,
+  teacherEmail: string,
+) {
+  const result = await transaction.execute({
+    sql: `SELECT
+      '' as submissionId,
+      a.id as assignmentId,
+      a.title as assignmentTitle,
+      '' as audioBlobUrl,
+      COALESCE(a.description, '') as assignmentDescription,
+      a.instructions as assignmentInstructions,
+      COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as assignmentTargetLanguage,
+      a.rubric as assignmentRubric,
+      COALESCE(a.max_points, 100) as assignmentMaxPoints,
+      NULL as finalGrade,
+      'teacher' as finalGradeSource,
+      '' as finalFeedback
+    FROM assignments a
+    JOIN classes c ON c.id = a.class_id
+    WHERE a.id = ?
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+      AND LOWER(c.owner_email) = LOWER(?)
+    LIMIT 1`,
+    args: [assignmentId, teacherEmail],
+  });
+  return result.rows[0] ? aiGradingAssignmentFromRow(result.rows[0]) : null;
+}
+
+export async function getAiGradingAssignmentFingerprint(
+  assignmentId: string,
+  teacherEmail: string,
+): Promise<string | null> {
+  const normalizedEmail = normalizeBillingTeacherEmail(teacherEmail);
+  await ensureInitialized();
+  const transaction = await getDbClient().transaction("read");
+  try {
+    const assignment = await selectAiGradingAssignmentInTransaction(
+      transaction,
+      requireTrimmedValue("assignmentId", assignmentId),
+      normalizedEmail,
+    );
+    await transaction.commit();
+    if (!assignment) return null;
+    return processedAssignmentFingerprint(
+      legacyAssignmentToGradingAssignment(assignment),
+    );
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+function normalizeAiGradingBatchStatus(value: unknown): AiGradingBatchStatus {
+  const status = toStringValue(value);
+  return [
+    "queued",
+    "processing",
+    "review_ready",
+    "partial_failure",
+    "saved",
+    "cancelled",
+  ].includes(status)
+    ? (status as AiGradingBatchStatus)
+    : "cancelled";
+}
+
+function normalizeAiGradingBatchItemStatus(
+  value: unknown,
+): AiGradingBatchItemStatus {
+  const status = toStringValue(value);
+  return [
+    "queued",
+    "processing",
+    "review_ready",
+    "failed",
+    "skipped",
+    "saved",
+    "conflict",
+  ].includes(status)
+    ? (status as AiGradingBatchItemStatus)
+    : "failed";
+}
+
+function batchAttemptFromJoinedRow(row: Row): AiGradingAttemptRow | null {
+  const attemptId = toStringValue(row.attemptId).trim();
+  if (!attemptId) return null;
+  return rowToAiAttempt({
+    id: attemptId,
+    submissionId: row.submissionId,
+    teacherEmail: row.batchTeacherEmail,
+    status: row.attemptStatus,
+    deliveryStatus: row.attemptDeliveryStatus,
+    transcript: row.attemptTranscript,
+    detectedLanguage: row.attemptDetectedLanguage,
+    transcriptQuality: row.attemptTranscriptQuality,
+    durationSeconds: row.attemptDurationSeconds,
+    suggestedScore: row.attemptSuggestedScore,
+    rubricScores: row.attemptRubricScores,
+    feedback: row.attemptFeedback,
+    strengths: row.attemptStrengths,
+    improvements: row.attemptImprovements,
+    evidence: row.attemptEvidence,
+    confidence: row.attemptConfidence,
+    warnings: row.attemptWarnings,
+    teacherAttention: row.attemptTeacherAttention,
+    transcriptionProvider: row.attemptTranscriptionProvider,
+    gradingProvider: row.attemptGradingProvider,
+    transcriptionModel: row.attemptTranscriptionModel,
+    gradingModel: row.attemptGradingModel,
+    errorCode: row.attemptErrorCode,
+    errorMessage: row.attemptErrorMessage,
+    cacheKey: row.attemptCacheKey,
+    assignmentFingerprint: row.attemptAssignmentFingerprint,
+    cacheHit: row.attemptCacheHit,
+    inputTokens: row.attemptInputTokens,
+    cachedInputTokens: row.attemptCachedInputTokens,
+    outputTokens: row.attemptOutputTokens,
+    latencyMs: row.attemptLatencyMs,
+    retries: row.attemptRetries,
+    escalated: row.attemptEscalated,
+    escalationReason: row.attemptEscalationReason,
+    estimatedCostMicrousd: row.attemptEstimatedCostMicrousd,
+    promptVersion: row.attemptPromptVersion,
+    resultSource: row.attemptResultSource,
+    billingRequired: row.attemptBillingRequired,
+    billingPriceBookId: row.attemptBillingPriceBookId,
+    billingStripeCustomerId: row.attemptBillingStripeCustomerId,
+    billingStripeSubscriptionId: row.attemptBillingStripeSubscriptionId,
+    billingCatalogFingerprint: row.attemptBillingCatalogFingerprint,
+    billingContractId: row.attemptBillingContractId,
+    billingLivemode: row.attemptBillingLivemode,
+    billingQualifyingClassHighWater:
+      row.attemptBillingQualifyingClassHighWater,
+    billingFreeCreditApplied: row.attemptBillingFreeCreditApplied,
+    billableOutputTokens: row.attemptBillableOutputTokens,
+    createdAt: row.attemptCreatedAt,
+    completedAt: row.attemptCompletedAt,
+  } as unknown as Row);
+}
+
+const AI_GRADING_BATCH_JOINED_SELECT = `SELECT
+  b.id as batchId,
+  b.teacher_email as batchTeacherEmail,
+  b.assignment_id as assignmentId,
+  a.title as assignmentTitle,
+  b.assignment_fingerprint as assignmentFingerprint,
+  b.status as batchStatus,
+  b.eligible_count as eligibleCount,
+  b.new_units_required as newUnitsRequired,
+  b.transcripts_required as transcriptsRequired,
+  b.enhanced as enhanced,
+  b.created_at as batchCreatedAt,
+  b.updated_at as batchUpdatedAt,
+  b.completed_at as batchCompletedAt,
+  b.saved_at as batchSavedAt,
+  i.id as itemId,
+  i.submission_id as submissionId,
+  COALESCE(s.student_name, '') as studentName,
+  COALESCE(s.student_email, '') as studentEmail,
+  COALESCE(s.submitted_at, 0) as submittedAt,
+  i.ordinal as ordinal,
+  i.status as itemStatus,
+  i.attempt_id as attemptId,
+  i.draft_grade as draftGrade,
+  i.draft_rubric_scores as draftRubricScores,
+  i.draft_feedback as draftFeedback,
+  i.teacher_edited as teacherEdited,
+  i.error_code as itemErrorCode,
+  i.error_message as itemErrorMessage,
+  i.retry_count as retryCount,
+  i.updated_at as itemUpdatedAt,
+  ag.status as attemptStatus,
+  ag.delivery_status as attemptDeliveryStatus,
+  ag.transcript as attemptTranscript,
+  ag.detected_language as attemptDetectedLanguage,
+  ag.transcript_quality as attemptTranscriptQuality,
+  ag.duration_seconds as attemptDurationSeconds,
+  ag.suggested_score as attemptSuggestedScore,
+  ag.rubric_scores as attemptRubricScores,
+  ag.feedback as attemptFeedback,
+  ag.strengths as attemptStrengths,
+  ag.improvements as attemptImprovements,
+  ag.evidence as attemptEvidence,
+  ag.confidence as attemptConfidence,
+  ag.warnings as attemptWarnings,
+  ag.teacher_attention as attemptTeacherAttention,
+  ag.transcription_provider as attemptTranscriptionProvider,
+  ag.grading_provider as attemptGradingProvider,
+  ag.transcription_model as attemptTranscriptionModel,
+  ag.grading_model as attemptGradingModel,
+  ag.error_code as attemptErrorCode,
+  ag.error_message as attemptErrorMessage,
+  ag.cache_key as attemptCacheKey,
+  ag.assignment_fingerprint as attemptAssignmentFingerprint,
+  ag.cache_hit as attemptCacheHit,
+  ag.input_tokens as attemptInputTokens,
+  ag.cached_input_tokens as attemptCachedInputTokens,
+  ag.output_tokens as attemptOutputTokens,
+  ag.latency_ms as attemptLatencyMs,
+  ag.retries as attemptRetries,
+  ag.escalated as attemptEscalated,
+  ag.escalation_reason as attemptEscalationReason,
+  ag.estimated_cost_microusd as attemptEstimatedCostMicrousd,
+  ag.prompt_version as attemptPromptVersion,
+  ag.result_source as attemptResultSource,
+  ag.billing_required as attemptBillingRequired,
+  ag.billing_price_book_id as attemptBillingPriceBookId,
+  ag.billing_stripe_customer_id as attemptBillingStripeCustomerId,
+  ag.billing_stripe_subscription_id as attemptBillingStripeSubscriptionId,
+  ag.billing_catalog_fingerprint as attemptBillingCatalogFingerprint,
+  ag.billing_contract_id as attemptBillingContractId,
+  ag.billing_livemode as attemptBillingLivemode,
+  ag.billing_qualifying_class_high_water as attemptBillingQualifyingClassHighWater,
+  ag.billing_free_credit_applied as attemptBillingFreeCreditApplied,
+  ag.billable_output_tokens as attemptBillableOutputTokens,
+  ag.created_at as attemptCreatedAt,
+  ag.completed_at as attemptCompletedAt
+FROM ai_grading_batches b
+JOIN assignments a ON a.id = b.assignment_id
+JOIN classes c ON c.id = a.class_id
+JOIN ai_grading_batch_items i ON i.batch_id = b.id
+JOIN submissions s ON s.id = i.submission_id AND s.deleted_at IS NULL
+LEFT JOIN ai_grading_attempts ag ON ag.id = i.attempt_id`;
+
+function batchFromJoinedRows(rows: Row[]): AiGradingBatchRow | null {
+  const first = rows[0];
+  if (!first) return null;
+  const items = rows.map((row) => ({
+    id: toStringValue(row.itemId),
+    batchId: toStringValue(row.batchId),
+    submissionId: toStringValue(row.submissionId),
+    studentName: toStringValue(row.studentName),
+    studentEmail: toStringValue(row.studentEmail),
+    submittedAt: toNumber(row.submittedAt),
+    ordinal: toNumber(row.ordinal),
+    status: normalizeAiGradingBatchItemStatus(row.itemStatus),
+    attemptId: toStringValue(row.attemptId).trim() || null,
+    attempt: batchAttemptFromJoinedRow(row),
+    errorCode: toStringValue(row.itemErrorCode),
+    errorMessage: toStringValue(row.itemErrorMessage),
+    retryCount: toNumber(row.retryCount),
+    teacherEdited: toNumber(row.teacherEdited) === 1,
+    draft: {
+      grade: toNullableNumber(row.draftGrade),
+      rubricScores: parseJsonValue<RubricScore[]>(row.draftRubricScores),
+      feedback: toStringValue(row.draftFeedback),
+    },
+    updatedAt: toNumber(row.itemUpdatedAt),
+  }));
+  const count = (status: AiGradingBatchItemStatus) =>
+    items.filter((item) => item.status === status).length;
+  return {
+    id: toStringValue(first.batchId),
+    teacherEmail: toStringValue(first.batchTeacherEmail),
+    assignmentId: toStringValue(first.assignmentId),
+    assignmentTitle: toStringValue(first.assignmentTitle),
+    assignmentFingerprint: toStringValue(first.assignmentFingerprint),
+    status: normalizeAiGradingBatchStatus(first.batchStatus),
+    eligibleCount: toNumber(first.eligibleCount),
+    newUnitsRequired: toNumber(first.newUnitsRequired),
+    transcriptsRequired: toNumber(first.transcriptsRequired),
+    savedTranscripts: Math.max(
+      0,
+      toNumber(first.eligibleCount) - toNumber(first.transcriptsRequired),
+    ),
+    enhanced: toNumber(first.enhanced) === 1,
+    counts: {
+      total: items.length,
+      queued: count("queued"),
+      processing: count("processing"),
+      reviewReady: count("review_ready"),
+      failed: count("failed"),
+      skipped: count("skipped"),
+      saved: count("saved"),
+      conflict: count("conflict"),
+    },
+    items,
+    createdAt: toNumber(first.batchCreatedAt),
+    updatedAt: toNumber(first.batchUpdatedAt),
+    completedAt: toNullableNumber(first.batchCompletedAt),
+    savedAt: toNullableNumber(first.batchSavedAt),
+  };
+}
+
+async function reconcileDeletedAiGradingBatchItems(input: {
+  batchId: string;
+  teacherEmail: string;
+  now?: number;
+}) {
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  await ensureInitialized();
+  const transaction = await getDbClient().transaction("write");
+  try {
+    const changed = await transaction.execute({
+      sql: `UPDATE ai_grading_batch_items
+      SET status = 'conflict', attempt_id = NULL, draft_grade = NULL,
+          draft_rubric_scores = NULL, draft_feedback = '', teacher_edited = 0,
+          error_code = 'submission_deleted',
+          error_message = 'This submission is no longer available.',
+          lease_token = '', lease_expires_at = 0, updated_at = ?
+      WHERE batch_id = ?
+        AND status NOT IN ('saved', 'conflict')
+        AND EXISTS (
+          SELECT 1 FROM submissions s
+          WHERE s.id = ai_grading_batch_items.submission_id
+            AND s.deleted_at IS NOT NULL
+        )
+        AND EXISTS (
+          SELECT 1 FROM ai_grading_batches b
+          JOIN assignments a ON a.id = b.assignment_id
+          JOIN classes c ON c.id = a.class_id
+          WHERE b.id = ai_grading_batch_items.batch_id
+            AND LOWER(b.teacher_email) = LOWER(?)
+            AND LOWER(c.owner_email) = LOWER(?)
+        )`,
+      args: [now, input.batchId, input.teacherEmail, input.teacherEmail],
+    });
+    if (toNumber(changed.rowsAffected) > 0) {
+      const visible = await transaction.execute({
+        sql: `SELECT COUNT(*) as count
+        FROM ai_grading_batch_items i
+        JOIN submissions s ON s.id = i.submission_id
+        WHERE i.batch_id = ? AND s.deleted_at IS NULL`,
+        args: [input.batchId],
+      });
+      if (toNumber(visible.rows[0]?.count) === 0) {
+        await transaction.execute({
+          sql: `UPDATE ai_grading_batches
+          SET status = 'cancelled', updated_at = ?, completed_at = COALESCE(completed_at, ?)
+          WHERE id = ? AND LOWER(teacher_email) = LOWER(?)
+            AND status NOT IN ('saved', 'cancelled')`,
+          args: [now, now, input.batchId, input.teacherEmail],
+        });
+      } else {
+        await refreshAiGradingBatchStatusInTransaction(transaction, input.batchId, now);
+      }
+    }
+    await transaction.commit();
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+export async function findAiGradingBatchForOwner(
+  batchId: string,
+  teacherEmail: string,
+): Promise<AiGradingBatchRow | null> {
+  await reconcileDeletedAiGradingBatchItems({ batchId, teacherEmail });
+  const result = await query(
+    `${AI_GRADING_BATCH_JOINED_SELECT}
+    WHERE b.id = ?
+      AND LOWER(b.teacher_email) = LOWER(?)
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    ORDER BY i.ordinal ASC`,
+    [requireTrimmedValue("batchId", batchId), teacherEmail, teacherEmail],
+  );
+  return batchFromJoinedRows(result.rows);
+}
+
+export async function findActiveAiGradingBatchForAssignment(input: {
+  assignmentId: string;
+  teacherEmail: string;
+  assignmentFingerprint: string;
+}): Promise<AiGradingBatchRow | null> {
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  await reconcileManuallyCompletedAiGradingBatch({
+    assignmentId: input.assignmentId,
+    teacherEmail,
+    assignmentFingerprint: input.assignmentFingerprint,
+  });
+  const result = await query(
+    `SELECT b.id as id
+    FROM ai_grading_batches b
+    JOIN assignments a ON a.id = b.assignment_id
+    JOIN classes c ON c.id = a.class_id
+    WHERE b.assignment_id = ?
+      AND LOWER(b.teacher_email) = LOWER(?)
+      AND b.assignment_fingerprint = ?
+      AND b.status IN ('queued', 'processing', 'review_ready', 'partial_failure')
+      AND LOWER(c.owner_email) = LOWER(?)
+      AND a.deleted_at IS NULL
+      AND c.deleted_at IS NULL
+    ORDER BY b.created_at DESC
+    LIMIT 1`,
+    [
+      requireTrimmedValue("assignmentId", input.assignmentId),
+      teacherEmail,
+      requireTrimmedValue("assignmentFingerprint", input.assignmentFingerprint),
+      teacherEmail,
+    ],
+  );
+  const id = toStringValue(result.rows[0]?.id).trim();
+  return id ? findAiGradingBatchForOwner(id, teacherEmail) : null;
+}
+
+async function reconcileManuallyCompletedAiGradingBatch(input: {
+  assignmentId: string;
+  teacherEmail: string;
+  assignmentFingerprint: string;
+}) {
+  await ensureInitialized();
+  const now = Date.now();
+  const transaction = await getDbClient().transaction("write");
+  try {
+    const active = await transaction.execute({
+      sql: `SELECT b.id as id
+      FROM ai_grading_batches b
+      JOIN assignments a ON a.id = b.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      WHERE b.assignment_id = ?
+        AND LOWER(b.teacher_email) = LOWER(?)
+        AND b.assignment_fingerprint = ?
+        AND b.status IN ('queued', 'processing', 'review_ready', 'partial_failure')
+        AND LOWER(c.owner_email) = LOWER(?)
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL`,
+      args: [
+        input.assignmentId,
+        input.teacherEmail,
+        input.assignmentFingerprint,
+        input.teacherEmail,
+      ],
+    });
+    for (const row of active.rows) {
+      const batchId = toStringValue(row.id);
+      await transaction.execute({
+        sql: `UPDATE ai_grading_batch_items
+        SET status = 'conflict', error_code = 'submission_changed',
+            error_message = 'This submission was graded outside this batch. The teacher''s saved work was kept.',
+            lease_token = '', lease_expires_at = 0, updated_at = ?
+        WHERE batch_id = ?
+          AND status NOT IN ('saved', 'conflict')
+          AND EXISTS (
+            SELECT 1 FROM submissions s
+            WHERE s.id = ai_grading_batch_items.submission_id
+              AND (
+                s.grade IS NOT NULL
+                OR TRIM(COALESCE(s.feedback, '')) <> ''
+                OR s.rubric_scores IS NOT NULL
+              )
+          )`,
+        args: [now, batchId],
+      });
+      const unfinished = await transaction.execute({
+        sql: `SELECT COUNT(*) as count
+        FROM ai_grading_batch_items i
+        JOIN submissions s ON s.id = i.submission_id
+        WHERE i.batch_id = ?
+          AND i.status <> 'saved'
+          AND s.deleted_at IS NULL
+          AND s.grade IS NULL
+          AND TRIM(COALESCE(s.feedback, '')) = ''
+          AND s.rubric_scores IS NULL`,
+        args: [batchId],
+      });
+      if (toNumber(unfinished.rows[0]?.count) === 0) {
+        await transaction.execute({
+          sql: `UPDATE ai_grading_batches
+          SET status = 'cancelled', updated_at = ?, completed_at = COALESCE(completed_at, ?)
+          WHERE id = ? AND status NOT IN ('saved', 'cancelled')`,
+          args: [now, now, batchId],
+        });
+      } else {
+        await refreshAiGradingBatchStatusInTransaction(transaction, batchId, now);
+      }
+    }
+    await transaction.commit();
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+async function refreshAiGradingBatchStatusInTransaction(
+  transaction: Transaction,
+  batchId: string,
+  now: number,
+) {
+  const current = await transaction.execute({
+    sql: `SELECT status FROM ai_grading_batches WHERE id = ? LIMIT 1`,
+    args: [batchId],
+  });
+  const currentStatus = normalizeAiGradingBatchStatus(current.rows[0]?.status);
+  if (currentStatus === "saved" || currentStatus === "cancelled") return currentStatus;
+  const result = await transaction.execute({
+    sql: `SELECT
+      SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
+      SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing,
+      SUM(CASE WHEN status = 'review_ready' THEN 1 ELSE 0 END) as reviewReady,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+      SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) as skipped,
+      SUM(CASE WHEN status = 'saved' THEN 1 ELSE 0 END) as saved,
+      SUM(CASE WHEN status = 'conflict' THEN 1 ELSE 0 END) as conflict
+    FROM ai_grading_batch_items
+    WHERE batch_id = ?`,
+    args: [batchId],
+  });
+  const row = result.rows[0];
+  const queued = toNumber(row?.queued);
+  const processing = toNumber(row?.processing);
+  const reviewReady = toNumber(row?.reviewReady);
+  const failed = toNumber(row?.failed);
+  const skipped = toNumber(row?.skipped);
+  const saved = toNumber(row?.saved);
+  const conflict = toNumber(row?.conflict);
+  let status: AiGradingBatchStatus;
+  if (queued > 0 || processing > 0) {
+    status =
+      processing > 0 || reviewReady + failed + skipped + saved + conflict > 0
+        ? "processing"
+        : "queued";
+  } else if (failed + skipped + conflict > 0) {
+    status = "partial_failure";
+  } else if (reviewReady > 0) {
+    status = "review_ready";
+  } else {
+    status = "partial_failure";
+  }
+  const finished = queued === 0 && processing === 0;
+  await transaction.execute({
+    sql: `UPDATE ai_grading_batches
+    SET status = ?, updated_at = ?, completed_at = CASE
+      WHEN ? = 1 THEN COALESCE(completed_at, ?)
+      ELSE NULL
+    END
+    WHERE id = ? AND status NOT IN ('saved', 'cancelled')`,
+    args: [status, now, finished ? 1 : 0, now, batchId],
+  });
+  return status;
+}
+
+export type CreateOrResumeAiGradingBatchResult =
+  | { status: "ready"; created: boolean; batch: AiGradingBatchRow }
+  | {
+      status: "assignment_changed" | "scope_changed" | "empty";
+      created: false;
+      batch: null;
+    };
+
+function isUniqueConstraintError(error: unknown) {
+  return error instanceof Error && /unique constraint/i.test(error.message);
+}
+
+let aiGradingBatchCreateQueue: Promise<void> = Promise.resolve();
+
+async function createOrResumeAiGradingBatchAtomic(input: {
+  assignmentId: string;
+  teacherEmail: string;
+  assignmentFingerprint: string;
+  idempotencyKey: string;
+  expectedSubmissionIds: string[];
+  newUnitsRequired: number;
+  transcriptsRequired: number;
+  enhanced?: boolean;
+  now?: number;
+}): Promise<CreateOrResumeAiGradingBatchResult> {
+  const assignmentId = requireTrimmedValue("assignmentId", input.assignmentId);
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const assignmentFingerprint = requireTrimmedValue(
+    "assignmentFingerprint",
+    input.assignmentFingerprint,
+  );
+  const idempotencyKey = requireTrimmedValue(
+    "idempotencyKey",
+    input.idempotencyKey,
+  ).slice(0, 120);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  const expectedSubmissionIds = input.expectedSubmissionIds.map((id) =>
+    requireTrimmedValue("expectedSubmissionId", id),
+  );
+  if (new Set(expectedSubmissionIds).size !== expectedSubmissionIds.length) {
+    throw new RangeError("expectedSubmissionIds must be unique.");
+  }
+  const expectedNewUnitsRequired = requireNonNegativeInteger(
+    "newUnitsRequired",
+    input.newUnitsRequired,
+  );
+  const expectedTranscriptsRequired = requireNonNegativeInteger(
+    "transcriptsRequired",
+    input.transcriptsRequired,
+  );
+  await ensureInitialized();
+  const transaction = await getDbClient().transaction("write");
+  let batchId = "";
+  let created = false;
+  let raced = false;
+  try {
+    const assignment = await selectAiGradingAssignmentInTransaction(
+      transaction,
+      assignmentId,
+      teacherEmail,
+    );
+    if (!assignment) {
+      await transaction.rollback();
+      return { status: "empty", created: false, batch: null };
+    }
+    const currentFingerprint = processedAssignmentFingerprint(
+      legacyAssignmentToGradingAssignment(assignment),
+    );
+    if (!currentFingerprint || currentFingerprint !== assignmentFingerprint) {
+      await transaction.rollback();
+      return { status: "assignment_changed", created: false, batch: null };
+    }
+
+    const idempotent = await transaction.execute({
+      sql: `SELECT id, assignment_fingerprint as assignmentFingerprint
+      FROM ai_grading_batches
+      WHERE teacher_email = ? AND assignment_id = ? AND idempotency_key = ?
+      LIMIT 1`,
+      args: [teacherEmail, assignmentId, idempotencyKey],
+    });
+    const idempotentRow = idempotent.rows[0];
+    if (idempotentRow) {
+      if (
+        toStringValue(idempotentRow.assignmentFingerprint) !==
+        assignmentFingerprint
+      ) {
+        await transaction.rollback();
+        return { status: "assignment_changed", created: false, batch: null };
+      }
+      batchId = toStringValue(idempotentRow.id);
+      await transaction.commit();
+    } else {
+      await transaction.execute({
+        sql: `UPDATE ai_grading_batches
+        SET status = 'cancelled', updated_at = ?, completed_at = COALESCE(completed_at, ?)
+        WHERE teacher_email = ?
+          AND assignment_id = ?
+          AND assignment_fingerprint <> ?
+          AND status IN ('queued', 'processing', 'review_ready', 'partial_failure')`,
+        args: [now, now, teacherEmail, assignmentId, assignmentFingerprint],
+      });
+      const active = await transaction.execute({
+        sql: `SELECT id FROM ai_grading_batches
+        WHERE teacher_email = ?
+          AND assignment_id = ?
+          AND assignment_fingerprint = ?
+          AND status IN ('queued', 'processing', 'review_ready', 'partial_failure')
+        ORDER BY created_at DESC
+        LIMIT 1`,
+        args: [teacherEmail, assignmentId, assignmentFingerprint],
+      });
+      if (active.rows[0]) {
+        batchId = toStringValue(active.rows[0].id);
+        await transaction.commit();
+      } else {
+        const eligible = await transaction.execute({
+          sql: `SELECT
+            s.id as submissionId,
+            CASE WHEN EXISTS (
+              SELECT 1
+              FROM submission_transcripts st
+              JOIN ai_review_allowance_reservations_v1 reservation
+                ON LOWER(reservation.teacher_email) = LOWER(st.teacher_email)
+                AND reservation.semantic_key = st.semantic_key
+                AND reservation.status = 'consumed'
+              WHERE st.submission_id = s.id
+                AND LOWER(st.teacher_email) = LOWER(?)
+                AND st.assignment_fingerprint = ?
+                AND TRIM(st.transcript) <> ''
+            ) THEN 0 ELSE 1 END as needsUnit
+            , CASE WHEN EXISTS (
+              SELECT 1
+              FROM submission_transcripts st
+              WHERE st.submission_id = s.id
+                AND LOWER(st.teacher_email) = LOWER(?)
+                AND TRIM(st.transcript) <> ''
+            ) THEN 0 ELSE 1 END as needsTranscript
+          FROM submissions s
+          JOIN assignments a ON a.id = s.assignment_id
+          JOIN classes c ON c.id = a.class_id
+          WHERE a.id = ?
+            AND s.grade IS NULL
+            AND TRIM(COALESCE(s.feedback, '')) = ''
+            AND s.rubric_scores IS NULL
+            AND COALESCE(s.audio_blob_url, s.audio_data, '') <> ''
+            AND s.deleted_at IS NULL
+            AND a.deleted_at IS NULL
+            AND c.deleted_at IS NULL
+            AND LOWER(c.owner_email) = LOWER(?)
+            AND NOT EXISTS (
+              SELECT 1 FROM ai_grading_attempts ag
+              WHERE ag.submission_id = s.id
+                AND LOWER(ag.teacher_email) = LOWER(?)
+                AND ag.status = 'completed'
+                AND ag.delivery_status IN ('delivered', 'not_applicable')
+                AND ag.assignment_fingerprint = ?
+            )
+          ORDER BY s.submitted_at ASC, s.id ASC`,
+          args: [
+            teacherEmail,
+            assignmentFingerprint,
+            teacherEmail,
+            assignmentId,
+            teacherEmail,
+            teacherEmail,
+            assignmentFingerprint,
+          ],
+        });
+        if (eligible.rows.length === 0 && expectedSubmissionIds.length === 0) {
+          await transaction.rollback();
+          return { status: "empty", created: false, batch: null };
+        }
+        const newUnitsRequired = eligible.rows.reduce(
+          (sum, row) => sum + toNumber(row.needsUnit),
+          0,
+        );
+        const transcriptsRequired = eligible.rows.reduce(
+          (sum, row) => sum + toNumber(row.needsTranscript),
+          0,
+        );
+        const eligibleSubmissionIds = eligible.rows.map((row) =>
+          toStringValue(row.submissionId),
+        );
+        if (
+          eligibleSubmissionIds.length !== expectedSubmissionIds.length ||
+          eligibleSubmissionIds.some(
+            (id, index) => id !== expectedSubmissionIds[index],
+          ) ||
+          newUnitsRequired !== expectedNewUnitsRequired ||
+          transcriptsRequired !== expectedTranscriptsRequired
+        ) {
+          await transaction.rollback();
+          return { status: "scope_changed", created: false, batch: null };
+        }
+        batchId = makeId("aib");
+        await transaction.execute({
+          sql: `INSERT INTO ai_grading_batches (
+            id, teacher_email, assignment_id, idempotency_key,
+            assignment_fingerprint, status, eligible_count,
+            new_units_required, transcripts_required, enhanced, created_at, updated_at,
+            completed_at, saved_at
+          ) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+          args: [
+            batchId,
+            teacherEmail,
+            assignmentId,
+            idempotencyKey,
+            assignmentFingerprint,
+            eligible.rows.length,
+            newUnitsRequired,
+            transcriptsRequired,
+            input.enhanced === true ? 1 : 0,
+            now,
+            now,
+          ],
+        });
+        for (const [ordinal, row] of eligible.rows.entries()) {
+          await transaction.execute({
+            sql: `INSERT INTO ai_grading_batch_items (
+              id, batch_id, submission_id, ordinal, status, attempt_id,
+              draft_grade, draft_rubric_scores, draft_feedback,
+              teacher_edited, error_code, error_message, retry_count,
+              lease_token, lease_expires_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'queued', NULL, NULL, NULL, '', 0, '', '', 0, '', 0, ?, ?)`,
+            args: [
+              makeId("aibi"),
+              batchId,
+              toStringValue(row.submissionId),
+              ordinal,
+              now,
+              now,
+            ],
+          });
+        }
+        created = true;
+        await transaction.commit();
+      }
+    }
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    if (isUniqueConstraintError(error)) {
+      raced = true;
+    } else {
+      throw error;
+    }
+  } finally {
+    transaction.close();
+  }
+
+  if (raced) {
+    const idempotent = await query(
+      `SELECT id FROM ai_grading_batches
+      WHERE teacher_email = ? AND assignment_id = ?
+        AND (idempotency_key = ? OR (
+          assignment_fingerprint = ?
+          AND status IN ('queued', 'processing', 'review_ready', 'partial_failure')
+        ))
+      ORDER BY CASE WHEN idempotency_key = ? THEN 0 ELSE 1 END, created_at DESC
+      LIMIT 1`,
+      [
+        teacherEmail,
+        assignmentId,
+        idempotencyKey,
+        assignmentFingerprint,
+        idempotencyKey,
+      ],
+    );
+    batchId = toStringValue(idempotent.rows[0]?.id).trim();
+    if (!batchId) throw new Error("Concurrent AI grading batch creation did not converge.");
+    created = false;
+  }
+  const batch = await findAiGradingBatchForOwner(batchId, teacherEmail);
+  if (!batch) throw new Error("AI grading batch could not be read after creation.");
+  return { status: "ready", created, batch };
+}
+
+export async function createOrResumeAiGradingBatch(input: {
+  assignmentId: string;
+  teacherEmail: string;
+  assignmentFingerprint: string;
+  idempotencyKey: string;
+  expectedSubmissionIds: string[];
+  newUnitsRequired: number;
+  transcriptsRequired: number;
+  enhanced?: boolean;
+  now?: number;
+}): Promise<CreateOrResumeAiGradingBatchResult> {
+  const preceding = aiGradingBatchCreateQueue;
+  let releaseQueue!: () => void;
+  aiGradingBatchCreateQueue = new Promise<void>((resolve) => {
+    releaseQueue = resolve;
+  });
+  await preceding;
+  try {
+    return await createOrResumeAiGradingBatchAtomic(input);
+  } finally {
+    releaseQueue();
+  }
+}
+
+export type ClaimNextAiGradingBatchItemResult =
+  | { status: "claimed"; item: ClaimedAiGradingBatchItem }
+  | { status: "done" | "not_found" | "assignment_changed"; item: null };
+
+export async function claimNextAiGradingBatchItem(input: {
+  batchId: string;
+  teacherEmail: string;
+  assignmentFingerprint: string;
+  retryFailed?: boolean;
+  now?: number;
+}): Promise<ClaimNextAiGradingBatchItemResult> {
+  const batchId = requireTrimmedValue("batchId", input.batchId);
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const assignmentFingerprint = requireTrimmedValue(
+    "assignmentFingerprint",
+    input.assignmentFingerprint,
+  );
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  await reconcileDeletedAiGradingBatchItems({ batchId, teacherEmail, now });
+  await ensureInitialized();
+  const transaction = await getDbClient().transaction("write");
+  try {
+    const found = await transaction.execute({
+      sql: `SELECT b.assignment_fingerprint as assignmentFingerprint,
+        b.status as status, b.enhanced as enhanced
+      FROM ai_grading_batches b
+      JOIN assignments a ON a.id = b.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      WHERE b.id = ?
+        AND LOWER(b.teacher_email) = LOWER(?)
+        AND LOWER(c.owner_email) = LOWER(?)
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+        AND EXISTS (
+          SELECT 1 FROM ai_grading_batch_items visible_item
+          JOIN submissions visible_submission
+            ON visible_submission.id = visible_item.submission_id
+          WHERE visible_item.batch_id = b.id
+            AND visible_submission.deleted_at IS NULL
+        )
+      LIMIT 1`,
+      args: [batchId, teacherEmail, teacherEmail],
+    });
+    const batch = found.rows[0];
+    if (!batch) {
+      await transaction.rollback();
+      return { status: "not_found", item: null };
+    }
+    if (toStringValue(batch.assignmentFingerprint) !== assignmentFingerprint) {
+      await transaction.execute({
+        sql: `UPDATE ai_grading_batches
+        SET status = 'cancelled', updated_at = ?, completed_at = COALESCE(completed_at, ?)
+        WHERE id = ? AND status NOT IN ('saved', 'cancelled')`,
+        args: [now, now, batchId],
+      });
+      await transaction.commit();
+      return { status: "assignment_changed", item: null };
+    }
+    const status = normalizeAiGradingBatchStatus(batch.status);
+    if (status === "saved" || status === "cancelled") {
+      await transaction.commit();
+      return { status: "done", item: null };
+    }
+    await transaction.execute({
+      sql: `UPDATE ai_grading_batch_items
+      SET status = 'queued', lease_token = '', lease_expires_at = 0,
+          error_code = 'lease_expired',
+          error_message = 'The previous grading request ended before it could confirm a result.',
+          updated_at = ?
+      WHERE batch_id = ?
+        AND status = 'processing'
+        AND lease_expires_at <= ?`,
+      args: [now, batchId, now],
+    });
+    let candidate = await transaction.execute({
+      sql: `SELECT i.id, i.submission_id as submissionId, i.status
+      FROM ai_grading_batch_items i
+      JOIN submissions s ON s.id = i.submission_id
+      WHERE i.batch_id = ? AND i.status = 'queued' AND s.deleted_at IS NULL
+      ORDER BY ordinal ASC
+      LIMIT 1`,
+      args: [batchId],
+    });
+    if (!candidate.rows[0] && input.retryFailed) {
+      candidate = await transaction.execute({
+        sql: `SELECT i.id, i.submission_id as submissionId, i.status
+        FROM ai_grading_batch_items i
+        JOIN submissions s ON s.id = i.submission_id
+        WHERE i.batch_id = ? AND i.status = 'failed' AND s.deleted_at IS NULL
+        ORDER BY retry_count ASC, ordinal ASC
+        LIMIT 1`,
+        args: [batchId],
+      });
+    }
+    const row = candidate.rows[0];
+    if (!row) {
+      await refreshAiGradingBatchStatusInTransaction(transaction, batchId, now);
+      await transaction.commit();
+      return { status: "done", item: null };
+    }
+    const previousStatus = normalizeAiGradingBatchItemStatus(row.status);
+    const leaseToken = crypto.randomUUID();
+    const claimed = await transaction.execute({
+      sql: `UPDATE ai_grading_batch_items
+      SET status = 'processing', lease_token = ?, lease_expires_at = ?,
+          retry_count = retry_count + ?, error_code = '', error_message = '',
+          updated_at = ?
+      WHERE id = ? AND batch_id = ? AND status = ?`,
+      args: [
+        leaseToken,
+        now + AI_GRADING_BATCH_ITEM_LEASE_MS,
+        previousStatus === "failed" ? 1 : 0,
+        now,
+        toStringValue(row.id),
+        batchId,
+        previousStatus,
+      ],
+    });
+    if (toNumber(claimed.rowsAffected) !== 1) {
+      await transaction.rollback();
+      return { status: "done", item: null };
+    }
+    await transaction.execute({
+      sql: `UPDATE ai_grading_batches
+      SET status = 'processing', updated_at = ?, completed_at = NULL
+      WHERE id = ? AND status NOT IN ('saved', 'cancelled')`,
+      args: [now, batchId],
+    });
+    await transaction.commit();
+    return {
+      status: "claimed",
+      item: {
+        batchId,
+        itemId: toStringValue(row.id),
+        submissionId: toStringValue(row.submissionId),
+        leaseToken,
+        enhanced: toNumber(batch.enhanced) === 1,
+      },
+    };
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+export async function markAiGradingBatchItemFailed(input: {
+  itemId: string;
+  leaseToken: string;
+  teacherEmail: string;
+  status: "failed" | "skipped" | "conflict";
+  errorCode: string;
+  errorMessage: string;
+  now?: number;
+}): Promise<boolean> {
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  await ensureInitialized();
+  const transaction = await getDbClient().transaction("write");
+  try {
+    const updated = await transaction.execute({
+      sql: `UPDATE ai_grading_batch_items
+      SET status = ?, attempt_id = NULL, error_code = ?, error_message = ?,
+          lease_token = '', lease_expires_at = 0, updated_at = ?
+      WHERE id = ?
+        AND status = 'processing'
+        AND lease_token = ?
+        AND EXISTS (
+          SELECT 1 FROM ai_grading_batches b
+          JOIN assignments a ON a.id = b.assignment_id
+          JOIN classes c ON c.id = a.class_id
+          WHERE b.id = ai_grading_batch_items.batch_id
+            AND LOWER(b.teacher_email) = LOWER(?)
+            AND LOWER(c.owner_email) = LOWER(?)
+            AND a.deleted_at IS NULL
+            AND c.deleted_at IS NULL
+        )`,
+      args: [
+        input.status,
+        input.errorCode.trim().slice(0, 80),
+        input.errorMessage.trim().slice(0, 500),
+        now,
+        requireTrimmedValue("itemId", input.itemId),
+        requireTrimmedValue("leaseToken", input.leaseToken),
+        teacherEmail,
+        teacherEmail,
+      ],
+    });
+    if (toNumber(updated.rowsAffected) !== 1) {
+      await transaction.rollback();
+      return false;
+    }
+    const batch = await transaction.execute({
+      sql: `SELECT batch_id as batchId FROM ai_grading_batch_items WHERE id = ? LIMIT 1`,
+      args: [input.itemId],
+    });
+    await refreshAiGradingBatchStatusInTransaction(
+      transaction,
+      toStringValue(batch.rows[0]?.batchId),
+      now,
+    );
+    await transaction.commit();
+    return true;
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+export type StageAiGradingAttemptForBatchReviewResult =
+  | { status: "staged"; itemStatus: "review_ready" | "skipped" }
+  | {
+      status: "not_staged";
+      reason:
+        | "not_found"
+        | "attempt_ineligible"
+        | "assignment_changed"
+        | "submission_changed"
+        | "allowance_unavailable";
+    };
+
+/**
+ * Delivers an AI result into a durable teacher-only batch draft. The AI attempt,
+ * processed-recording allowance, durable transcript, and batch item transition
+ * share one transaction; the student-visible submission is never updated here.
+ */
+export async function stageAiGradingAttemptForBatchReview(input: {
+  batchItemId: string;
+  leaseToken: string;
+  attemptId: string;
+  ownerEmail: string;
+  reviewReservationId?: string;
+  allowWithoutReservation: boolean;
+}): Promise<StageAiGradingAttemptForBatchReviewResult> {
+  const itemId = requireTrimmedValue("batchItemId", input.batchItemId);
+  const leaseToken = requireTrimmedValue("leaseToken", input.leaseToken);
+  const attemptId = requireTrimmedValue("attemptId", input.attemptId);
+  const ownerEmail = normalizeBillingTeacherEmail(input.ownerEmail);
+  const reviewReservationId = input.reviewReservationId?.trim() || null;
+  const readyStripeScope = reviewReservationId
+    ? await getReadyStripeSubscriptionScope()
+    : null;
+  const now = Date.now();
+  await ensureInitialized();
+  const transaction = await getDbClient().transaction("write");
+  const reject = async (
+    reason: Extract<
+      StageAiGradingAttemptForBatchReviewResult,
+      { status: "not_staged" }
+    >["reason"],
+  ): Promise<StageAiGradingAttemptForBatchReviewResult> => {
+    if (!transaction.closed) await transaction.rollback();
+    return { status: "not_staged", reason };
+  };
+  try {
+    const result = await transaction.execute({
+      sql: `SELECT
+        i.batch_id as batchId,
+        i.submission_id as itemSubmissionId,
+        i.status as itemStatus,
+        i.lease_token as leaseToken,
+        b.assignment_fingerprint as batchAssignmentFingerprint,
+        b.status as batchStatus,
+        ag.submission_id as submissionId,
+        ag.status as status,
+        ag.delivery_status as deliveryStatus,
+        ag.assignment_fingerprint as assignmentFingerprint,
+        ag.cache_key as cacheKey,
+        ag.suggested_score as suggestedScore,
+        ag.rubric_scores as attemptRubricScores,
+        ag.feedback as feedback,
+        ag.teacher_attention as teacherAttention,
+        ag.error_code as errorCode,
+        ag.billing_required as billingRequired,
+        s.grade as finalGrade,
+        COALESCE(s.feedback, '') as finalFeedback,
+        s.rubric_scores as finalRubricScores,
+        a.id as assignmentId,
+        a.title as assignmentTitle,
+        COALESCE(a.description, '') as assignmentDescription,
+        a.instructions as assignmentInstructions,
+        COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as assignmentTargetLanguage,
+        COALESCE(a.max_points, 100) as assignmentMaxPoints,
+        a.rubric as assignmentRubric,
+        EXISTS (
+          SELECT 1 FROM ai_review_allowance_reservations_v1 reservation
+          WHERE LOWER(reservation.teacher_email) = LOWER(?)
+            AND reservation.semantic_key = ag.cache_key
+            AND reservation.status = 'consumed'
+        ) as alreadyConsumed
+      FROM ai_grading_batch_items i
+      JOIN ai_grading_batches b ON b.id = i.batch_id
+      JOIN ai_grading_attempts ag ON ag.id = ?
+      JOIN submissions s ON s.id = i.submission_id
+      JOIN assignments a ON a.id = s.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      WHERE i.id = ?
+        AND LOWER(b.teacher_email) = LOWER(?)
+        AND LOWER(ag.teacher_email) = LOWER(?)
+        AND LOWER(c.owner_email) = LOWER(?)
+        AND a.id = b.assignment_id
+        AND s.deleted_at IS NULL
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+      LIMIT 1`,
+      args: [ownerEmail, attemptId, itemId, ownerEmail, ownerEmail, ownerEmail],
+    });
+    const row = result.rows[0];
+    if (!row) return await reject("not_found");
+    if (
+      toStringValue(row.itemStatus) !== "processing" ||
+      toStringValue(row.leaseToken) !== leaseToken ||
+      toStringValue(row.itemSubmissionId) !== toStringValue(row.submissionId) ||
+      toStringValue(row.status) !== "completed" ||
+      toStringValue(row.deliveryStatus) !== "pending" ||
+      toStringValue(row.errorCode).trim() ||
+      toNumber(row.billingRequired) !== 0 ||
+      ["saved", "cancelled"].includes(toStringValue(row.batchStatus))
+    ) {
+      return await reject("attempt_ineligible");
+    }
+    const attemptFingerprint = toStringValue(row.assignmentFingerprint).trim();
+    if (
+      !attemptFingerprint ||
+      attemptFingerprint !== toStringValue(row.batchAssignmentFingerprint) ||
+      attemptFingerprint !== assignmentFingerprintFromAttemptDeliveryRow(row)
+    ) {
+      return await reject("assignment_changed");
+    }
+    if (
+      row.finalGrade !== null ||
+      toStringValue(row.finalFeedback).trim() ||
+      row.finalRubricScores !== null
+    ) {
+      return await reject("submission_changed");
+    }
+    if (
+      !reviewReservationId &&
+      !input.allowWithoutReservation &&
+      toNumber(row.alreadyConsumed) !== 1
+    ) {
+      return await reject("allowance_unavailable");
+    }
+    const delivery = await transaction.execute({
+      sql: `UPDATE ai_grading_attempts
+      SET delivery_status = 'not_applicable'
+      WHERE id = ?
+        AND LOWER(teacher_email) = LOWER(?)
+        AND status = 'completed'
+        AND delivery_status = 'pending'
+        AND billing_required = 0`,
+      args: [attemptId, ownerEmail],
+    });
+    if (toNumber(delivery.rowsAffected) !== 1) {
+      return await reject("attempt_ineligible");
+    }
+    if (reviewReservationId) {
+      const consumed = await consumeAiReviewReservationInTransaction({
+        transaction,
+        reservationId: reviewReservationId,
+        teacherEmail: ownerEmail,
+        attemptId,
+        readyStripeScope,
+        now,
+      });
+      if (!consumed) return await reject("allowance_unavailable");
+    }
+    const suggestedScore = toNullableNumber(row.suggestedScore);
+    const itemStatus: "review_ready" | "skipped" =
+      suggestedScore === null ||
+      toStringValue(row.teacherAttention) === "unable_to_grade"
+        ? "skipped"
+        : "review_ready";
+    const staged = await transaction.execute({
+      sql: `UPDATE ai_grading_batch_items
+      SET status = ?, attempt_id = ?, draft_grade = ?,
+          draft_rubric_scores = CASE WHEN ? IS NULL THEN NULL ELSE ? END,
+          draft_feedback = ?, teacher_edited = 0,
+          error_code = CASE WHEN ? = 'skipped' THEN 'unable_to_grade' ELSE '' END,
+          error_message = CASE WHEN ? = 'skipped'
+            THEN 'AI could not produce a score; grade this submission manually.' ELSE '' END,
+          lease_token = '', lease_expires_at = 0, updated_at = ?
+      WHERE id = ? AND status = 'processing' AND lease_token = ?`,
+      args: [
+        itemStatus,
+        attemptId,
+        suggestedScore,
+        row.assignmentRubric,
+        row.attemptRubricScores,
+        toStringValue(row.feedback),
+        itemStatus,
+        itemStatus,
+        now,
+        itemId,
+        leaseToken,
+      ],
+    });
+    if (toNumber(staged.rowsAffected) !== 1) {
+      return await reject("attempt_ineligible");
+    }
+    await refreshAiGradingBatchStatusInTransaction(
+      transaction,
+      toStringValue(row.batchId),
+      now,
+    );
+    await transaction.commit();
+    return { status: "staged", itemStatus };
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+export type SaveAiGradingBatchItemInput = {
+  itemId: string;
+  grade: number;
+  feedback: string;
+  rubricScores: RubricScore[] | null;
+};
+
+export type SaveAiGradingBatchResult =
+  | { status: "saved" | "already_saved"; batchId: string }
+  | { status: "not_found" | "assignment_changed"; batchId: string }
+  | {
+      status: "not_ready" | "invalid";
+      batchId: string;
+      message: string;
+    }
+  | {
+      status: "submission_changed";
+      batchId: string;
+      conflictItemIds: string[];
+    };
+
+function normalizeBatchSaveItem(
+  value: SaveAiGradingBatchItemInput,
+  rubric: Rubric | null,
+  maxPoints: number,
+):
+  | { ok: true; grade: number; feedback: string; rubricScores: RubricScore[] | null }
+  | { ok: false; message: string } {
+  if (!value || typeof value.itemId !== "string" || !value.itemId.trim()) {
+    return { ok: false, message: "Every saved suggestion needs an item id." };
+  }
+  if (
+    !Number.isSafeInteger(value.grade) ||
+    value.grade < 0 ||
+    value.grade > maxPoints
+  ) {
+    return {
+      ok: false,
+      message: `Every score must be a whole number from 0 to ${maxPoints}.`,
+    };
+  }
+  if (typeof value.feedback !== "string") {
+    return { ok: false, message: "Feedback must be text." };
+  }
+  const feedback = value.feedback.trim();
+  if (feedback.length > LIMITS.feedbackMax) {
+    return {
+      ok: false,
+      message: `Feedback must be ${LIMITS.feedbackMax} characters or fewer.`,
+    };
+  }
+  if (/<[^>]*>|<\/?\s*script\b/i.test(feedback)) {
+    return { ok: false, message: "Feedback cannot contain HTML or script content." };
+  }
+
+  if (!rubric) {
+    if (Array.isArray(value.rubricScores) && value.rubricScores.length > 0) {
+      return {
+        ok: false,
+        message: "This assignment does not use rubric grading.",
+      };
+    }
+    return { ok: true, grade: value.grade, feedback, rubricScores: null };
+  }
+  if (
+    !Array.isArray(value.rubricScores) ||
+    value.rubricScores.length !== rubric.criteria.length
+  ) {
+    return {
+      ok: false,
+      message: "Rubric scores must include every rubric criterion.",
+    };
+  }
+  const provided = new Map<string, RubricScore>();
+  for (const score of value.rubricScores) {
+    if (!score || typeof score.criterionId !== "string" || provided.has(score.criterionId)) {
+      return { ok: false, message: "Rubric criterion ids must be unique." };
+    }
+    provided.set(score.criterionId, score);
+  }
+  const rubricScores: RubricScore[] = [];
+  for (const criterion of rubric.criteria) {
+    const criterionId = String(criterion.id);
+    const score = provided.get(criterionId);
+    if (
+      !score ||
+      !Number.isSafeInteger(score.awarded) ||
+      score.awarded < 0 ||
+      score.awarded > criterion.maxPoints
+    ) {
+      return {
+        ok: false,
+        message: `Rubric score for ${criterion.name} must be a whole number from 0 to ${criterion.maxPoints}.`,
+      };
+    }
+    rubricScores.push({
+      criterionId,
+      criterionName: criterion.name,
+      maxPoints: criterion.maxPoints,
+      awarded: score.awarded,
+    });
+  }
+  const rubricTotal = rubricScores.reduce((sum, score) => sum + score.awarded, 0);
+  if (rubricTotal !== value.grade) {
+    return { ok: false, message: "The total score must match the rubric scores." };
+  }
+  return { ok: true, grade: rubricTotal, feedback, rubricScores };
+}
+
+async function markAiGradingBatchSaveConflicts(input: {
+  batchId: string;
+  teacherEmail: string;
+  itemIds: string[];
+  now: number;
+}) {
+  for (const itemId of new Set(input.itemIds.filter(Boolean))) {
+    await query(
+      `UPDATE ai_grading_batch_items
+      SET status = 'conflict', error_code = 'submission_changed',
+          error_message = 'This submission was graded or changed outside this batch. The teacher''s saved work was kept.',
+          updated_at = ?
+      WHERE id = ? AND batch_id = ? AND status = 'review_ready'
+        AND EXISTS (
+          SELECT 1 FROM ai_grading_batches b
+          JOIN assignments a ON a.id = b.assignment_id
+          JOIN classes c ON c.id = a.class_id
+          WHERE b.id = ai_grading_batch_items.batch_id
+            AND LOWER(b.teacher_email) = LOWER(?)
+            AND LOWER(c.owner_email) = LOWER(?)
+        )`,
+      [input.now, itemId, input.batchId, input.teacherEmail, input.teacherEmail],
+    );
+  }
+  await query(
+    `UPDATE ai_grading_batches
+    SET status = 'partial_failure', updated_at = ?, completed_at = COALESCE(completed_at, ?)
+    WHERE id = ? AND LOWER(teacher_email) = LOWER(?)
+      AND status NOT IN ('saved', 'cancelled')
+      AND NOT EXISTS (
+        SELECT 1 FROM ai_grading_batch_items i
+        WHERE i.batch_id = ai_grading_batches.id
+          AND i.status IN ('queued', 'processing')
+      )`,
+    [input.now, input.now, input.batchId, input.teacherEmail],
+  );
+}
+
+/**
+ * Publishes one batch review transactionally. Every currently review-ready
+ * item must be present, and every target submission must still be completely
+ * ungraded. A conflict rolls the entire save back so teacher edits always win.
+ */
+export async function saveAiGradingBatch(input: {
+  batchId: string;
+  teacherEmail: string;
+  assignmentFingerprint: string;
+  items: SaveAiGradingBatchItemInput[];
+  now?: number;
+}): Promise<SaveAiGradingBatchResult> {
+  const batchId = requireTrimmedValue("batchId", input.batchId);
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const expectedFingerprint = requireTrimmedValue(
+    "assignmentFingerprint",
+    input.assignmentFingerprint,
+  );
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  await reconcileDeletedAiGradingBatchItems({ batchId, teacherEmail, now });
+  await ensureInitialized();
+  const transaction = await getDbClient().transaction("write");
+  try {
+    const batchResult = await transaction.execute({
+      sql: `SELECT b.status as status,
+        b.assignment_fingerprint as assignmentFingerprint,
+        a.id as assignmentId,
+        a.title as assignmentTitle,
+        COALESCE(a.description, '') as assignmentDescription,
+        a.instructions as assignmentInstructions,
+        COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as assignmentTargetLanguage,
+        COALESCE(a.max_points, 100) as assignmentMaxPoints,
+        a.rubric as assignmentRubric
+      FROM ai_grading_batches b
+      JOIN assignments a ON a.id = b.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      WHERE b.id = ?
+        AND LOWER(b.teacher_email) = LOWER(?)
+        AND LOWER(c.owner_email) = LOWER(?)
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+      LIMIT 1`,
+      args: [batchId, teacherEmail, teacherEmail],
+    });
+    const batch = batchResult.rows[0];
+    if (!batch) {
+      await transaction.rollback();
+      return { status: "not_found", batchId };
+    }
+    if (normalizeAiGradingBatchStatus(batch.status) === "saved") {
+      await transaction.commit();
+      return { status: "already_saved", batchId };
+    }
+    if (normalizeAiGradingBatchStatus(batch.status) === "cancelled") {
+      await transaction.rollback();
+      return { status: "assignment_changed", batchId };
+    }
+    const currentFingerprint = assignmentFingerprintFromAttemptDeliveryRow({
+      submissionId: "",
+      assignmentId: batch.assignmentId,
+      assignmentTitle: batch.assignmentTitle,
+      assignmentDescription: batch.assignmentDescription,
+      assignmentInstructions: batch.assignmentInstructions,
+      assignmentTargetLanguage: batch.assignmentTargetLanguage,
+      assignmentMaxPoints: batch.assignmentMaxPoints,
+      assignmentRubric: batch.assignmentRubric,
+    } as unknown as Row);
+    if (
+      !currentFingerprint ||
+      currentFingerprint !== expectedFingerprint ||
+      currentFingerprint !== toStringValue(batch.assignmentFingerprint)
+    ) {
+      await transaction.execute({
+        sql: `UPDATE ai_grading_batches
+        SET status = 'cancelled', updated_at = ?, completed_at = COALESCE(completed_at, ?)
+        WHERE id = ? AND status NOT IN ('saved', 'cancelled')`,
+        args: [now, now, batchId],
+      });
+      await transaction.commit();
+      return { status: "assignment_changed", batchId };
+    }
+
+    const rowsResult = await transaction.execute({
+      sql: `SELECT i.id as itemId, i.submission_id as submissionId,
+        i.status as itemStatus, i.attempt_id as attemptId,
+        i.draft_grade as draftGrade, i.draft_rubric_scores as draftRubricScores,
+        i.draft_feedback as draftFeedback,
+        ag.suggested_score as suggestedScore,
+        ag.rubric_scores as attemptRubricScores,
+        ag.feedback as attemptFeedback,
+        ag.assignment_fingerprint as attemptAssignmentFingerprint,
+        ag.status as attemptStatus,
+        ag.delivery_status as attemptDeliveryStatus,
+        s.grade as finalGrade,
+        COALESCE(s.feedback, '') as finalFeedback,
+        s.rubric_scores as finalRubricScores
+      FROM ai_grading_batch_items i
+      JOIN submissions s ON s.id = i.submission_id
+      LEFT JOIN ai_grading_attempts ag ON ag.id = i.attempt_id
+      WHERE i.batch_id = ?
+      ORDER BY i.ordinal ASC`,
+      args: [batchId],
+    });
+    const rows = rowsResult.rows;
+    if (rows.some((row) => ["queued", "processing"].includes(toStringValue(row.itemStatus)))) {
+      await transaction.rollback();
+      return {
+        status: "not_ready",
+        batchId,
+        message: "AI suggestions are still being prepared.",
+      };
+    }
+    const readyRows = rows.filter(
+      (row) => toStringValue(row.itemStatus) === "review_ready",
+    );
+    if (readyRows.length === 0) {
+      await transaction.rollback();
+      return {
+        status: "not_ready",
+        batchId,
+        message: "There are no unsaved AI suggestions in this batch.",
+      };
+    }
+    if (!Array.isArray(input.items) || input.items.length !== readyRows.length) {
+      await transaction.rollback();
+      return {
+        status: "invalid",
+        batchId,
+        message: "Save every review-ready suggestion together.",
+      };
+    }
+    const payloadById = new Map<string, SaveAiGradingBatchItemInput>();
+    for (const value of input.items) {
+      const id = typeof value?.itemId === "string" ? value.itemId.trim() : "";
+      if (!id || payloadById.has(id)) {
+        await transaction.rollback();
+        return {
+          status: "invalid",
+          batchId,
+          message: "Each batch item must appear exactly once.",
+        };
+      }
+      payloadById.set(id, value);
+    }
+    const readyIds = new Set(readyRows.map((row) => toStringValue(row.itemId)));
+    if ([...payloadById.keys()].some((id) => !readyIds.has(id))) {
+      await transaction.rollback();
+      return {
+        status: "invalid",
+        batchId,
+        message: "The save included an item that is not ready for review.",
+      };
+    }
+    const rubric = parseJsonValue<Rubric>(batch.assignmentRubric);
+    const maxPoints = toNumber(batch.assignmentMaxPoints);
+    const normalized = new Map<
+      string,
+      { grade: number; feedback: string; rubricScores: RubricScore[] | null }
+    >();
+    for (const row of readyRows) {
+      const itemId = toStringValue(row.itemId);
+      const value = payloadById.get(itemId)!;
+      const parsed = normalizeBatchSaveItem(value, rubric, maxPoints);
+      if (!parsed.ok) {
+        await transaction.rollback();
+        return { status: "invalid", batchId, message: parsed.message };
+      }
+      normalized.set(itemId, parsed);
+    }
+
+    const conflictItemIds = readyRows
+      .filter(
+        (row) =>
+          row.finalGrade !== null ||
+          toStringValue(row.finalFeedback).trim() !== "" ||
+          row.finalRubricScores !== null ||
+          toStringValue(row.attemptStatus) !== "completed" ||
+          toStringValue(row.attemptDeliveryStatus) !== "not_applicable" ||
+          toStringValue(row.attemptAssignmentFingerprint) !== currentFingerprint,
+      )
+      .map((row) => toStringValue(row.itemId));
+    if (conflictItemIds.length > 0) {
+      await transaction.rollback();
+      await markAiGradingBatchSaveConflicts({
+        batchId,
+        teacherEmail,
+        itemIds: conflictItemIds,
+        now,
+      });
+      return { status: "submission_changed", batchId, conflictItemIds };
+    }
+
+    for (const row of readyRows) {
+      const itemId = toStringValue(row.itemId);
+      const value = normalized.get(itemId)!;
+      const updated = await transaction.execute({
+        sql: `UPDATE submissions
+        SET grade = ?, feedback = ?, rubric_scores = ?, grade_source = 'teacher'
+        WHERE id = ?
+          AND deleted_at IS NULL
+          AND grade IS NULL
+          AND TRIM(COALESCE(feedback, '')) = ''
+          AND rubric_scores IS NULL
+          AND EXISTS (
+            SELECT 1 FROM assignments a
+            JOIN classes c ON c.id = a.class_id
+            WHERE a.id = submissions.assignment_id
+              AND a.id = ?
+              AND a.deleted_at IS NULL
+              AND c.deleted_at IS NULL
+              AND LOWER(c.owner_email) = LOWER(?)
+          )`,
+        args: [
+          value.grade,
+          value.feedback,
+          stringifyJsonValue(value.rubricScores),
+          toStringValue(row.submissionId),
+          toStringValue(batch.assignmentId),
+          teacherEmail,
+        ],
+      });
+      if (toNumber(updated.rowsAffected) !== 1) {
+        await transaction.rollback();
+        await markAiGradingBatchSaveConflicts({
+          batchId,
+          teacherEmail,
+          itemIds: [itemId],
+          now,
+        });
+        return { status: "submission_changed", batchId, conflictItemIds: [itemId] };
+      }
+      const teacherEdited =
+        value.grade !== toNullableNumber(row.suggestedScore) ||
+        value.feedback !== toStringValue(row.attemptFeedback).trim() ||
+        stringifyJsonValue(value.rubricScores) !==
+          stringifyJsonValue(
+            rubric
+              ? parseJsonValue<RubricScore[]>(row.attemptRubricScores)
+              : null,
+          );
+      const itemUpdated = await transaction.execute({
+        sql: `UPDATE ai_grading_batch_items
+        SET status = 'saved', draft_grade = ?, draft_rubric_scores = ?,
+            draft_feedback = ?, teacher_edited = ?, error_code = '',
+            error_message = '', updated_at = ?
+        WHERE id = ? AND batch_id = ? AND status = 'review_ready'`,
+        args: [
+          value.grade,
+          stringifyJsonValue(value.rubricScores),
+          value.feedback,
+          teacherEdited ? 1 : 0,
+          now,
+          itemId,
+          batchId,
+        ],
+      });
+      if (toNumber(itemUpdated.rowsAffected) !== 1) {
+        await transaction.rollback();
+        await markAiGradingBatchSaveConflicts({
+          batchId,
+          teacherEmail,
+          itemIds: [itemId],
+          now,
+        });
+        return { status: "submission_changed", batchId, conflictItemIds: [itemId] };
+      }
+    }
+
+    const remaining = await transaction.execute({
+      sql: `SELECT COUNT(*) as count
+      FROM ai_grading_batch_items
+      WHERE batch_id = ? AND status IN ('queued', 'processing', 'review_ready')`,
+      args: [batchId],
+    });
+    if (toNumber(remaining.rows[0]?.count) === 0) {
+      await transaction.execute({
+        sql: `UPDATE ai_grading_batches
+        SET status = 'saved', updated_at = ?, completed_at = COALESCE(completed_at, ?), saved_at = ?
+        WHERE id = ? AND status NOT IN ('saved', 'cancelled')`,
+        args: [now, now, now, batchId],
+      });
+    } else {
+      await refreshAiGradingBatchStatusInTransaction(transaction, batchId, now);
+    }
+    await transaction.commit();
+    return { status: "saved", batchId };
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+export type CloseAiGradingBatchResult =
+  | { status: "closed" | "already_closed"; batchId: string }
+  | {
+      status: "not_found" | "not_terminal" | "has_review_ready";
+      batchId: string;
+    };
+
+/**
+ * Closes a terminal exception-only batch so it cannot wedge the assignment's
+ * active-batch uniqueness guard. Review-ready paid work cannot be discarded;
+ * the teacher must save it (or supersede it with a manual grade) first.
+ */
+export async function closeAiGradingBatch(input: {
+  batchId: string;
+  teacherEmail: string;
+  now?: number;
+}): Promise<CloseAiGradingBatchResult> {
+  const batchId = requireTrimmedValue("batchId", input.batchId);
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const now = requireNonNegativeInteger("now", input.now ?? Date.now());
+  await reconcileDeletedAiGradingBatchItems({ batchId, teacherEmail, now });
+  await ensureInitialized();
+  const transaction = await getDbClient().transaction("write");
+  try {
+    const result = await transaction.execute({
+      sql: `SELECT b.status as status,
+        SUM(CASE WHEN i.status IN ('queued', 'processing') THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN i.status = 'review_ready' THEN 1 ELSE 0 END) as reviewReady
+      FROM ai_grading_batches b
+      JOIN assignments a ON a.id = b.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      JOIN ai_grading_batch_items i ON i.batch_id = b.id
+      WHERE b.id = ?
+        AND LOWER(b.teacher_email) = LOWER(?)
+        AND LOWER(c.owner_email) = LOWER(?)
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+      GROUP BY b.id, b.status
+      LIMIT 1`,
+      args: [batchId, teacherEmail, teacherEmail],
+    });
+    const row = result.rows[0];
+    if (!row) {
+      await transaction.rollback();
+      return { status: "not_found", batchId };
+    }
+    const current = normalizeAiGradingBatchStatus(row.status);
+    if (current === "saved" || current === "cancelled") {
+      await transaction.commit();
+      return { status: "already_closed", batchId };
+    }
+    if (toNumber(row.pending) > 0) {
+      await transaction.rollback();
+      return { status: "not_terminal", batchId };
+    }
+    if (toNumber(row.reviewReady) > 0) {
+      await transaction.rollback();
+      return { status: "has_review_ready", batchId };
+    }
+    const closed = await transaction.execute({
+      sql: `UPDATE ai_grading_batches
+      SET status = 'cancelled', updated_at = ?, completed_at = COALESCE(completed_at, ?)
+      WHERE id = ? AND LOWER(teacher_email) = LOWER(?)
+        AND status IN ('review_ready', 'partial_failure')`,
+      args: [now, now, batchId, teacherEmail],
+    });
+    if (toNumber(closed.rowsAffected) !== 1) {
+      await transaction.rollback();
+      return { status: "not_terminal", batchId };
+    }
+    await transaction.commit();
+    return { status: "closed", batchId };
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
+}
+
+export type SaveAiGradingBatchDraftResult =
+  | { status: "updated"; batchId: string; itemIds: string[] }
+  | { status: "not_found" | "assignment_changed" | "not_ready"; batchId: string }
+  | { status: "invalid"; batchId: string; message: string };
+
+/**
+ * Persists private teacher edits to review-ready batch items. This operation
+ * intentionally updates only the three draft columns: it never publishes a
+ * submission grade, transitions lifecycle state, or touches AI allowance.
+ */
+export async function saveAiGradingBatchDraft(input: {
+  batchId: string;
+  teacherEmail: string;
+  assignmentFingerprint: string;
+  items: SaveAiGradingBatchItemInput[];
+}): Promise<SaveAiGradingBatchDraftResult> {
+  const batchId = requireTrimmedValue("batchId", input.batchId);
+  const teacherEmail = normalizeBillingTeacherEmail(input.teacherEmail);
+  const expectedFingerprint = requireTrimmedValue(
+    "assignmentFingerprint",
+    input.assignmentFingerprint,
+  );
+  await ensureInitialized();
+  const transaction = await getDbClient().transaction("write");
+  try {
+    const batchResult = await transaction.execute({
+      sql: `SELECT b.status as status,
+        b.assignment_fingerprint as assignmentFingerprint,
+        a.id as assignmentId,
+        a.title as assignmentTitle,
+        COALESCE(a.description, '') as assignmentDescription,
+        a.instructions as assignmentInstructions,
+        COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as assignmentTargetLanguage,
+        COALESCE(a.max_points, 100) as assignmentMaxPoints,
+        a.rubric as assignmentRubric
+      FROM ai_grading_batches b
+      JOIN assignments a ON a.id = b.assignment_id
+      JOIN classes c ON c.id = a.class_id
+      WHERE b.id = ?
+        AND LOWER(b.teacher_email) = LOWER(?)
+        AND LOWER(c.owner_email) = LOWER(?)
+        AND a.deleted_at IS NULL
+        AND c.deleted_at IS NULL
+      LIMIT 1`,
+      args: [batchId, teacherEmail, teacherEmail],
+    });
+    const batch = batchResult.rows[0];
+    if (!batch) {
+      await transaction.rollback();
+      return { status: "not_found", batchId };
+    }
+    if (!["review_ready", "partial_failure"].includes(
+      normalizeAiGradingBatchStatus(batch.status),
+    )) {
+      await transaction.rollback();
+      return { status: "not_ready", batchId };
+    }
+
+    const currentFingerprint = assignmentFingerprintFromAttemptDeliveryRow({
+      submissionId: "",
+      assignmentId: batch.assignmentId,
+      assignmentTitle: batch.assignmentTitle,
+      assignmentDescription: batch.assignmentDescription,
+      assignmentInstructions: batch.assignmentInstructions,
+      assignmentTargetLanguage: batch.assignmentTargetLanguage,
+      assignmentMaxPoints: batch.assignmentMaxPoints,
+      assignmentRubric: batch.assignmentRubric,
+    } as unknown as Row);
+    if (
+      !currentFingerprint ||
+      currentFingerprint !== expectedFingerprint ||
+      currentFingerprint !== toStringValue(batch.assignmentFingerprint)
+    ) {
+      await transaction.rollback();
+      return { status: "assignment_changed", batchId };
+    }
+
+    if (!Array.isArray(input.items) || input.items.length === 0) {
+      await transaction.rollback();
+      return {
+        status: "invalid",
+        batchId,
+        message: "Include at least one valid review draft.",
+      };
+    }
+
+    const payloadById = new Map<string, SaveAiGradingBatchItemInput>();
+    for (const value of input.items) {
+      const itemId = typeof value?.itemId === "string" ? value.itemId.trim() : "";
+      if (!itemId || payloadById.has(itemId)) {
+        await transaction.rollback();
+        return {
+          status: "invalid",
+          batchId,
+          message: "Each review draft must include one unique item id.",
+        };
+      }
+      payloadById.set(itemId, value);
+    }
+
+    const itemResult = await transaction.execute({
+      sql: `SELECT id, status
+      FROM ai_grading_batch_items
+      WHERE batch_id = ?`,
+      args: [batchId],
+    });
+    const reviewReadyIds = new Set(
+      itemResult.rows
+        .filter((row) => toStringValue(row.status) === "review_ready")
+        .map((row) => toStringValue(row.id)),
+    );
+    if ([...payloadById.keys()].some((itemId) => !reviewReadyIds.has(itemId))) {
+      await transaction.rollback();
+      return {
+        status: "not_ready",
+        batchId,
+      };
+    }
+
+    const rubric = parseJsonValue<Rubric>(batch.assignmentRubric);
+    const maxPoints = toNumber(batch.assignmentMaxPoints);
+    const normalized = new Map<
+      string,
+      { grade: number; feedback: string; rubricScores: RubricScore[] | null }
+    >();
+    for (const [itemId, value] of payloadById) {
+      const parsed = normalizeBatchSaveItem(value, rubric, maxPoints);
+      if (!parsed.ok) {
+        await transaction.rollback();
+        return { status: "invalid", batchId, message: parsed.message };
+      }
+      normalized.set(itemId, parsed);
+    }
+
+    for (const [itemId, value] of normalized) {
+      const updated = await transaction.execute({
+        sql: `UPDATE ai_grading_batch_items
+        SET draft_grade = ?, draft_rubric_scores = ?, draft_feedback = ?
+        WHERE id = ? AND batch_id = ? AND status = 'review_ready'`,
+        args: [
+          value.grade,
+          stringifyJsonValue(value.rubricScores),
+          value.feedback,
+          itemId,
+          batchId,
+        ],
+      });
+      if (toNumber(updated.rowsAffected) !== 1) {
+        await transaction.rollback();
+        return { status: "not_ready", batchId };
+      }
+    }
+
+    await transaction.commit();
+    return { status: "updated", batchId, itemIds: [...normalized.keys()] };
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally {
+    transaction.close();
+  }
 }

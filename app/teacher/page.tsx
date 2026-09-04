@@ -4,14 +4,12 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BookOpen,
   ArrowRight,
   Check,
-  CheckCircle2,
-  Clock3,
+  ChevronDown,
+  CreditCard,
   Pencil,
   Plus,
-  Sparkles,
   Trash2,
   Users2,
   X,
@@ -21,7 +19,7 @@ import ConfirmModal from "@/app/components/ConfirmModal";
 import PageTitle from "@/app/components/PageTitle";
 import UndoToast from "@/app/components/UndoToast";
 import WorkspaceLoading from "@/app/components/WorkspaceLoading";
-import mascotStyles from "@/app/components/OriginalMascotSlots.module.css";
+import styles from "./TeacherWorkspace.module.css";
 
 type ClassSummary = {
   id: string;
@@ -84,6 +82,7 @@ export default function TeacherPage() {
   const [editingClassName, setEditingClassName] = useState("");
   const [classErrors, setClassErrors] = useState<Record<string, string>>({});
   const [savingClassId, setSavingClassId] = useState("");
+  const [openManageMenuId, setOpenManageMenuId] = useState("");
 
   const [deleteTarget, setDeleteTarget] = useState<ClassSummary | null>(null);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
@@ -96,9 +95,10 @@ export default function TeacherPage() {
 
   useEffect(() => {
     let active = true;
+    let firstLoad = true;
 
     async function load() {
-      setLoading(true);
+      if (firstLoad) setLoading(true);
       setErrorMsg("");
       setNeedsTeacherAccess(false);
       try {
@@ -116,6 +116,15 @@ export default function TeacherPage() {
         const data = (await response.json()) as { items: ClassSummary[] };
         if (!active) return;
         setClasses(data.items);
+        setClassStatus((previous) => {
+          const next: Record<string, ClassStatus> = {};
+          for (const item of data.items) {
+            if (previous[item.id]) next[item.id] = previous[item.id];
+          }
+          return next;
+        });
+        setLoading(false);
+        firstLoad = false;
 
         const detailResults = await Promise.all(
           data.items.map(async (item) => {
@@ -162,7 +171,10 @@ export default function TeacherPage() {
         if (!active) return;
         setErrorMsg("Could not load classes.");
       } finally {
-        if (active) setLoading(false);
+        if (active && firstLoad) {
+          setLoading(false);
+          firstLoad = false;
+        }
       }
     }
 
@@ -184,12 +196,63 @@ export default function TeacherPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!openManageMenuId) return;
+
+    const menuRootId = `class-manage-root-${openManageMenuId}`;
+    const triggerId = `class-manage-trigger-${openManageMenuId}`;
+    const menuId = `class-manage-menu-${openManageMenuId}`;
+
+    function closeMenu(returnFocus = false) {
+      setOpenManageMenuId("");
+      if (returnFocus) {
+        window.requestAnimationFrame(() => document.getElementById(triggerId)?.focus());
+      }
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const menuRoot = document.getElementById(menuRootId);
+      if (!menuRoot?.contains(event.target as Node)) closeMenu();
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") closeMenu(true);
+    }
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const firstItem = document
+        .getElementById(menuId)
+        ?.querySelector<HTMLButtonElement>('[role="menuitem"]');
+      firstItem?.focus();
+    });
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [openManageMenuId]);
+
   const totals = useMemo(() => {
     const classCount = classes.length;
     const assignmentCount = classes.reduce((sum, item) => sum + item.assignmentCount, 0);
     const pendingCount = Object.values(classStatus).reduce((sum, item) => sum + item.pending, 0);
     return { classCount, assignmentCount, pendingCount };
   }, [classStatus, classes]);
+
+  const sortedClasses = useMemo(() => {
+    return [...classes].sort((first, second) => {
+      const pendingDifference = (classStatus[second.id]?.pending ?? 0) - (classStatus[first.id]?.pending ?? 0);
+      return pendingDifference || second.createdAt - first.createdAt;
+    });
+  }, [classStatus, classes]);
+
+  const gradingStatusLoading = classes.some((item) => !classStatus[item.id]);
+  const gradingStatusUnavailable = classes.some(
+    (item) => classStatus[item.id]?.label === "Status unavailable",
+  );
 
   function clearClassError(classId: string) {
     setClassErrors((prev) => {
@@ -201,6 +264,7 @@ export default function TeacherPage() {
   }
 
   function startInlineEdit(item: ClassSummary) {
+    setOpenManageMenuId("");
     setEditingClassId(item.id);
     setEditingClassName(item.name);
     clearClassError(item.id);
@@ -258,6 +322,7 @@ export default function TeacherPage() {
   }
 
   function scheduleClassDelete(item: ClassSummary) {
+    setOpenManageMenuId("");
     const snapshotStatus = classStatus[item.id];
     if (pendingDeleteRef.current) {
       const pending = pendingDeleteRef.current;
@@ -327,106 +392,92 @@ export default function TeacherPage() {
     });
   }
 
+  function handleManageMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Tab") {
+      setOpenManageMenuId("");
+      return;
+    }
+
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    );
+    if (items.length === 0) return;
+
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    let nextIndex = currentIndex;
+    if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % items.length;
+    else if (event.key === "ArrowUp") nextIndex = (currentIndex - 1 + items.length) % items.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = items.length - 1;
+    else return;
+
+    event.preventDefault();
+    items[nextIndex]?.focus();
+  }
+
   return (
     <main className="page-wrap">
       <PageTitle title="Teacher Studio" />
       <BrandBar label="Teacher Studio" />
 
-      {showChangelogBanner ? (
-        <div className="notice info" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.85rem" }}>
-          <span>
-            <strong>What&apos;s new:</strong> Batch and automatic transcripts, recording downloads, and student oral portfolios.{" "}
-            <Link className="teacher-access-link" href="/changelog">See patch notes</Link>
-          </span>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={dismissChangelogBanner}>
-            Dismiss
-          </button>
-        </div>
-      ) : null}
-
-      <section className={`teacher-hero ${mascotStyles.teacherHero}`}>
-        <div className="teacher-hero-copy">
-          <p className="pill teacher-hero-pill">
-            <Sparkles size={14} aria-hidden="true" />
-            Teacher workspace
+      <section className={styles.workspaceHeader} aria-labelledby="teacher-workspace-title">
+        <span className={styles.ghostWord} aria-hidden="true">CLASSES</span>
+        <div className={styles.headerCopy}>
+          <h1 id="teacher-workspace-title">My classes</h1>
+          <p className={styles.summary} aria-live="polite">
+            {loading ? (
+              <span className={styles.summaryLoading}>Loading classes...</span>
+            ) : (
+              <>
+                <span>{pluralize(totals.classCount, "class", "classes")}</span>
+                <span aria-hidden="true">&middot;</span>
+                <span>{pluralize(totals.assignmentCount, "assignment")}</span>
+                <span aria-hidden="true">&middot;</span>
+                {gradingStatusLoading ? (
+                  <span className={styles.summaryLoading}>Checking grading...</span>
+                ) : gradingStatusUnavailable ? (
+                  <span className={styles.summaryLoading}>Some grading unavailable</span>
+                ) : totals.pendingCount > 0 ? (
+                  <strong className={styles.summaryAttention}>{totals.pendingCount} to grade</strong>
+                ) : (
+                  <strong className={styles.summaryClear}>All caught up</strong>
+                )}
+              </>
+            )}
           </p>
-          <h1>My speaking classroom, all in one place.</h1>
-          <p>
-            Create assignments, share student links, and move through grading without losing the thread.
-          </p>
-          <div className="actions teacher-hero-actions">
+          <nav className={styles.quickActions} aria-label="Teacher workspace shortcuts">
             <Link className="btn btn-primary" href="/teacher/class/new">
               <Plus size={17} aria-hidden="true" />
-              Create class
-            </Link>
-            <Link className="btn btn-ghost" href="#teacher-classes">
-              View classes
-              <ArrowRight size={17} aria-hidden="true" />
+              New class
             </Link>
             <Link className="btn btn-ghost" href="/teacher/rosters">
-              View rosters
               <Users2 size={17} aria-hidden="true" />
+              Rosters
             </Link>
             <Link className="btn btn-ghost" href="/billing">
+              <CreditCard size={17} aria-hidden="true" />
               AI billing
             </Link>
-          </div>
+          </nav>
         </div>
-        <div className="teacher-hero-art" aria-hidden="true">
-          <span className="teacher-hero-sticker">Ready to speak</span>
+        <div className={styles.headerArt} aria-hidden="true">
           <Image
-            className={`teacher-hero-mascot ${mascotStyles.teacherMascot}`}
+            className={styles.headerMascot}
             src="/mascot/hablaman-teacher-guide-v1.png"
             alt=""
             width={1254}
             height={1254}
-            sizes="(max-width: 620px) 214px, 250px"
+            sizes="(max-width: 620px) 150px, 300px"
             priority
           />
         </div>
       </section>
 
-      <section className="grid cols-3 section-gap teacher-kpi-grid" aria-label="Classroom summary">
-        <article className="card kpi-card teacher-kpi teacher-kpi-classes">
-          <p className="meta stat-label">
-            <Users2 size={14} aria-hidden="true" /> Classes
-          </p>
-          <p className="stat-value">{totals.classCount}</p>
-          <p className="meta kpi-note">Active teaching groups</p>
-        </article>
-        <article className="card kpi-card kpi-success teacher-kpi teacher-kpi-assignments">
-          <p className="meta stat-label">
-            <BookOpen size={14} aria-hidden="true" /> Assignments
-          </p>
-          <p className="stat-value">{totals.assignmentCount}</p>
-          <p className="meta kpi-note">Published speaking tasks</p>
-        </article>
-        <article className="card kpi-card kpi-warning teacher-kpi teacher-kpi-grading">
-          <p className="meta stat-label">
-            <Clock3 size={14} aria-hidden="true" /> Needs grading
-          </p>
-          <p className="stat-value">{totals.pendingCount}</p>
-          <p className="meta kpi-note">
-            <CheckCircle2 size={13} aria-hidden="true" /> Ungraded submissions
-          </p>
-        </article>
-      </section>
-
-      <section id="teacher-classes" className="teacher-class-section section-gap">
-        <div className="teacher-section-head">
-          <div>
-            <p className="teacher-section-label">Classroom hub</p>
-            <h2 className="surface-title">My classes</h2>
-          </div>
-          <Link className="btn btn-primary btn-sm" href="/teacher/class/new">
-            <Plus size={16} aria-hidden="true" />
-            New class
-          </Link>
-        </div>
+      <section className={styles.classSection} aria-label="Classes">
         {loading ? <WorkspaceLoading compact label="Loading my classes" /> : null}
         {errorMsg ? <p className="status-danger">{errorMsg}</p> : null}
         {!loading && needsTeacherAccess ? (
-          <div className="grid">
+          <div className={styles.emptyState}>
             <h3 className="surface-title">Set up my teacher account</h3>
             <p className="empty">
               You&apos;re signed in, but teacher tools are only available after a one-click setup.
@@ -442,7 +493,7 @@ export default function TeacherPage() {
           </div>
         ) : null}
         {!loading && !errorMsg && !needsTeacherAccess && classes.length === 0 ? (
-          <div className="grid onboarding-empty-state">
+          <div className={styles.emptyState}>
             <div>
               <h3 className="surface-title">Create my first class</h3>
               <p className="empty">Get started in three steps:</p>
@@ -453,9 +504,6 @@ export default function TeacherPage() {
               <li>Share the link, collect recordings, and hear them back in one place.</li>
             </ul>
             <div className="actions">
-              <Link className="btn btn-primary" href="/teacher/class/new">
-                Create class
-              </Link>
               <Link className="btn btn-ghost" href="/faq">
                 View teacher FAQ
               </Link>
@@ -463,31 +511,42 @@ export default function TeacherPage() {
           </div>
         ) : null}
         {!loading && !errorMsg && !needsTeacherAccess && classes.length > 0 ? (
-          <div className="grid class-list">
-            {classes.map((item) => {
-              const status = classStatus[item.id] ?? {
-                pending: 0,
-                graded: 0,
-                tone: "neutral" as const,
-                label: "No submissions",
-              };
-              const statusCountLabel =
-                item.submissionCount === 0
-                  ? "No student activity yet"
-                  : status.pending > 0
-                    ? `${status.pending} ungraded`
-                    : `${pluralize(status.graded, "graded")}`;
+          <div className={styles.classList}>
+            {sortedClasses.map((item) => {
+              const status = classStatus[item.id];
+              const statusTone = status?.tone ?? "neutral";
+              const statusLabel =
+                !status && item.submissionCount > 0
+                  ? "Checking grades..."
+                  : status?.label === "Status unavailable"
+                    ? "Status unavailable"
+                    : item.submissionCount === 0
+                      ? "No submissions"
+                      : status && status.pending > 0
+                        ? `${status.pending} to grade`
+                        : "All graded";
 
               const isEditing = editingClassId === item.id;
+              const menuOpen = openManageMenuId === item.id;
+              const cardToneClass =
+                statusTone === "warning"
+                  ? styles.classCardWarning
+                  : statusTone === "success"
+                    ? styles.classCardSuccess
+                    : styles.classCardNeutral;
 
               return (
-                <article key={item.id} className={`card class-link class-link-${status.tone}`}>
-                  <div className="class-link-row">
-                    <div className="class-title-wrap">
+                <article key={item.id} className={`${styles.classCard} ${cardToneClass}`}>
+                  <div className={styles.classMain}>
+                    <div className={styles.classTitleWrap}>
                       {isEditing ? (
-                        <div className="inline-edit-row">
+                        <div className={styles.inlineEditRow}>
+                          <label className={styles.visuallyHidden} htmlFor={`class-name-${item.id}`}>
+                            Class name
+                          </label>
                           <input
-                            className="input inline-edit-input"
+                            id={`class-name-${item.id}`}
+                            className={`input ${styles.inlineEditInput}`}
                             value={editingClassName}
                             onChange={(event) => setEditingClassName(event.target.value)}
                             maxLength={100}
@@ -514,54 +573,97 @@ export default function TeacherPage() {
                       ) : (
                         <h3>{item.name}</h3>
                       )}
-                      <p className="meta class-link-meta">Created {formatDate(item.createdAt)}</p>
+                      <p className={styles.classMeta}>
+                        <span>{pluralize(item.assignmentCount, "assignment")}</span>
+                        <span aria-hidden="true">&middot;</span>
+                        <span>{pluralize(item.submissionCount, "submission")}</span>
+                        <span aria-hidden="true">&middot;</span>
+                        <span>Created {formatDate(item.createdAt)}</span>
+                      </p>
                     </div>
 
-                    <div className="class-actions">
-                      <span className={`status-badge status-${status.tone}`}>{status.label}</span>
-                      <div className="actions">
-                        <Link className="btn btn-ghost" href={`/teacher/class/${item.id}`} aria-label={`Open ${item.name}`}>
-                          Open class
-                          <ArrowRight size={16} aria-hidden="true" />
-                        </Link>
-                        {!isEditing ? (
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => startInlineEdit(item)}
-                            aria-label={`Rename ${item.name}`}
-                          >
-                            <Pencil size={15} aria-hidden="true" />
-                            Rename
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
-                          onClick={() => setDeleteTarget(item)}
-                          aria-label={`Delete ${item.name}`}
-                        >
-                          <Trash2 size={15} aria-hidden="true" />
-                          Delete
-                        </button>
-                      </div>
-                    </div>
+                    <span className={`status-badge status-${statusTone} ${styles.classStatus}`}>
+                      {statusLabel}
+                    </span>
                   </div>
 
-                  <div className="class-link-pills">
-                    <span className="pill pill-subtle">{pluralize(item.assignmentCount, "assignment")}</span>
-                    <span className="pill pill-subtle">{pluralize(item.submissionCount, "submission")}</span>
-                    <span
-                      className={`pill ${
-                        item.submissionCount === 0
-                          ? "pill-neutral"
-                          : status.pending > 0
-                            ? "pill-warning"
-                            : "pill-success"
-                      }`}
+                  <div className={styles.classActions}>
+                    <Link
+                      className="btn btn-primary btn-sm"
+                      href={`/teacher/class/${item.id}`}
+                      aria-label={`Open ${item.name}`}
                     >
-                      {statusCountLabel}
-                    </span>
+                      Open class
+                      <ArrowRight size={16} aria-hidden="true" />
+                    </Link>
+                    {!isEditing ? (
+                      <div
+                        id={`class-manage-root-${item.id}`}
+                        className={styles.manageRoot}
+                        data-class-menu-root={item.id}
+                      >
+                        <button
+                          id={`class-manage-trigger-${item.id}`}
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          aria-haspopup="menu"
+                          aria-expanded={menuOpen}
+                          aria-controls={`class-manage-menu-${item.id}`}
+                          onClick={() =>
+                            setOpenManageMenuId((current) => (current === item.id ? "" : item.id))
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "ArrowDown") {
+                              event.preventDefault();
+                              setOpenManageMenuId(item.id);
+                            }
+                          }}
+                        >
+                          Manage class
+                          <ChevronDown
+                            className={menuOpen ? styles.chevronOpen : undefined}
+                            size={16}
+                            aria-hidden="true"
+                          />
+                        </button>
+                        {menuOpen ? (
+                          <div
+                            id={`class-manage-menu-${item.id}`}
+                            className={styles.manageMenu}
+                            role="menu"
+                            aria-label={`Manage ${item.name}`}
+                            onKeyDown={handleManageMenuKeyDown}
+                          >
+                            <button
+                              type="button"
+                              className={styles.manageMenuItem}
+                              role="menuitem"
+                              onClick={() => {
+                                setOpenManageMenuId("");
+                                startInlineEdit(item);
+                              }}
+                              aria-label={`Rename ${item.name}`}
+                            >
+                              <Pencil size={15} aria-hidden="true" />
+                              Rename class
+                            </button>
+                            <button
+                              type="button"
+                              className={`${styles.manageMenuItem} ${styles.manageMenuDanger}`}
+                              role="menuitem"
+                              onClick={() => {
+                                setOpenManageMenuId("");
+                                setDeleteTarget(item);
+                              }}
+                              aria-label={`Delete ${item.name}`}
+                            >
+                              <Trash2 size={15} aria-hidden="true" />
+                              Delete class
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
 
                   {classErrors[item.id] ? (
@@ -573,6 +675,20 @@ export default function TeacherPage() {
           </div>
         ) : null}
       </section>
+
+      {showChangelogBanner ? (
+        <aside className={styles.changelog} aria-label="TryHabla update">
+          <span>
+            <strong>New in TryHabla:</strong> Batch and automatic transcripts, recording downloads, and student oral portfolios.{" "}
+            <Link className="teacher-access-link" href="/changelog">
+              Patch notes
+            </Link>
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={dismissChangelogBanner}>
+            Dismiss
+          </button>
+        </aside>
+      ) : null}
 
       <ConfirmModal
         open={deleteTarget !== null}

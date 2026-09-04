@@ -140,7 +140,7 @@ export default function TeacherRostersPage() {
               </div>
               <Link
                 className="btn btn-ghost btn-sm"
-                href={`/teacher/class/${roster.id}#roster`}
+                href={`/teacher/class/${roster.id}?view=roster`}
                 aria-label={`Manage roster for ${roster.name}`}
               >
                 Manage roster <ArrowRight size={15} aria-hidden="true" />

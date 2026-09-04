@@ -84,7 +84,7 @@ describe("teacher transcript UI contract", () => {
       .toMatchObject({ status: "failed", error: "Provider unavailable." });
   });
 
-  it("makes the separation from optional grading explicit while loading persisted text", () => {
+  it("keeps transcript-only work useful without burying the grading workflow", () => {
     const markup = renderToStaticMarkup(
       <SubmissionTranscript
         submissionId="sub_123"
@@ -94,7 +94,8 @@ describe("teacher transcript UI contract", () => {
     );
 
     expect(markup).toContain("Transcript");
-    expect(markup).toContain("AI grading is separate and optional.");
+    expect(markup).toContain("Read, copy, or download the transcript while you review this recording.");
+    expect(markup).not.toContain("AI grading is separate and optional.");
     expect(markup).toContain("Checking for a saved transcript...");
     expect(TRANSCRIPTION_USAGE_DISCLOSURE).toContain("uses one AI-assisted recording unit");
     expect(TRANSCRIPTION_USAGE_DISCLOSURE).toContain("optional grading");

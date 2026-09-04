@@ -1,14 +1,3 @@
-.teacherHero {
-  grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.65fr);
-}
-
-.teacherHero .teacherMascot.teacherMascot {
-  width: min(92%, 250px);
-  object-fit: contain;
-  animation: none;
-  transform: none;
-}
-
 .billingHero .billingMascotCard {
   width: clamp(190px, 22vw, 252px);
   min-width: 0;
@@ -60,14 +49,6 @@
 }
 
 @media (max-width: 620px) {
-  .teacherHero {
-    grid-template-columns: 1fr;
-  }
-
-  .teacherHero .teacherMascot.teacherMascot {
-    width: min(72%, 214px);
-  }
-
   .billingHero .billingMascotCard {
     justify-self: center;
     width: min(76%, 200px);
@@ -75,7 +56,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .teacherHero .teacherMascot.teacherMascot,
   .billingSignal > span {
     animation: none;
     transition: none;

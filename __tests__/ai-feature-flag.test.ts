@@ -141,7 +141,7 @@ describe("AI grading feature flag", () => {
     const data = (await response.json()) as { error: string };
 
     expect(response.status).toBe(404);
-    expect(data.error).toContain("Bulk AI grading");
+    expect(data.error).toContain("Batch AI grading");
     expect(mocks.requireTeacherEmail).not.toHaveBeenCalled();
     expect(mocks.listUngradedSubmissionsForAiGrade).not.toHaveBeenCalled();
   });
