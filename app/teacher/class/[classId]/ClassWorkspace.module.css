@@ -57,6 +57,21 @@
   box-shadow: 3px 3px 0 var(--house-blue-shadow);
 }
 
+.practiceInboxAction {
+  align-items: flex-start !important;
+  flex-direction: column;
+  gap: 0.08rem;
+  margin-top: 0.22rem;
+  border-top: 1px solid var(--line) !important;
+}
+
+.practiceInboxAction span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
 .classworkShell {
   display: grid;
   gap: 0.8rem;
@@ -434,6 +449,42 @@
   letter-spacing: -0.03em;
 }
 
+.bulkAiAssistantIntro {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.bulkAiMascot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 132px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 2px solid var(--house-ink);
+  border-left-color: var(--mango);
+  border-radius: 10px;
+  background: #0b1b2b;
+  box-shadow: 4px 4px 0 var(--house-coral-shadow);
+}
+
+.bulkAiMascot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bulkAiMascot[data-state="processing"] {
+  animation: hablaman-ai-working 1.35s ease-in-out infinite;
+}
+
+.bulkAiMascot[data-state="complete"] {
+  animation: hablaman-ai-complete 540ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
 .bulkAiActionCopy > p {
   max-width: 62ch;
   color: var(--muted);
@@ -681,6 +732,13 @@
 :global(html.dark) .individualAiEyebrow,
 :global(html.dark) .bulkAiUpgrade a {
   color: var(--dark-accent-cyan);
+}
+
+:global(html.dark) .bulkAiMascot {
+  border-color: var(--dark-accent-cyan);
+  border-left-color: var(--mango);
+  background: #0b1b2b;
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--mango) 48%, transparent);
 }
 
 :global(html.dark) .individualAiAction {
@@ -937,6 +995,16 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .bulkAiAssistantIntro {
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 0.58rem;
+  }
+
+  .bulkAiMascot {
+    width: 88px;
+    box-shadow: 3px 3px 0 var(--house-coral-shadow);
+  }
+
   .bulkAiMath {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -968,7 +1036,37 @@
 
 @media (prefers-reduced-motion: reduce) {
   .viewTab,
-  .queueItem {
+  .queueItem,
+  .bulkAiMascot {
     transition: none;
+    animation: none !important;
+  }
+}
+
+@keyframes hablaman-ai-working {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-0.5deg);
+  }
+
+  50% {
+    transform: translateY(-3px) rotate(0.75deg);
+  }
+}
+
+@keyframes hablaman-ai-complete {
+  0% {
+    transform: scale(0.92) rotate(-2deg);
+    opacity: 0.4;
+  }
+
+  70% {
+    transform: scale(1.035) rotate(0.8deg);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1) rotate(0);
+    opacity: 1;
   }
 }

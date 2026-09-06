@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -56,6 +57,12 @@ import { buildSubmissionDownloadFilenameBase } from "@/app/components/submission
 import { MAX_ASSIGNMENT_ATTACHMENT_BYTES } from "@/lib/attachment-policy";
 import { parseCsvRows } from "@/lib/csv";
 import styles from "./ClassWorkspace.module.css";
+
+const HABLAMAN_AI_ART = {
+  grader: "/mascot/hablaman-ai-grader-v2.png",
+  processing: "/mascot/hablaman-ai-processing-v2.png",
+  complete: "/mascot/hablaman-ai-complete-v2.png",
+} as const;
 
 type AssignmentSummary = {
   id: string;
@@ -2270,6 +2277,12 @@ export default function ClassDetailPage() {
   }
   if (!payload) return null;
 
+  const hablamanAiState = bulkAiRunning
+    ? "processing"
+    : bulkAiPreflight?.ungradedCount === 0 && !bulkAiBatchNeedsReview && !bulkAiBatchNeedsAttention
+      ? "complete"
+      : "grader";
+
   return (
     <main className="page-wrap">
       <PageTitle title={payload ? `${payload.item.name} Workspace` : "Class Workspace"} />
@@ -2289,7 +2302,6 @@ export default function ClassDetailPage() {
           </div>
           <div className={`actions teacher-class-primary-actions ${styles.headerActions}`}>
             <nav className={styles.viewNav} aria-label="Class workspace sections">
-              <Link className={styles.viewTab} href={`/teacher/class/${classId}/practice`}>Practice Inbox</Link>
               <button
                 type="button"
                 className={`${styles.viewTab} ${workspaceView === "classwork" ? styles.viewTabActive : ""}`}
@@ -2307,7 +2319,6 @@ export default function ClassDetailPage() {
                 Roster
               </button>
             </nav>
-            {workspaceView === "classwork" ? (
             <details className="workspace-more-menu" name="teacher-class-menu">
               <summary className="btn btn-ghost workspace-more-trigger">
                 <span>More actions</span>
@@ -2316,17 +2327,22 @@ export default function ClassDetailPage() {
                 </span>
               </summary>
               <div className="workspace-more-popover">
-                <button
-                  type="button"
-                  onClick={() => void pasteAssignment()}
-                  disabled={!hasAssignmentClipboard}
-                >
-                  Paste assignment
-                </button>
+                {workspaceView === "classwork" ? (
+                  <button
+                    type="button"
+                    onClick={() => void pasteAssignment()}
+                    disabled={!hasAssignmentClipboard}
+                  >
+                    Paste assignment
+                  </button>
+                ) : null}
                 <a href={`/api/classes/${payload.item.id}/gradebook.csv`}>Export gradebook CSV</a>
+                <Link className={styles.practiceInboxAction} href={`/teacher/class/${classId}/practice`}>
+                  Practice Inbox
+                  <span>Student-led recordings</span>
+                </Link>
               </div>
             </details>
-            ) : null}
             {workspaceView === "classwork" ? (
               <Link className="btn btn-primary" href={`/teacher/class/${payload.item.id}/assignment/new`}>New assignment</Link>
             ) : null}
@@ -2438,18 +2454,31 @@ export default function ClassDetailPage() {
                     aria-labelledby="bulk-ai-action-title"
                   >
                     <div className={styles.bulkAiActionCopy}>
-                      <span className={styles.bulkAiEyebrow}>
-                        <Sparkles size={16} aria-hidden="true" /> AI grading assistant
-                      </span>
-                      <h3 id="bulk-ai-action-title">
-                        {bulkAiBatchNeedsReview
-                          ? "Your AI suggestions are ready"
-                          : bulkAiBatchNeedsAttention
-                            ? "This batch needs your attention"
-                          : bulkAiPreflight?.ungradedCount === 0
-                            ? "This grading queue is clear"
-                            : "Turn this queue into one review pass"}
-                      </h3>
+                      <div className={styles.bulkAiAssistantIntro}>
+                        <div className={styles.bulkAiMascot} data-state={hablamanAiState} aria-hidden="true">
+                          <Image
+                            src={HABLAMAN_AI_ART[hablamanAiState]}
+                            alt=""
+                            width={300}
+                            height={300}
+                            sizes="(max-width: 520px) 88px, 132px"
+                          />
+                        </div>
+                        <div>
+                          <span className={styles.bulkAiEyebrow}>
+                            <Sparkles size={16} aria-hidden="true" /> HablaMan grading assistant
+                          </span>
+                          <h3 id="bulk-ai-action-title">
+                            {bulkAiBatchNeedsReview
+                              ? "Your AI suggestions are ready"
+                              : bulkAiBatchNeedsAttention
+                                ? "This batch needs your attention"
+                              : bulkAiPreflight?.ungradedCount === 0
+                                ? "This grading queue is clear"
+                                : "Turn this queue into one review pass"}
+                          </h3>
+                        </div>
+                      </div>
                       <p>{BULK_AI_SUPPORT_COPY}</p>
                       {bulkAiRunning ? (
                         <p className={styles.bulkAiLiveStatus} role="status" aria-live="polite" aria-atomic="true">
