@@ -1,0 +1,41 @@
+.page { width: min(1180px, calc(100% - 2rem)); }
+.page .header { margin: 0; padding: 14px 20px; min-height: 140px; }
+.page .header h1 { font-size: 36px; font-weight: 900; line-height: 1.1; letter-spacing: -.035em; margin: 6px 0; }
+.header :global(.teacher-back-link) { display: inline-flex; min-height: 44px; align-items: center; margin-top: -8px; }
+.header :global(.meta) { font-size: .84rem; }
+.header :global(.btn) { min-height: 44px; }
+.inboxMeta { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 18px 0 10px; font-size: .76rem; color: var(--muted); }
+.inboxMeta p { margin: 0; font-size: .83rem; }
+.list { display: grid; gap: 12px; }
+.recording.recording { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); box-shadow: 4px 4px 0 color-mix(in srgb, var(--primary) 12%, transparent); }
+.review { grid-column: 1 / -1; border-top: 1px solid var(--line); }
+.review > summary { min-height: 44px; align-content: center; cursor: pointer; font-size: .8rem; font-weight: 750; color: var(--primary); }
+.review > summary:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+:global(html.dark) .review > summary { color: var(--dark-accent-cyan); }
+.transcriptState { display: inline-block; margin-left: 10px; color: var(--muted); font-size: .72rem; font-weight: 500; }
+.reviewGrid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; padding: 4px 0 6px; }
+.transcript, .feedback { min-width: 0; }
+.transcript :global(.submission-transcript) { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.transcript :global(.submission-transcript h3) { font-size: .95rem; }
+.transcript :global(.submission-transcript p) { font-size: .8rem; }
+.transcript :global(.submission-transcript .btn) { min-height: 44px; }
+.feedback { padding-left: 18px; border-left: 1px solid var(--line); }
+.feedback label { font-size: .88rem; margin-bottom: 8px; }
+.feedback textarea { font-size: .88rem; }
+.feedbackActions { gap: 8px; margin-top: 10px; }
+.feedbackActions :global(.btn) { min-height: 44px; font-size: .78rem; }
+.feedback [role="status"] { margin: 8px 0 0; font-size: .78rem; }
+.feedback [role="status"]:empty { display: none; }
+@media (max-width: 700px) {
+  .page .header { padding: 12px 14px; min-height: 0; }
+  .page .header h1 { font-size: 30px; }
+  .header :global(.teacher-class-header-main) { gap: 8px; }
+  .recording.recording { grid-template-columns: minmax(0, 1fr); }
+  .inboxMeta { align-items: baseline; }
+  .inboxMeta p { font-size: .76rem; }
+  .inboxMeta > span { font-size: .68rem; white-space: nowrap; }
+  .reviewGrid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .transcriptState { display: block; margin: 0 0 0 14px; }
+  .review > summary { padding: 8px 0; }
+  .feedback { border-left: 0; border-top: 1px solid var(--line); padding: 14px 0 0; }
+}

@@ -1,0 +1,757 @@
+.lab {
+  --ink: #193c43;
+  --muted: #5c7476;
+  --accent: #176e74;
+  position: relative;
+  isolation: isolate;
+  height: 100svh;
+  min-height: 740px;
+  overflow: hidden;
+  background: #edf4ef;
+  color: var(--ink);
+  font-family: var(--font-geist-sans), sans-serif;
+  letter-spacing: 0;
+}
+.lab + :global(.site-footer) {
+  display: none;
+}
+.lab button,
+.lab a,
+.lab input {
+  -webkit-tap-highlight-color: transparent;
+}
+.lab button {
+  cursor: pointer;
+  font: inherit;
+}
+.lab button:disabled {
+  cursor: wait;
+}
+.lab :is(button, a, input):focus-visible {
+  outline: 3px solid #d37417;
+  outline-offset: 5px;
+}
+.scene {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+}
+.scene canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.header {
+  position: absolute;
+  top: 28px;
+  left: 4%;
+  right: 4%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  z-index: 5;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 19px;
+  font-weight: 850;
+  color: var(--ink);
+  text-decoration: none;
+}
+.brand img {
+  width: 34px;
+  height: 36px;
+  object-fit: contain;
+}
+.labLabel {
+  color: #648783;
+  font-size: 12px;
+  font-weight: 550;
+  margin-left: 8px;
+}
+.edition {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+}
+.edition span {
+  border: 1px solid #b2c8c2;
+  border-radius: 50%;
+  width: 29px;
+  height: 29px;
+  display: grid;
+  place-items: center;
+}
+.back {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+  font-size: 12px;
+  text-decoration: none;
+  border-bottom: 1px solid #9db8af;
+  padding: 9px 0;
+}
+.intro {
+  position: absolute;
+  top: 23%;
+  left: 6%;
+  width: 35%;
+  max-width: 460px;
+  pointer-events: none;
+}
+.eyebrow {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #456d68;
+}
+.eyebrow > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #df8038;
+}
+.intro h1 {
+  font-size: 82px;
+  font-weight: 850;
+  line-height: 1.08;
+  margin: 18px 0 24px;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+.intro h1 > span {
+  color: #e0843d;
+}
+.stateCopy {
+  animation: copyIn 350ms ease both;
+}
+.stateCopy h2 {
+  font-size: 24px;
+  line-height: 1.32;
+  font-weight: 500;
+  max-width: 300px;
+  color: var(--ink);
+  letter-spacing: 0;
+}
+.stateCopy > p {
+  color: var(--muted);
+  font-size: 15px;
+  margin-top: 11px;
+}
+.signature {
+  margin-top: 28px;
+  max-width: 250px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #66817c;
+}
+.signature > span {
+  flex-shrink: 0;
+  width: 24px;
+  height: 1px;
+  background: #a0b8ae;
+  margin-top: 9px;
+}
+.characterStatus {
+  position: absolute;
+  top: 24%;
+  right: 9%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #486e68;
+}
+.statusDot {
+  width: 6px;
+  height: 6px;
+  background: #278979;
+  border-radius: 50%;
+}
+.statusRule {
+  width: 40px;
+  height: 1px;
+  background: #a3bdb0;
+}
+.lab[data-state="listening"] .statusDot {
+  animation: listen 1s ease-in-out infinite;
+}
+.conversation {
+  position: absolute;
+  bottom: 23%;
+  left: 6%;
+  width: 295px;
+  z-index: 3;
+}
+.speak {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border-radius: 6px;
+  background: #176e74;
+  border: 1px solid #176e74;
+  color: #fff;
+  box-shadow:
+    0 5px 0 #0d5359,
+    0 12px 24px #1a665817;
+  transition:
+    transform 180ms,
+    box-shadow 180ms,
+    background 180ms;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+.speak > span {
+  flex: 1;
+}
+.speak > svg:first-child {
+  margin-left: 18px;
+}
+.speak > svg:last-child {
+  margin-right: 18px;
+}
+.speak:hover {
+  background: #125e66;
+  transform: translateY(-2px);
+  box-shadow:
+    0 7px 0 #0d5359,
+    0 14px 25px #1a665827;
+}
+.speak:active {
+  transform: translateY(3px);
+  box-shadow: 0 2px 0 #0d5359;
+}
+.lab[data-state="listening"] .speak {
+  background: #bf652c;
+  border-color: #bf652c;
+  box-shadow: 0 5px 0 #954b1f;
+}
+.micOption {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-size: 11px;
+  margin-top: 23px;
+  cursor: pointer;
+}
+.micOption input {
+  position: absolute;
+  opacity: 0;
+  width: 28px;
+  height: 18px;
+}
+.switch {
+  width: 28px;
+  height: 17px;
+  padding: 2px;
+  border: 1px solid #91aca6;
+  border-radius: 15px;
+  background: #dce8e0;
+}
+.switch::after {
+  content: "";
+  display: block;
+  height: 11px;
+  width: 11px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px #304a4233;
+  transition: transform 160ms;
+}
+.micOption input:checked + .switch {
+  background: #176e74;
+  border-color: #176e74;
+}
+.micOption input:checked + .switch::after {
+  transform: translateX(11px);
+}
+.micOption input:focus-visible + .switch {
+  outline: 3px solid #d37417;
+  outline-offset: 3px;
+}
+.privacy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 9px;
+  margin-top: 9px;
+  color: #56706b;
+}
+.audioStatus {
+  position: absolute;
+  width: 100%;
+  top: 100%;
+  padding-top: 8px;
+  font-size: 10px;
+  text-align: center;
+  color: #784821;
+}
+.dock {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 49px;
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 95px;
+  align-items: center;
+  gap: 22px;
+  border-top: 1px solid #b9cbc3;
+  padding-top: 20px;
+}
+.dockHeading > span {
+  display: block;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+  margin-bottom: 8px;
+  color: #6d857a;
+}
+.dockHeading strong {
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+.states {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+.states button {
+  min-width: 0;
+  height: 73px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #58716e;
+  transition:
+    background 200ms,
+    color 200ms,
+    border-color 200ms;
+}
+.states button span {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.states button:hover {
+  background: #ffffff77;
+  color: #143d40;
+}
+.states button[aria-pressed="true"] {
+  color: #145c60;
+  border-color: #b4d1c5;
+  background: #f9fcf3c9;
+  box-shadow: 0 3px 8px #294f3e06;
+}
+.utilities {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.utilities button {
+  background: none;
+  color: #456862;
+  border: 1px solid #b9cec3;
+  border-radius: 50%;
+  height: 38px;
+  width: 38px;
+  display: grid;
+  place-items: center;
+}
+.utilities button:hover {
+  background: #fff;
+}
+.bottomLine {
+  position: absolute;
+  bottom: 17px;
+  left: 6%;
+  right: 6%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #72897f;
+  font-size: 8px;
+  font-family: var(--font-geist-mono), monospace;
+}
+.bottomLine > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.transcript {
+  position: absolute;
+  bottom: calc(max(18%, 160px) + 82px);
+  left: 6%;
+  width: 340px;
+  padding: 20px;
+  border: 1px solid #bdd0c6;
+  border-left: 3px solid #df9a4d;
+  border-radius: 5px;
+  background: #fbfdf9f2;
+  box-shadow: 0 14px 42px #2447370c;
+  animation: transcriptIn 600ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.transcriptHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 5px;
+}
+.transcriptHead > span {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  font-size: 9px;
+  color: #3d7771;
+  font-weight: 750;
+}
+.transcriptHead small {
+  font-size: 7px;
+  color: #73857c;
+}
+.transcript > p {
+  font-size: 17px;
+  line-height: 1.55;
+  margin: 17px 0;
+  color: #254941;
+}
+.feedbackLine {
+  display: flex;
+  gap: 9px;
+  border-top: 1px solid #dbe4da;
+  padding-top: 13px;
+}
+.feedbackLine > span {
+  color: #288570;
+}
+.feedbackLine strong {
+  font-size: 10px;
+  font-weight: 700;
+}
+.feedbackLine p {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #5d756c;
+  line-height: 1.5;
+}
+.transcriptFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 17px;
+  font-size: 8px;
+  color: #6e867b;
+}
+.transcriptFoot > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.lab[data-state="feedback"] .intro {
+  top: 16%;
+}
+.lab[data-state="feedback"] .intro h1 {
+  font-size: 62px;
+  margin-bottom: 12px;
+}
+.lab[data-state="feedback"] .stateCopy h2 {
+  font-size: 18px;
+  max-width: none;
+}
+.lab[data-state="feedback"] .stateCopy > p {
+  display: none;
+}
+.lab[data-state="feedback"] .conversation {
+  bottom: max(18%, 160px);
+}
+.lab[data-state="feedback"] .micOption,
+.lab[data-state="feedback"] .privacy {
+  display: none;
+}
+.fallback {
+  position: absolute;
+  width: 46%;
+  height: 65%;
+  right: 8%;
+  top: 13%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+.fallback img {
+  width: 100%;
+  height: 95%;
+  object-fit: contain;
+}
+.fallback span {
+  font-size: 10px;
+  color: #557269;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  clip-path: inset(50%);
+  overflow: hidden;
+}
+@keyframes copyIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes transcriptIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) rotate(-1deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes listen {
+  50% {
+    opacity: 0.4;
+  }
+}
+@media (max-width: 1150px) and (min-width: 760px) {
+  .intro h1 {
+    font-size: 64px;
+  }
+  .intro {
+    left: 4%;
+  }
+  .stateCopy h2 {
+    font-size: 21px;
+  }
+  .conversation {
+    left: 4%;
+    width: 260px;
+  }
+  .dock {
+    left: 4%;
+    right: 4%;
+    grid-template-columns: 140px minmax(0, 1fr) 83px;
+    gap: 12px;
+  }
+  .transcript {
+    left: 4%;
+    width: 310px;
+  }
+  .lab[data-state="feedback"] .intro {
+    top: 14%;
+  }
+}
+@media (max-width: 759px) {
+  .lab {
+    min-height: 760px;
+  }
+  .header {
+    top: 19px;
+    left: 20px;
+    right: 20px;
+    gap: 10px;
+  }
+  .brand {
+    font-size: 16px;
+    gap: 7px;
+  }
+  .brand img {
+    width: 27px;
+    height: 29px;
+  }
+  .labLabel {
+    font-size: 9px;
+    margin-left: 4px;
+  }
+  .edition {
+    display: none;
+  }
+  .back {
+    width: 32px;
+    height: 32px;
+    justify-content: center;
+    border: 1px solid #b9cbc3;
+    border-radius: 50%;
+    padding: 0;
+  }
+  .back span {
+    display: none;
+  }
+  .intro {
+    top: 90px;
+    left: 24px;
+    right: 24px;
+    width: auto;
+    max-width: none;
+  }
+  .eyebrow {
+    font-size: 8px;
+  }
+  .intro h1 {
+    font-size: 47px;
+    margin: 9px 0 10px;
+  }
+  .stateCopy h2 {
+    font-size: 15px;
+    max-width: 285px;
+    line-height: 1.45;
+  }
+  .stateCopy > p,
+  .signature {
+    display: none;
+  }
+  .characterStatus {
+    top: 31%;
+    right: 20px;
+    font-size: 9px;
+  }
+  .statusRule {
+    width: 16px;
+  }
+  .conversation {
+    bottom: 152px;
+    left: 24px;
+    right: 24px;
+    width: auto;
+  }
+  .speak {
+    min-height: 49px;
+    font-size: 13px !important;
+  }
+  .micOption {
+    margin-top: 17px;
+    font-size: 10px;
+  }
+  .privacy {
+    font-size: 8px;
+    margin-top: 7px;
+  }
+  .audioStatus {
+    font-size: 9px;
+    padding-top: 4px;
+  }
+  .dock {
+    left: 18px;
+    right: 18px;
+    bottom: 35px;
+    display: block;
+    padding-top: 12px;
+  }
+  .dockHeading {
+    display: none;
+  }
+  .states {
+    gap: 1px;
+    padding-right: 0;
+  }
+  .states button {
+    height: 63px;
+    gap: 8px;
+    border-radius: 5px;
+  }
+  .states button span {
+    font-size: 8px;
+  }
+  .states button svg {
+    width: 19px;
+    height: 19px;
+  }
+  .utilities {
+    position: absolute;
+    right: 0;
+    bottom: 87px;
+    gap: 5px;
+  }
+  .utilities button {
+    width: 27px;
+    height: 27px;
+  }
+  .utilities button svg {
+    width: 13px;
+    height: 13px;
+  }
+  .bottomLine {
+    bottom: 12px;
+    left: 22px;
+    right: 22px;
+    font-size: 6px;
+  }
+  .bottomLine svg {
+    width: 9px;
+  }
+  .transcript {
+    top: auto;
+    bottom: 220px;
+    left: 24px;
+    right: 24px;
+    width: auto;
+    padding: 15px;
+  }
+  .transcript > p {
+    font-size: 15px;
+    margin: 12px 0;
+  }
+  .transcriptHead small {
+    font-size: 6px;
+  }
+  .transcriptFoot {
+    margin-top: 10px;
+  }
+  .lab[data-state="feedback"] .intro {
+    top: 90px;
+  }
+  .lab[data-state="feedback"] .intro h1 {
+    font-size: 47px;
+  }
+  .lab[data-state="feedback"] .stateCopy h2 {
+    font-size: 15px;
+  }
+  .lab[data-state="feedback"] .conversation {
+    bottom: 152px;
+  }
+  .fallback {
+    width: 82%;
+    right: 9%;
+    height: 42%;
+    top: 25%;
+  }
+  .lab[data-state="feedback"] .fallback {
+    height: 20%;
+    top: 24%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lab *,
+  .lab *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -24,12 +24,12 @@ type PublicTranscript = {
   createdAt: number;
 };
 
-function publicTranscript(item: SubmissionTranscriptRow): PublicTranscript {
+function publicTranscript(item: SubmissionTranscriptRow, measuredDuration?: number | null): PublicTranscript {
   return {
     transcript: item.transcript,
     detectedLanguage: item.detectedLanguage,
     transcriptQuality: item.transcriptQuality,
-    durationSeconds: item.durationSeconds,
+    durationSeconds: measuredDuration ?? item.durationSeconds,
     createdAt: item.createdAt,
   };
 }
@@ -47,7 +47,7 @@ export async function GET(
     const saved = await findSubmissionTranscriptForOwner(submissionId, teacherEmail);
     if (saved) {
       return NextResponse.json(
-        { item: publicTranscript(saved) },
+        { item: publicTranscript(saved, owned.durationSeconds) },
         { headers: { "Cache-Control": "private, no-store" } },
       );
     }
@@ -63,7 +63,7 @@ export async function GET(
           transcript: prior.transcript,
           detectedLanguage: prior.detectedLanguage,
           transcriptQuality: prior.transcriptQuality,
-          durationSeconds: prior.durationSeconds,
+          durationSeconds: owned.durationSeconds ?? prior.durationSeconds,
           createdAt: prior.completedAt ?? prior.createdAt,
         }
       : null;
@@ -122,7 +122,7 @@ export async function POST(
 
     return NextResponse.json(
       {
-        item: publicTranscript(outcome.item),
+        item: publicTranscript(outcome.item, data.durationSeconds),
         ...(outcome.allowance ? { allowance: outcome.allowance } : {}),
       },
       { headers: { "Cache-Control": "private, no-store" } },

@@ -20,3 +20,10 @@ export class DuplicateSubmissionError extends Error {
     this.name = "DuplicateSubmissionError";
   }
 }
+
+export class PracticeAccessChangedError extends Error {
+  constructor() {
+    super("Your access to this class changed. Ask your teacher to check your enrollment before sending this recording.");
+    this.name = "PracticeAccessChangedError";
+  }
+}

@@ -13,6 +13,7 @@ export async function uploadSubmissionAudio(input: {
     "audio/ogg": "ogg",
     "audio/mp4": "m4a",
     "audio/wav": "wav",
+    "audio/mpeg": "mp3",
   };
   const ext = extMap[input.mimeType] ?? "bin";
   const key = `submissions/${input.assignmentId}/${input.submissionId}-${crypto.randomUUID()}.${ext}`;

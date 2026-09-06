@@ -1,6 +1,95 @@
 .page {
-  width: min(1120px, calc(100% - 2rem));
+  width: min(1180px, calc(100% - 2rem));
   gap: 0.85rem;
+}
+
+/* Compact product composition; artwork sits outside the content flow. */
+.page .hero.hero { min-height: 156px; padding: 16px 190px 16px 20px; }
+.page .hero h1 { max-width: none; font-size: 34px; font-weight: 900; line-height: 1.08; letter-spacing: -.035em; }
+.page .hero :global(.student-assignment-hero-art) { right: 14px; width: 156px; height: 155px; }
+.page .heroCopy > :global(.meta) { padding: 0; border: 0; background: none; font-family: inherit; font-size: .79rem; }
+.page .description { font-size: .86rem; }
+.page .workspace { grid-template-columns: minmax(215px, .65fr) minmax(0, 1.85fr); gap: 14px; margin-top: 14px; }
+.practice .workspace { grid-template-columns: minmax(0, 1fr); }
+.page .instructions { padding: 14px; gap: 10px; }
+.page .instructionCopy { font-size: .9rem; line-height: 1.5; }
+.page .sectionHeading { display: flex; align-items: baseline; gap: 8px; }
+.page .sectionHeading h2 { font-size: 1.05rem; font-weight: 800; }
+.page .responseHeading { padding: 10px 14px; align-items: center; gap: 8px; }
+.page .responseHeading > p { font-size: .76rem; }
+.page .recordModule { padding: 12px; gap: 10px; }
+.page .recordModule > :global(.notice) { padding: 8px 10px; font-size: .78rem; }
+.page .step { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px; }
+.page .stepHeader { align-items: center; gap: 8px; }
+.page .stepNumber { width: 28px; height: 28px; font-size: .68rem; text-shadow: none; }
+.page .stepHeader h3 { margin: 0; font-size: .92rem; font-weight: 800; }
+.page .stepHeader > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.page .stepHeader p { font-size: .76rem; }
+.page .nameStep { grid-template-columns: 88px minmax(0, 1fr); align-items: start; }
+.page .nameStep .stepHeader { padding-top: 9px; }
+.page .nameStep .stepHeader p { display: none; }
+.page .nameStep .stepBody { position: relative; }
+.page .nameStep .stepBody > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.page .nameStep .fieldMeta { font-size: .67rem; margin: 2px 0 0; text-align: right; }
+.page .stateBanner { min-height: 0; padding: 5px 8px; font-size: .8rem; }
+.page .stepBody > :global(.meta) { font-size: .74rem; margin: 7px 0 0; }
+.page .stepActions { margin-top: 8px; gap: 8px; }
+.page .stepActions :global(.btn) { min-height: 44px; width: auto; font-size: .83rem; }
+.page .reviewEmpty { padding: 8px 10px; font-size: .8rem; }
+.page .aiDisclosure summary { min-height: 44px; padding: 6px 10px; gap: 8px; font-size: .79rem; }
+.page .disclosureChevron { width: 25px; height: 25px; color: var(--text); box-shadow: none; }
+.practiceDetails { margin-top: 4px; }
+.classBackLink { display: inline-flex; align-items: center; min-height: 44px; margin-top: -8px; color: var(--primary); font-size: .82rem; font-weight: 750; text-decoration: underline; text-underline-offset: 4px; }
+.practiceDetails summary { display: flex; align-items: center; gap: 5px; min-height: 44px; color: var(--primary); cursor: pointer; font-size: .8rem; font-weight: 750; }
+.practiceDetails summary::before { content: '+'; font-size: 1.1rem; }
+.practiceDetails[open] summary::before { content: '−'; }
+.practiceDetails summary span { color: var(--muted); font-weight: 450; }
+.practiceDetails summary:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.practiceFields { display: grid; gap: 5px; padding-bottom: 8px; }
+.practiceFields label { margin: 0; font-size: .8rem; }
+@media (min-width: 721px) {
+  .practiceFields { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 5px 16px; align-items: start; }
+  .practiceFields label:nth-of-type(2) { grid-column: 2; grid-row: 1; }
+  .practiceFields input { grid-column: 1; grid-row: 2; }
+  .practiceFields textarea { grid-column: 2; grid-row: 2; }
+}
+.page .successPanel { min-height: 130px; grid-template-columns: minmax(0, 1fr) 125px; padding: 12px; }
+.page .successCopy h3 { font-size: 1.25rem; font-weight: 800; margin: 5px 0; }
+.page .successCopy p { font-size: .8rem; }
+.page .successMascot { min-height: 110px; margin: 0; }
+.page .successActions { gap: 8px; margin-top: 10px; }
+.page .successActions :global(.btn) { width: auto; min-height: 44px; font-size: .78rem; }
+.page .successEyebrow { color: var(--status-success-text); }
+:global(html.dark) .practiceDetails summary,
+:global(html.dark) .classBackLink,
+:global(html.dark) .sectionKicker { color: var(--dark-accent-cyan); }
+
+@media (max-width: 860px) {
+  .page .workspace { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .page.page { width: calc(100% - 2rem); gap: 12px; }
+  .page .hero.hero { min-height: 145px; padding: 14px 92px 14px 14px; }
+  .page .hero h1 { font-size: 28px; }
+  .page .hero :global(.student-assignment-hero-art) { right: -8px; width: 102px; height: 115px; }
+  .page .heroCopy > :global(.meta) { max-width: none; font-size: .73rem; }
+  .page .responseHeading { flex-direction: row; align-items: center; padding: 10px; }
+  .page .responseHeading > p { display: none; }
+  .page .recordModule { padding: 10px; }
+  .page .step { padding: 10px; }
+  .page .nameStep { grid-template-columns: 62px minmax(0, 1fr); gap: 6px; }
+  .page .nameStep .stepHeader { gap: 5px; }
+  .page .nameStep .stepNumber { width: 22px; height: 26px; }
+  .page .stepActions { display: flex; flex-wrap: wrap; }
+  .page .stepActions :global(.btn) { flex: 1 1 auto; padding-inline: 10px; }
+  .page .stepHeader > div { display: block; }
+  .page .stepHeader p { margin-top: 3px; }
+  .page .disclosureHint { font-size: .65rem; }
+  .page .successPanel { grid-template-columns: minmax(0, 1fr); padding-right: 12px; }
+  .page .successCopy { padding-top: 0; }
+  .page .successCopy h3 { max-width: calc(100% - 65px); }
+  .page .successMascot { position: absolute; top: 4px; right: 4px; width: 68px; height: 74px; min-height: 0; }
+  .page .successActions :global(.btn) { flex: 1 1 auto; }
 }
 
 .hero {

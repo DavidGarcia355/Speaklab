@@ -3,6 +3,7 @@ import {
   BufferSource,
   Input,
   MP4,
+  MP3,
   OGG,
   WAVE,
   WEBM,
@@ -17,13 +18,14 @@ export const HARD_MAX_RECORDING_SECONDS = 300;
 // assignment limit into a meaningful extra recording allowance.
 export const AUDIO_DURATION_TOLERANCE_SECONDS = 0.25;
 
-type SupportedAudioMimeType = "audio/webm" | "audio/ogg" | "audio/mp4" | "audio/wav";
+type SupportedAudioMimeType = "audio/webm" | "audio/ogg" | "audio/mp4" | "audio/wav" | "audio/mpeg";
 
 const formatsByMimeType: Record<SupportedAudioMimeType, InputFormat> = {
   "audio/webm": WEBM,
   "audio/ogg": OGG,
   "audio/mp4": MP4,
   "audio/wav": WAVE,
+  "audio/mpeg": MP3,
 };
 
 function invalidAudio(message: string) {

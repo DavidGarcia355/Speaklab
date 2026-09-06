@@ -168,6 +168,24 @@ describe("submission transcript migration compatibility", () => {
     ]);
 
     const firstInspection = createClient({ url: `file:${testDbPath}` });
+    const submissionColumns = await firstInspection.execute("PRAGMA table_info(submissions)");
+    expect(submissionColumns.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "assignment_id", notnull: 0 }),
+      expect.objectContaining({ name: "duration_seconds", notnull: 0 }),
+      expect.objectContaining({ name: "practice_class_id", notnull: 0 }),
+    ]));
+    expect((await firstInspection.execute("SELECT duration_seconds FROM submissions WHERE id = 'submission_legacy'")).rows[0].duration_seconds).toBeNull();
+    expect((await firstInspection.execute("PRAGMA foreign_key_list(submissions)")).rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "assignments", from: "assignment_id", to: "id" }),
+      expect.objectContaining({ table: "classes", from: "practice_class_id", to: "id" }),
+    ]));
+    await firstInspection.execute("PRAGMA foreign_keys = ON");
+    for (const [assignmentId, practiceClassId] of [[null, null], ["assignment_legacy", "class_legacy"], ["nonexistent_assignment", null], [null, "nonexistent_class"]]) {
+      await expect(firstInspection.execute({
+        sql: "INSERT INTO submissions (id, assignment_id, practice_class_id, student_name, student_email, submitted_at) VALUES ('invalid_context', ?, ?, 'Student', 'student@example.com', 1)",
+        args: [assignmentId, practiceClassId],
+      })).rejects.toThrow();
+    }
     const transcriptColumns = await firstInspection.execute(
       "PRAGMA table_info(submission_transcripts)",
     );

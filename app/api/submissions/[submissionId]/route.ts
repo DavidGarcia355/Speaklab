@@ -19,6 +19,8 @@ export async function PATCH(
     }
 
     const body = parseOrThrow400(submissionPatchSchema, await request.json());
+    if (body.reviewed !== undefined && !existing.practiceClassId) throw new HttpError(400, "Review status is only used for Open Mic practice.");
+    if (existing.practiceClassId && (body.grade != null || body.rubricScores !== undefined)) throw new HttpError(400, "Open Mic uses teacher feedback without a score or rubric.");
     const hasStudentName = typeof body.studentName !== "undefined";
     const hasGrade = Object.prototype.hasOwnProperty.call(body, "grade");
     const hasFeedback = typeof body.feedback !== "undefined";
@@ -75,6 +77,7 @@ export async function PATCH(
       grade,
       feedback,
       rubricScores,
+      ...(body.reviewed !== undefined ? { reviewedAt: body.reviewed ? Date.now() : null } : {}),
     });
     if (!updated) {
       return NextResponse.json({ error: "Submission not found." }, { status: 404 });

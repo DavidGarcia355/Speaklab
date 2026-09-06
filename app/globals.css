@@ -2501,12 +2501,14 @@ h3 {
 
 .student-sub-top {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.7rem;
 }
 
 .student-sub-info {
+  flex: 1 1 12rem;
   min-width: 0;
 }
 
@@ -2566,9 +2568,10 @@ h3 {
 
 .student-sub-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  flex-shrink: 0;
+  max-width: 100%;
 }
 
 @media (max-width: 700px) {
@@ -5534,6 +5537,15 @@ html.dark .teacher-class-section .class-link-neutral {
 .home-district-note h2 {
   margin-top: 0.6rem;
   font-size: clamp(1.3rem, 2vw, 1.75rem);
+}
+
+.home-district-note > div {
+  min-width: 0;
+}
+
+.home-district-note .pill {
+  max-width: 100%;
+  white-space: normal;
 }
 
 .home-district-actions {
@@ -11238,6 +11250,7 @@ html.dark .mini-icon {
 }
 
 html.dark .text-link,
+html.dark .site-footer-links a,
 html.dark .student-text-link,
 html.dark .teacher-back-link,
 html.dark .about-company-links a,

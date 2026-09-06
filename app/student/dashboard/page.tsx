@@ -90,32 +90,33 @@ export default async function StudentDashboardPage() {
   );
 
   return (
-    <main className="page-wrap student-home-wrap">
+    <main className={`page-wrap student-home-wrap ${hubStyles.hubPage}`} data-student-scene="classes">
       <PageTitle title="My Classes" />
       <BrandBar label="Student" />
 
-      <section className={`student-home-header ${hubStyles.classesHero}`}>
+      <section className={`student-home-header ${hubStyles.classesHero}`} data-student-hero="classes">
         <span className="student-header-echo" aria-hidden="true">Classes</span>
-        <div>
+        <div data-student-copy>
           <p className="pill student-game-pill">
             <Sparkles size={14} aria-hidden="true" />
             Student workspace
           </p>
           <h1>My Classes</h1>
           <p className="meta">Hi, {name}. Pick a class to see its assignments and feedback.</p>
-        </div>
-        <div className={`student-home-actions ${hubStyles.classesVisual}`}>
-          <div className={`student-home-links ${hubStyles.hubLinks}`}>
+          <nav className={hubStyles.hubLinks} aria-label="Student navigation">
             <Link className="student-text-link" href="/student">My Recordings</Link>
             <Link className="student-text-link" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
-          </div>
+          </nav>
+        </div>
+        <div className={`student-home-actions ${hubStyles.classesVisual}`}>
           <Image
             className={hubStyles.oceanMascot}
+            data-student-avatar
             src="/mascot/hablaman-student-classes-eren-v1.png"
             alt=""
             width={1672}
             height={941}
-            sizes="(max-width: 520px) 225px, (max-width: 720px) 265px, 500px"
+            sizes="(max-width: 720px) 170px, 350px"
             priority
           />
         </div>

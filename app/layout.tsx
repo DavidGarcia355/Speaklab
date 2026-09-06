@@ -7,6 +7,7 @@ import {
   SITE_URL,
 } from "@/app/constants";
 import SiteFooter from "@/app/components/SiteFooter";
+import StudentMotion from "@/app/student/StudentMotion";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -75,6 +76,7 @@ export default function RootLayout({
       >
         <div className="site-shell">
           {children}
+          <StudentMotion />
           <SiteFooter />
         </div>
       </body>

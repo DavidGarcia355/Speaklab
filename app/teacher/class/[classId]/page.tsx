@@ -91,6 +91,7 @@ type SubmissionItem = {
   studentName: string;
   studentEmail: string;
   audioData: string;
+  durationSeconds?: number | null;
   submittedAt: number;
   feedback: string;
   grade: number | null;
@@ -188,6 +189,7 @@ type StudentDetailPayload = {
     createdAt: number;
     submissionId: string | null;
     audioData: string | null;
+    durationSeconds?: number | null;
     submittedAt: number | null;
     grade: number | null;
     feedback: string;
@@ -2287,6 +2289,7 @@ export default function ClassDetailPage() {
           </div>
           <div className={`actions teacher-class-primary-actions ${styles.headerActions}`}>
             <nav className={styles.viewNav} aria-label="Class workspace sections">
+              <Link className={styles.viewTab} href={`/teacher/class/${classId}/practice`}>Practice Inbox</Link>
               <button
                 type="button"
                 className={`${styles.viewTab} ${workspaceView === "classwork" ? styles.viewTabActive : ""}`}
@@ -2867,6 +2870,7 @@ export default function ClassDetailPage() {
                             </section>
                           ) : null}
                           <AudioPlayer
+                            durationSeconds={submission.durationSeconds}
                             src={submission.audioData}
                             variant="compact"
                             downloadFilename={downloadFilenameBase}
@@ -2879,6 +2883,7 @@ export default function ClassDetailPage() {
                           />
                           {aiGradingEnabled ? (
                             <SubmissionTranscript
+                              durationSeconds={submission.durationSeconds}
                               submissionId={submission.id}
                               studentName={submission.studentName}
                               downloadFilenameBase={downloadFilenameBase}

@@ -3,12 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Pause, Play } from "lucide-react";
 import { sanitizeDownloadFilenameBase } from "@/app/components/submission-download-filenames";
+import { formatAudioDuration, readAudioDuration, type AudioMimeType } from "@/lib/audio-file";
+import mediaStyles from "./RecordingMedia.module.css";
 
 type AudioPlayerProps = {
   src: string;
-  variant?: "default" | "compact";
+  variant?: "default" | "compact" | "row";
   showSpeed?: boolean;
   downloadFilename?: string;
+  durationSeconds?: number | null;
 };
 
 const SPEED_OPTIONS = [0.5, 1, 1.5, 2, 3] as const;
@@ -44,10 +47,11 @@ export default function AudioPlayer({
   variant = "default",
   showSpeed = true,
   downloadFilename,
+  durationSeconds,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(durationSeconds ?? 0);
   const [currentTime, setCurrentTime] = useState(0);
   const [speed, setSpeed] = useState<number>(1);
   const [errorMsg, setErrorMsg] = useState("");
@@ -57,12 +61,28 @@ export default function AudioPlayer({
     const audio = audioRef.current;
     if (!audio) return;
 
-    const onLoaded = () => setDuration(audio.duration || 0);
+    const abort = new AbortController();
+    let measuring = false;
+    const onLoaded = () => {
+      if (durationSeconds && Number.isFinite(durationSeconds)) { setDuration(durationSeconds); return; }
+      if (Number.isFinite(audio.duration) && audio.duration > 0) { setDuration(audio.duration); return; }
+      if (measuring) return;
+      measuring = true;
+      // Older WebM recordings may lack native duration metadata. Read them only
+      // through the same authorized audio URL; this performs no persistence.
+      void fetch(src, { signal: abort.signal }).then(async response => {
+        if (!response.ok) return;
+        const blob = await response.blob();
+        const type = blob.type.split(";")[0] as AudioMimeType;
+        const measured = await readAudioDuration(blob, type);
+        if (!abort.signal.aborted) setDuration(measured);
+      }).catch(() => undefined);
+    };
     const onTime = () => setCurrentTime(audio.currentTime || 0);
     const onEnd = () => setIsPlaying(false);
     const onLoadStart = () => {
       setIsPlaying(false);
-      setDuration(0);
+      setDuration(durationSeconds ?? 0);
       setCurrentTime(0);
       setErrorMsg("");
     };
@@ -80,6 +100,7 @@ export default function AudioPlayer({
     audio.addEventListener("error", onError);
     audio.load();
     return () => {
+      abort.abort();
       audio.pause();
       audio.removeEventListener("loadstart", onLoadStart);
       audio.removeEventListener("loadedmetadata", onLoaded);
@@ -87,7 +108,7 @@ export default function AudioPlayer({
       audio.removeEventListener("ended", onEnd);
       audio.removeEventListener("error", onError);
     };
-  }, [src]);
+  }, [src, durationSeconds]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -152,7 +173,7 @@ export default function AudioPlayer({
   }
 
   return (
-    <div className={`audio-shell ${variant === "compact" ? "audio-shell-compact" : ""}`}>
+    <div className={`audio-shell ${variant === "compact" ? "audio-shell-compact" : ""} ${variant === "row" ? mediaStyles.audio : ""}`}>
       <audio ref={audioRef} src={src} preload="metadata" />
 
       <div className="audio-controls">
@@ -165,7 +186,7 @@ export default function AudioPlayer({
           {isPlaying ? <Pause size={16} strokeWidth={2.3} /> : <Play size={16} strokeWidth={2.3} />}
         </button>
 
-        {downloadFilename ? (
+        {downloadFilename && variant !== "row" ? (
           <button
             type="button"
             className="btn btn-ghost btn-sm audio-download-action"
@@ -191,12 +212,16 @@ export default function AudioPlayer({
             aria-label="Audio progress"
           />
           <span className="audio-time">
-            {formatTime(currentTime)} / {formatTime(duration)}
+            {formatTime(currentTime)} / {formatAudioDuration(duration)}
           </span>
         </div>
 
         <div className="audio-meta">
-          {showSpeed ? (
+          {showSpeed && variant === "row" ? (
+            <select className={mediaStyles.speed} aria-label="Playback speed" value={speed} onChange={event => setSpeed(Number(event.target.value))}>
+              {SPEED_OPTIONS.map(option => <option key={option} value={option}>{formatSpeed(option)}</option>)}
+            </select>
+          ) : showSpeed ? (
             <div className="audio-speed" role="group" aria-label="Playback speed">
               {SPEED_OPTIONS.map((option) => (
                 <button
@@ -214,6 +239,11 @@ export default function AudioPlayer({
         </div>
       </div>
 
+      {downloadFilename && variant === "row" ? (
+        <button type="button" className={`btn btn-ghost btn-sm ${mediaStyles.download}`} aria-label={downloading ? "Downloading recording" : "Download recording"} title="Download recording" onClick={() => void handleDownload()} disabled={downloading}>
+          <Download size={16} aria-hidden="true" /><span>{downloading ? "Saving…" : "Download"}</span>
+        </button>
+      ) : null}
       {errorMsg ? <p className="status-danger audio-error" role="alert">{errorMsg}</p> : null}
     </div>
   );

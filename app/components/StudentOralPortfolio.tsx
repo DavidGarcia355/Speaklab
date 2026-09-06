@@ -4,11 +4,14 @@ import SubmissionTranscript from "@/app/components/SubmissionTranscript";
 import { buildSubmissionDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 
 export type StudentOralPortfolioItem = {
+  practiceClassId?: string | null;
+  reviewedAt?: number | null;
   assignmentId: string;
   assignmentTitle: string;
   maxPoints: number;
   submissionId: string | null;
   audioData: string | null;
+  durationSeconds?: number | null;
   submittedAt: number | null;
   grade: number | null;
   feedback: string;
@@ -68,6 +71,7 @@ export default function StudentOralPortfolio({
               <strong>{item.assignmentTitle}</strong>
               <div className="meta">Submitted {formatDateTime(item.submittedAt)}</div>
               <AudioPlayer
+                durationSeconds={item.durationSeconds}
                 src={item.audioData}
                 variant="compact"
                 downloadFilename={downloadFilename}
@@ -80,13 +84,15 @@ export default function StudentOralPortfolio({
               />
               {transcriptionEnabled ? (
                 <SubmissionTranscript
+                  durationSeconds={item.durationSeconds}
+                  practice={Boolean(item.practiceClassId)}
                   submissionId={item.submissionId}
                   studentName={studentName}
                   downloadFilenameBase={downloadFilename}
                 />
               ) : null}
               <div className="meta">
-                Score: {item.grade !== null ? `${item.grade} / ${item.maxPoints}` : "Not graded"}
+                {item.practiceClassId ? (item.reviewedAt ? "Practice reviewed" : "Practice awaiting review") : `Score: ${item.grade !== null ? `${item.grade} / ${item.maxPoints}` : "Not graded"}`}
               </div>
               {item.feedback ? <div className="meta">Feedback: {item.feedback}</div> : null}
             </article>

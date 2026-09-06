@@ -24,7 +24,7 @@ describe("audio data URL parsing", () => {
 
   it("rejects unsupported audio types", () => {
     expect(() =>
-      parseAudioDataUrl(`data:audio/mpeg;base64,${Buffer.from("audio").toString("base64")}`)
+      parseAudioDataUrl(`data:audio/aac;base64,${Buffer.from("audio").toString("base64")}`)
     ).toThrow(HttpError);
   });
 

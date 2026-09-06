@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, Clock3, MessageSquareText, Mic2 } 
 import { authOptions } from "@/auth";
 import BrandBar from "@/app/components/BrandBar";
 import PageTitle from "@/app/components/PageTitle";
+import hubStyles from "../../student-hubs.module.css";
 import { listEnrolledClassesWithAssignmentsByEmail, listSubmissionsByStudentEmail } from "@/lib/db";
 
 type StudentClassPageProps = {
@@ -62,13 +63,13 @@ export default async function StudentClassPage({ params }: StudentClassPageProps
   const submittedCount = assignments.filter((assignment) => assignment.submissionCount > 0).length;
 
   return (
-    <main className="page-wrap student-class-wrap">
+    <main className={`page-wrap student-class-wrap ${hubStyles.classWrap}`} data-student-scene="assignments">
       <PageTitle title={className} />
       <BrandBar label="Student" />
 
-      <section className="student-class-header">
+      <section className={`student-class-header ${hubStyles.classHero}`} data-student-hero="assignments">
         <span className="student-header-echo" aria-hidden="true">Assignments</span>
-        <div>
+        <div data-student-copy>
           <Link className="student-back-link" href="/student/dashboard">
             <ArrowLeft size={16} aria-hidden="true" />
             My Classes
@@ -80,12 +81,22 @@ export default async function StudentClassPage({ params }: StudentClassPageProps
         </div>
         <Image
           className="student-class-mascot"
+          data-student-avatar
           src="/mascot/hablaman-student-class-guide-v1.png"
           alt=""
           width={1254}
           height={1254}
           priority
         />
+      </section>
+
+      <section className={hubStyles.openMicBand}>
+        <span className={hubStyles.openMicIcon} aria-hidden="true"><Mic2 size={24} /></span>
+        <div>
+          <h2 className="surface-title">Something to say?</h2>
+          <p className="meta">Practice without an assignment. Record or upload audio for your teacher.</p>
+        </div>
+        <Link className="btn btn-primary btn-sm" href={`/student/class/${classId}/open-mic`}>Open Mic <ArrowRight size={16} aria-hidden="true" /></Link>
       </section>
 
       {assignments.length === 0 ? (

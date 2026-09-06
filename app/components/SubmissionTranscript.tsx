@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Clipboard, Download, FileText, RefreshCw } from "lucide-react";
 import GoogleDriveExportButton from "@/app/components/GoogleDriveExportButton";
+import { formatAudioDuration } from "@/lib/audio-file";
 import { sanitizeDownloadFilenameBase } from "@/app/components/submission-download-filenames";
 import { parseTranscriptResponse } from "@/app/components/submission-transcript-response";
 
@@ -10,6 +11,9 @@ type SubmissionTranscriptProps = {
   submissionId: string;
   studentName: string;
   downloadFilenameBase: string;
+  durationSeconds?: number | null;
+  practice?: boolean;
+  onReady?: () => void;
 };
 
 type TranscriptPhase = "loading" | "idle" | "generating" | "pending" | "ready" | "error";
@@ -74,11 +78,18 @@ export default function SubmissionTranscript({
   submissionId,
   studentName,
   downloadFilenameBase,
+  durationSeconds,
+  practice = false,
+  onReady,
 }: SubmissionTranscriptProps) {
   const [phase, setPhase] = useState<TranscriptPhase>("loading");
   const [transcript, setTranscript] = useState("");
   const [message, setMessage] = useState("");
   const [actionMessage, setActionMessage] = useState("");
+
+  useEffect(() => {
+    if (phase === "ready") onReady?.();
+  }, [phase, onReady]);
 
   const endpoint = `/api/submissions/${encodeURIComponent(submissionId)}/transcript`;
 
@@ -188,7 +199,7 @@ export default function SubmissionTranscript({
           <h3 className="submission-transcript-title">
             <FileText size={16} aria-hidden="true" /> Transcript
           </h3>
-          <p className="meta">Read, copy, or download the transcript while you review this recording.</p>
+          <p className="meta">Read, copy, or download the transcript while you review this recording.{durationSeconds ? ` · ${formatAudioDuration(durationSeconds)}` : ""}</p>
         </div>
         {phase === "ready" ? <span className="pill pill-success">Ready</span> : null}
       </div>
@@ -201,7 +212,7 @@ export default function SubmissionTranscript({
             Transcribe recording
           </button>
           <span className="meta submission-transcript-allowance">
-            {TRANSCRIPTION_USAGE_DISCLOSURE}
+            {practice ? "A successful transcript uses one AI-assisted recording unit. Listening and teacher feedback do not use AI." : TRANSCRIPTION_USAGE_DISCLOSURE}
           </span>
           {message ? <span className="meta">{message}</span> : null}
         </div>
@@ -250,7 +261,7 @@ export default function SubmissionTranscript({
               Transcribe recording
             </button>
             <span className="meta submission-transcript-allowance">
-              {TRANSCRIPTION_USAGE_DISCLOSURE}
+              {practice ? "A successful transcript uses one AI-assisted recording unit. Listening and teacher feedback do not use AI." : TRANSCRIPTION_USAGE_DISCLOSURE}
             </span>
           </div>
         </div>

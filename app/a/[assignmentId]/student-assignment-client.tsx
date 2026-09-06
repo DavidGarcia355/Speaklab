@@ -4,7 +4,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, CircleDot, LoaderCircle, Mic } from "lucide-react";
+import PracticeHistory from "@/app/components/PracticeHistory";
 import AudioPlayer from "@/app/components/AudioPlayer";
+import { AUDIO_FILE_ACCEPT, AUDIO_FILE_HELP, normalizeAudioFileType, readAudioDuration, type AudioMimeType } from "@/lib/audio-file";
 import BrandBar from "@/app/components/BrandBar";
 import SignInLink from "@/app/components/SignInLink";
 import { STUDENT_AI_GRADING_DISCLOSURE } from "@/lib/ai/student-provenance";
@@ -80,10 +82,11 @@ type RecorderBanner = {
 
 type StudentAssignmentClientProps = {
   assignmentId: string;
+  practiceClassId?: string;
   localAuthBypassEnabled: boolean;
 };
 
-type LoadErrorKind = "none" | "not-found" | "network";
+type LoadErrorKind = "none" | "not-found" | "network" | "access";
 
 function getRecorderBanner(options: {
   state: RecorderState;
@@ -173,8 +176,11 @@ function getSupportedAudioMimeType() {
 
 export default function StudentAssignmentClient({
   assignmentId,
+  practiceClassId,
   localAuthBypassEnabled,
 }: StudentAssignmentClientProps) {
+  const [practiceTitle, setPracticeTitle] = useState("");
+  const [practiceNote, setPracticeNote] = useState("");
   const [assignment, setAssignment] = useState<AssignmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadErrorKind, setLoadErrorKind] = useState<LoadErrorKind>("none");
@@ -183,6 +189,12 @@ export default function StudentAssignmentClient({
   const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
   const [recorderState, setRecorderState] = useState<RecorderState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [audioDuration, setAudioDuration] = useState<number | null>(null);
+  const [audioSource, setAudioSource] = useState<"record" | "upload">("record");
+  const [readingUpload, setReadingUpload] = useState(false);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const uploadVersion = useRef(0);
+  const submittingRef = useRef(false);
   const [micSupported, setMicSupported] = useState(true);
   const [permissionState, setPermissionState] = useState<"granted" | "denied" | "prompt" | "unknown">(
     "unknown"
@@ -216,7 +228,7 @@ export default function StudentAssignmentClient({
       let errorKind: LoadErrorKind = "none";
 
       try {
-        const response = await fetch(`/api/student/assignments/${assignmentId}`, { cache: "no-store" });
+        const response = await fetch(practiceClassId ? `/api/student/classes/${practiceClassId}/practice` : `/api/student/assignments/${assignmentId}`, { cache: "no-store" });
         if (!response.ok) {
           let data: { error?: string } | null = null;
           try {
@@ -224,7 +236,7 @@ export default function StudentAssignmentClient({
           } catch {
             data = null;
           }
-          errorKind = response.status === 404 ? "not-found" : "network";
+          errorKind = practiceClassId && (response.status === 401 || response.status === 403) ? "access" : response.status === 404 ? "not-found" : "network";
           throw new Error(
             data?.error ||
               (response.status === 404
@@ -232,8 +244,14 @@ export default function StudentAssignmentClient({
                 : "Unable to load this assignment right now.")
           );
         }
-        const data = (await response.json()) as { item: AssignmentDetail };
-        setAssignment(data.item);
+        const data = (await response.json()) as { item: AssignmentDetail; class?: { id: string; name: string } };
+        setAssignment(practiceClassId && data.class ? {
+          id: "", classId: data.class.id, className: data.class.name, title: "Open Mic",
+          description: "A little practice goes a long way. Send your voice to your teacher.",
+          instructions: "Practice something from class, try a new idea, or tell a short story. Add a title or note if you like, record or upload audio, then listen before sending.",
+          targetLanguage: "", maxPoints: 0, maxSubmissions: 0, maxRecordingSeconds: 300,
+          autoTranscribe: false, attachmentName: "", attachmentUrl: "", attachmentContentType: "", createdAt: 0,
+        } : data.item);
       } catch (error) {
         setLoadErrorKind(errorKind === "none" ? "network" : errorKind);
         const message = error instanceof Error ? error.message : "Assignment not found.";
@@ -244,7 +262,7 @@ export default function StudentAssignmentClient({
     }
 
     void load();
-  }, [assignmentId]);
+  }, [assignmentId, practiceClassId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -277,7 +295,7 @@ export default function StudentAssignmentClient({
   useEffect(() => {
     let cancelled = false;
 
-    if (!studentEmail || !assignmentId) {
+    if (!studentEmail || (!assignmentId && !practiceClassId)) {
       setSubmissionAccessState("idle");
       setSubmissionAccessError("");
       return () => {
@@ -289,7 +307,7 @@ export default function StudentAssignmentClient({
       setSubmissionAccessState("checking");
       setSubmissionAccessError("");
       try {
-        const response = await fetch(`/api/student/assignments/${assignmentId}/submissions`, { cache: "no-store" });
+        const response = await fetch(practiceClassId ? `/api/student/classes/${practiceClassId}/practice` : `/api/student/assignments/${assignmentId}/submissions`, { cache: "no-store" });
         let data: { count?: number; error?: string } | null = null;
         try {
           data = (await response.json()) as { count?: number; error?: string };
@@ -321,7 +339,7 @@ export default function StudentAssignmentClient({
     return () => {
       cancelled = true;
     };
-  }, [studentEmail, assignmentId, submittedCurrentRecording]);
+  }, [studentEmail, assignmentId, practiceClassId, submittedCurrentRecording]);
 
   useEffect(() => {
     if (
@@ -332,7 +350,7 @@ export default function StudentAssignmentClient({
     ) {
       setMicSupported(false);
       setErrorMsg(
-        "This browser does not support audio recording. Open the link in a current version of Chrome, Edge, Firefox, or Safari."
+        "This browser does not support microphone recording. You can upload an audio file, or record in a current version of Chrome, Edge, Firefox, or Safari."
       );
     }
   }, []);
@@ -359,6 +377,14 @@ export default function StudentAssignmentClient({
 
   useEffect(() => {
     return () => {
+      uploadVersion.current += 1;
+      const recorder = recorderRef.current;
+      if (recorder) {
+        recorder.onstop = null;
+        recorder.ondataavailable = null;
+        recorder.onerror = null;
+        try { if (recorder.state !== "inactive") recorder.stop(); } catch { /* Tracks are released below even if finalization fails. */ }
+      }
       if (timerRef.current !== null) {
         window.clearInterval(timerRef.current);
         timerRef.current = null;
@@ -370,6 +396,9 @@ export default function StudentAssignmentClient({
   }, []);
 
   async function startRecording() {
+    const version = ++uploadVersion.current;
+    setAudioSource("record");
+    setAudioDuration(null);
     setStatusMsg("");
     setErrorMsg("");
     if (!micSupported) return;
@@ -390,6 +419,10 @@ export default function StudentAssignmentClient({
       return;
     }
 
+    if (version !== uploadVersion.current) {
+      stopMediaStreamTracks(stream);
+      return;
+    }
     streamRef.current = stream;
     setPermissionState("granted");
 
@@ -425,7 +458,10 @@ export default function StudentAssignmentClient({
         }
       };
 
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
+        stopMediaStreamTracks(stream);
+        if (streamRef.current === stream) streamRef.current = null;
+        if (version !== uploadVersion.current) return;
         const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || "audio/webm" });
         const stopReason = stopReasonRef.current;
         stopReasonRef.current = "manual";
@@ -442,8 +478,21 @@ export default function StudentAssignmentClient({
           setRecorderState("idle");
           return;
         }
+        let measuredDuration: number;
+        try {
+          measuredDuration = await readAudioDuration(blob, blob.type.split(";")[0] as AudioMimeType);
+        } catch {
+          if (version !== uploadVersion.current) return;
+          setRecordingBlob(null);
+          setRecordingUrl("");
+          setRecorderState("idle");
+          setErrorMsg("We couldn't read that recording. Try recording again or upload an audio file.");
+          return;
+        }
+        if (version !== uploadVersion.current) return;
         setRecordingBlob(blob);
         setRecordingUrl(URL.createObjectURL(blob));
+        setAudioDuration(measuredDuration);
         setSubmittedCurrentRecording(false);
         setErrorMsg("");
         if (stopReason === "size") {
@@ -538,6 +587,8 @@ export default function StudentAssignmentClient({
   }
 
   function clearRecording() {
+    uploadVersion.current += 1;
+    setAudioDuration(null);
     if (recordingUrl) URL.revokeObjectURL(recordingUrl);
     setRecordingUrl("");
     setRecordingBlob(null);
@@ -549,6 +600,7 @@ export default function StudentAssignmentClient({
   }
 
   async function submitResponse() {
+    if (submittingRef.current || readingUpload) return;
     if (!assignment) return;
     if (!studentEmail && !localAuthBypassEnabled) {
       setErrorMsg("Please sign in before submitting.");
@@ -580,6 +632,7 @@ export default function StudentAssignmentClient({
     }
 
     setRecorderState("submitting");
+    submittingRef.current = true;
     setErrorMsg("");
     setStatusMsg("");
 
@@ -590,22 +643,25 @@ export default function StudentAssignmentClient({
       const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
       console.error("blobToDataUrl failed", reason, { blobType: recordingBlob.type, blobSize: recordingBlob.size });
       setErrorMsg(`Couldn't read the recording (${reason}). Try recording again.`);
+      submittingRef.current = false;
       setRecorderState("ready");
       return;
     }
 
     let response: Response;
     try {
-      response = await fetch(`/api/assignments/${assignment.id}/submissions`, {
+      response = await fetch(practiceClassId ? `/api/student/classes/${practiceClassId}/practice` : `/api/assignments/${assignment.id}/submissions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           studentName: cleanName,
           audioData,
+          ...(practiceClassId ? { title: practiceTitle, note: practiceNote } : {}),
         }),
       });
     } catch (error) {
       const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      submittingRef.current = false;
       console.error("Submit fetch failed", reason);
       setErrorMsg(`Couldn't reach the server (${reason}). Check the connection and try again.`);
       setRecorderState("ready");
@@ -622,6 +678,7 @@ export default function StudentAssignmentClient({
       } catch {
         // response body wasn't JSON — keep the HTTP status as the message
       }
+      submittingRef.current = false;
       console.error("Submit rejected by server", { status: response.status, serverMessage });
       setErrorMsg(serverMessage);
       setRecorderState("ready");
@@ -629,9 +686,45 @@ export default function StudentAssignmentClient({
     }
 
     setSubmittedCurrentRecording(true);
+    submittingRef.current = false;
     setSubmissionCount((prev) => prev + 1);
     setStatusMsg("Submitted! The recording is ready for teacher review.");
     setRecorderState("ready");
+  }
+
+  async function chooseAudio(file?: File) {
+    if (!file) return;
+    const version = ++uploadVersion.current;
+    if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+    setRecordingUrl("");
+    setRecordingBlob(null);
+    setAudioDuration(null);
+    setSubmittedCurrentRecording(false);
+    setRecorderState("idle");
+    setReadingUpload(true);
+    setErrorMsg("");
+    setStatusMsg("");
+    try {
+      const mimeType = normalizeAudioFileType(file);
+      const blob = new Blob([file], { type: mimeType });
+      const duration = await readAudioDuration(blob, mimeType);
+      const limit = assignment?.maxRecordingSeconds || DEFAULT_MAX_RECORDING_SECONDS;
+      if (duration > limit + 0.25) throw new Error(`Recording must be ${limit} seconds or shorter.`);
+      if (version !== uploadVersion.current) return;
+      if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+      setRecordingBlob(blob);
+      setRecordingUrl(URL.createObjectURL(blob));
+      setAudioDuration(duration);
+      setAudioSource("upload");
+      setSubmittedCurrentRecording(false);
+      setRecorderState("ready");
+      setStatusMsg("Audio ready for preview. Listen, then send it to your teacher.");
+    } catch (error) {
+      if (version === uploadVersion.current) setErrorMsg(error instanceof Error ? error.message : "Unable to read that audio file.");
+    } finally {
+      if (version === uploadVersion.current) setReadingUpload(false);
+      if (uploadRef.current) uploadRef.current.value = "";
+    }
   }
 
   const maxRecSec = assignment?.maxRecordingSeconds || DEFAULT_MAX_RECORDING_SECONDS;
@@ -655,16 +748,16 @@ export default function StudentAssignmentClient({
   if (loading) {
     return (
       <main className="page-wrap">
-        <p className="meta">Loading assignment...</p>
+        <p className="meta">{practiceClassId ? "Opening Open Mic..." : "Loading assignment..."}</p>
       </main>
     );
   }
 
   if (!assignment) {
     return (
-      <main className="page-wrap">
+      <main className="page-wrap" data-student-scene="record" data-student-ready="error">
         <section className="card">
-          <h1 style={{ marginTop: 0 }}>Assignment unavailable</h1>
+          <h1 style={{ marginTop: 0 }}>{practiceClassId ? "Open Mic unavailable" : "Assignment unavailable"}</h1>
           <p className="status-danger">{errorMsg || "Assignment not found."}</p>
           {loadErrorKind === "network" ? (
             <SchoolNetworkNotice
@@ -674,6 +767,7 @@ export default function StudentAssignmentClient({
             />
           ) : null}
           <div className="actions">
+            {practiceClassId && loadErrorKind === "access" && !studentEmail && !localAuthBypassEnabled ? <SignInLink className="btn btn-primary" callbackUrl={callbackUrl}>Sign in to Open Mic</SignInLink> : null}
             <Link className="btn btn-ghost" href="/">
               Back home
             </Link>
@@ -684,26 +778,27 @@ export default function StudentAssignmentClient({
   }
 
   return (
-    <main className={`page-wrap ${styles.page}`}>
-      <PageTitle title={`Assignment: ${assignment.title}`} />
-      <BrandBar label="Student Submission" />
+    <main className={`page-wrap ${styles.page} ${practiceClassId ? styles.practice : ""}`} data-student-scene="record">
+      <PageTitle title={practiceClassId ? "Open Mic" : `Assignment: ${assignment.title}`} />
+      <BrandBar label={practiceClassId ? "Open Mic" : "Student Submission"} />
 
-      <section className={styles.hero} aria-labelledby="assignment-title">
+      <section className={styles.hero} aria-labelledby="assignment-title" data-student-hero="record">
         <span className={styles.heroEcho} aria-hidden="true">
           Speak
         </span>
-        <div className={styles.heroCopy}>
-          <p className={`pill ${styles.classPill}`}>{assignment.className}</p>
+        <div className={styles.heroCopy} data-student-copy>
+          {practiceClassId ? <Link className={styles.classBackLink} href={`/student/class/${practiceClassId}`}>← {assignment.className}</Link> : <p className={`pill ${styles.classPill}`}>{assignment.className}</p>}
           <h1 id="assignment-title">{assignment.title}</h1>
           {assignment.description ? <p className={styles.description}>{assignment.description}</p> : null}
           <p className="meta">
-            Respond in {assignment.targetLanguage || "Spanish"} · Worth {assignment.maxPoints} points
+            {practiceClassId ? "Speaking practice · No rubric or score required" : `Respond in ${assignment.targetLanguage || "Spanish"} · Worth ${assignment.maxPoints} points`}
           </p>
         </div>
+        <Image className="student-assignment-hero-art" data-student-avatar src="/mascot/hablaman-student-welcome-v1.png" alt="" width={1254} height={1254} sizes="(max-width: 520px) 112px, 195px" />
       </section>
 
       <section className={styles.workspace}>
-        <article className={styles.instructions}>
+        {!practiceClassId ? <article className={styles.instructions}>
           <div className={styles.sectionHeading}>
             <span className={styles.sectionKicker}>Brief</span>
             <h2>Instructions</h2>
@@ -726,7 +821,7 @@ export default function StudentAssignmentClient({
               </a>
             </div>
           ) : null}
-        </article>
+        </article> : null}
 
         <article className={styles.responsePanel} aria-labelledby="response-title">
           <div className={styles.responseHeading}>
@@ -777,26 +872,6 @@ export default function StudentAssignmentClient({
               </p>
             ) : null}
 
-            <details className={styles.aiDisclosure}>
-              <summary>
-                <span>How AI may be used</span>
-                <span className={styles.disclosureHint}>Optional features &amp; privacy</span>
-                <span className={styles.disclosureChevron} aria-hidden="true">
-                  <ChevronDown size={17} />
-                </span>
-              </summary>
-              <div className={styles.disclosureBody}>
-                <p>{STUDENT_AI_GRADING_DISCLOSURE}</p>
-                {assignment.autoTranscribe ? (
-                  <p className={styles.autoTranscribeNotice}>
-                    Automatic transcription is on for this assignment. After you submit, TryHabla will
-                    send the recording to its configured AI transcription provider and save the transcript
-                    for teacher review. This does not automatically grade the work.
-                  </p>
-                ) : null}
-              </div>
-            </details>
-
             {maxSubs > 0 ? (
               <p className={`notice ${atSubmissionLimit ? "danger" : "info"} ${styles.limitNotice}`}>
                 {atSubmissionLimit
@@ -806,7 +881,7 @@ export default function StudentAssignmentClient({
             ) : null}
 
             <div className={styles.steps}>
-              <section className={styles.step} aria-labelledby="name-step-title">
+              <section className={`${styles.step} ${styles.nameStep}`} aria-labelledby="name-step-title">
                 <div className={styles.stepHeader}>
                   <span className={styles.stepNumber} aria-hidden="true">01</span>
                   <div>
@@ -830,6 +905,15 @@ export default function StudentAssignmentClient({
                   <p className={`meta field-meta ${styles.fieldMeta}`} id="student-name-count">
                     {studentName.length}/80
                   </p>
+                  {practiceClassId ? <details className={styles.practiceDetails}>
+                    <summary>Add a title or note <span>(optional)</span></summary>
+                    <div className={styles.practiceFields}>
+                      <label className="label" htmlFor="practice-title">Title (optional)</label>
+                      <input id="practice-title" className="input" value={practiceTitle} onChange={e => setPracticeTitle(e.target.value)} maxLength={120} placeholder="What are you practicing?" />
+                      <label className="label" htmlFor="practice-note">Note to your teacher (optional)</label>
+                      <textarea id="practice-note" className="input" value={practiceNote} onChange={e => setPracticeNote(e.target.value)} maxLength={500} rows={2} />
+                    </div>
+                  </details> : null}
                 </div>
               </section>
 
@@ -837,7 +921,7 @@ export default function StudentAssignmentClient({
                 <div className={styles.stepHeader}>
                   <span className={styles.stepNumber} aria-hidden="true">02</span>
                   <div>
-                    <h3 id="record-step-title">Record</h3>
+                    <h3 id="record-step-title">Record or upload audio</h3>
                     <p>
                       {maxRecSec !== DEFAULT_MAX_RECORDING_SECONDS
                         ? `Up to ${maxRecSec} seconds.`
@@ -872,6 +956,7 @@ export default function StudentAssignmentClient({
                           recorderState === "submitting" ||
                           submissionAccessBlocked ||
                           atSubmissionLimit
+                          || readingUpload
                         }
                       >
                         <Mic size={17} aria-hidden="true" />
@@ -882,7 +967,12 @@ export default function StudentAssignmentClient({
                         Stop recording
                       </button>
                     )}
+                    <input ref={uploadRef} type="file" accept={AUDIO_FILE_ACCEPT} className="sr-only" aria-label="Choose audio file" tabIndex={-1} onChange={e => void chooseAudio(e.target.files?.[0])} />
+                    <button className="btn btn-ghost" type="button" onClick={() => uploadRef.current?.click()} disabled={readingUpload || recorderState === "recording" || recorderState === "requesting-permission" || recorderState === "finalizing" || recorderState === "submitting" || (!studentEmail && !localAuthBypassEnabled) || submissionAccessBlocked || atSubmissionLimit}>
+                      {readingUpload ? "Checking audio..." : "Upload audio"}
+                    </button>
                   </div>
+                  <p className="meta">{AUDIO_FILE_HELP} Up to {maxRecSec} seconds.</p>
                 </div>
               </section>
 
@@ -896,7 +986,7 @@ export default function StudentAssignmentClient({
                 </div>
                 <div className={styles.stepBody}>
                   {submittedCurrentRecording && statusMsg ? (
-                    <div className={styles.successPanel}>
+                    <div className={styles.successPanel} data-student-moment="success">
                       <div className={styles.successCopy}>
                         <span className={styles.successEyebrow}>
                           <CheckCircle2 size={16} aria-hidden="true" /> Submitted
@@ -928,10 +1018,10 @@ export default function StudentAssignmentClient({
                       {recordingUrl ? (
                         <div className={styles.recordingReady}>
                           <span className="pill pill-success">Recording ready</span>
-                          <AudioPlayer src={recordingUrl} variant="default" showSpeed />
+                          <AudioPlayer src={recordingUrl} durationSeconds={audioDuration} variant="row" showSpeed />
                         </div>
                       ) : (
-                        <p className={styles.reviewEmpty}>The playback and submit controls appear after recording.</p>
+                        <p className={styles.reviewEmpty}>Record or upload audio to preview it here.</p>
                       )}
 
                       <div className={`actions ${styles.stepActions}`}>
@@ -949,14 +1039,15 @@ export default function StudentAssignmentClient({
                             submittedCurrentRecording ||
                             submissionAccessBlocked ||
                             atSubmissionLimit
+                            || readingUpload
                           }
                         >
-                          {recorderState === "submitting" ? "Submitting..." : "Submit response"}
+                          {recorderState === "submitting" ? "Submitting..." : practiceClassId ? "Send to teacher" : "Submit response"}
                         </button>
 
                         {recordingBlob ? (
-                          <button className="btn btn-ghost" type="button" onClick={clearRecording}>
-                            Record again
+                          <button className="btn btn-ghost" type="button" onClick={clearRecording} disabled={recorderState === "submitting" || readingUpload}>
+                            {audioSource === "upload" ? "Choose another recording" : "Record again"}
                           </button>
                         ) : null}
                       </div>
@@ -968,9 +1059,30 @@ export default function StudentAssignmentClient({
                 </div>
               </section>
             </div>
+
+            <details className={styles.aiDisclosure}>
+              <summary>
+                <span>How AI may be used</span>
+                <span className={styles.disclosureHint}>Optional features &amp; privacy</span>
+                <span className={styles.disclosureChevron} aria-hidden="true">
+                  <ChevronDown size={17} />
+                </span>
+              </summary>
+              <div className={styles.disclosureBody}>
+                <p>{practiceClassId ? "Your teacher can listen and leave feedback without AI. If they choose to transcribe, your recording is sent to the configured AI transcription provider. Open Mic does not use AI grading." : STUDENT_AI_GRADING_DISCLOSURE}</p>
+                {assignment.autoTranscribe ? (
+                  <p className={styles.autoTranscribeNotice}>
+                    Automatic transcription is on for this assignment. After you submit, TryHabla will
+                    send the recording to its configured AI transcription provider and save the transcript
+                    for teacher review. This does not automatically grade the work.
+                  </p>
+                ) : null}
+              </div>
+            </details>
           </div>
         </article>
       </section>
+      {practiceClassId ? <PracticeHistory classId={practiceClassId} refreshKey={submissionCount} /> : null}
     </main>
   );
 }

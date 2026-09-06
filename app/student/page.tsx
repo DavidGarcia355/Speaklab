@@ -19,11 +19,17 @@ import {
   type StudentRecordingAssignment,
 } from "@/lib/student-recording-groups";
 import hubStyles from "./student-hubs.module.css";
+import mediaStyles from "@/app/components/RecordingMedia.module.css";
 
 type StudentSubmission = StudentRecordingAssignment & {
   id: string;
   studentName: string;
   audioData: string;
+  durationSeconds?: number | null;
+  practiceClassId?: string | null;
+  practiceTitle?: string;
+  practiceNote?: string;
+  reviewedAt?: number | null;
   submittedAt: number;
   feedback: string;
   grade: number | null;
@@ -40,10 +46,12 @@ type SessionResponse = {
 };
 
 function formatDate(timestamp: number) {
-  return new Date(timestamp).toLocaleDateString(undefined, {
+  return new Date(timestamp).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   });
 }
 
@@ -146,7 +154,7 @@ export default function StudentDashboardPage() {
 
   if (!email) {
     return (
-      <main className="page-wrap">
+      <main className="page-wrap" data-student-scene="recordings" data-student-ready="error">
         <PageTitle title="My Recordings" />
         <BrandBar label="Student" />
         <section className="hero">
@@ -166,17 +174,17 @@ export default function StudentDashboardPage() {
   }
 
   const gradedCount = submissions.filter((s) => s.grade !== null).length;
-  const pendingCount = submissions.length - gradedCount;
+  const pendingCount = submissions.filter(sub => sub.practiceClassId ? !sub.reviewedAt : sub.grade === null).length;
   const grouped = groupStudentRecordingsByClass(assignmentHistory, submissions);
 
   return (
-    <main className={`page-wrap student-game-wrap student-home-wrap ${hubStyles.recordingsWrap}`}>
+    <main className={`page-wrap student-game-wrap student-home-wrap ${hubStyles.recordingsWrap}`} data-student-scene="recordings" data-student-ready={!loading}>
       <PageTitle title="My Recordings" />
       <BrandBar label="Student" />
 
-      <section className={`student-home-header ${hubStyles.recordingsHero}`}>
+      <section className={`student-home-header ${hubStyles.recordingsHero}`} data-student-hero="recordings">
         <span className="student-header-echo" aria-hidden="true">Recordings</span>
-        <div>
+        <div data-student-copy>
           <p className="pill student-game-pill">
             <Mic2 size={14} aria-hidden="true" />
             Submission history
@@ -185,28 +193,28 @@ export default function StudentDashboardPage() {
           <p className="meta">
             Hi, {name}. {localAuthBypassEnabled ? "Local dev auth bypass - viewing as" : "Signed in as"} {email}
           </p>
-        </div>
-        <div className={`student-home-actions ${hubStyles.recordingsVisual}`}>
-          <div className={`student-home-links ${hubStyles.hubLinks}`}>
+          <nav className={hubStyles.hubLinks} aria-label="Student navigation">
             <Link className="student-text-link" href="/student/dashboard">My Classes</Link>
             <Link className="student-text-link" href="/">Home</Link>
             <Link className="student-text-link" href="/api/auth/signout?callbackUrl=/">Sign out</Link>
-          </div>
+          </nav>
+        </div>
+        <div className={`student-home-actions ${hubStyles.recordingsVisual}`}>
           <Image
             className={hubStyles.recordingsMascot}
-            src="/mascot/hablaman-transition-record-v1.webp"
+            data-student-avatar
+            src="/mascot/hablaman-student-class-guide-v1.png"
             alt=""
             width={768}
             height={768}
-            sizes="(max-width: 520px) 125px, (max-width: 720px) 150px, 300px"
+            sizes="(max-width: 720px) 112px, 190px"
             priority
             unoptimized
           />
-          <span className={hubStyles.recordingsBadge} aria-hidden="true">{gradedCount} graded</span>
         </div>
       </section>
 
-      <section className={`student-reward-console section-gap ${hubStyles.recordingStats}`}>
+      <section className={`student-reward-console section-gap ${hubStyles.recordingStats}`} aria-label="Recording summary">
         <article className="student-console-card">
           <p className="student-console-label">
             <Sparkles size={14} aria-hidden="true" />
@@ -260,10 +268,10 @@ export default function StudentDashboardPage() {
                   <h3 className="student-assignment-title">{asg.assignmentTitle}</h3>
                   <Link
                     className="btn btn-ghost btn-sm"
-                    href={`/a/${asg.assignmentId}`}
+                    href={asg.assignmentId ? `/a/${asg.assignmentId}` : `/student/class/${group.classId}/open-mic`}
                     aria-label={`Open ${asg.assignmentTitle}`}
                   >
-                    Open assignment
+                    {asg.assignmentId ? "Open assignment" : "Open Mic"}
                   </Link>
                 </div>
                 {asg.submissions.length === 0 ? (
@@ -274,36 +282,25 @@ export default function StudentDashboardPage() {
                 ) : (
                   <div className="grid student-submission-list">
                     {asg.submissions.map((sub) => {
-                      const grade = gradeDisplay(sub.grade, sub.maxPoints);
+                      const grade = sub.practiceClassId ? { text: sub.reviewedAt ? "Reviewed" : "Awaiting review", tone: sub.reviewedAt ? "pill-success" : "pill-warning" } : gradeDisplay(sub.grade, sub.maxPoints);
                       const provenance = studentGradeProvenance(sub.gradeSource);
                       return (
-                        <article key={sub.id} className="student-submission-card student-quest-card is-complete">
-                          <div className="student-sub-top">
-                            <div className="student-sub-info">
-                              <p className="meta">Submitted {formatDate(sub.submittedAt)}</p>
-                            </div>
-                            <div className="student-sub-actions">
+                        <article key={sub.id} className={`student-submission-card ${mediaStyles.item}`} data-reviewed={sub.practiceClassId ? Boolean(sub.reviewedAt) : sub.grade !== null}>
+                          <div className={mediaStyles.identity}>
+                            <p className={mediaStyles.title}>{sub.practiceTitle || "Speaking response"}</p>
+                            <div className={mediaStyles.meta}>
+                              <span>{formatDate(sub.submittedAt)}</span>
                               <span className={`pill ${grade.tone}`}>{grade.text}</span>
                               {sub.grade !== null && provenance.badge ? (
                                 <span className="pill pill-subtle">{provenance.badge}</span>
                               ) : null}
-                              {sub.grade === null ? (
-                                <button
-                                  type="button"
-                                  className="btn btn-danger btn-sm"
-                                  onClick={() => setDeleteTarget(sub)}
-                                >
-                                  <Trash2 size={14} aria-hidden="true" />
-                                  Delete submission
-                                </button>
-                              ) : null}
                             </div>
                           </div>
-                          <div className="student-sub-details">
-                            <p className="label">Recording</p>
+                          <div className={mediaStyles.player}>
                             <AudioPlayer
+                              durationSeconds={sub.durationSeconds}
                               src={sub.audioData}
-                              variant="compact"
+                              variant="row"
                               downloadFilename={buildSubmissionDownloadFilenameBase({
                                 studentName: sub.studentName,
                                 assignmentTitle: sub.assignmentTitle,
@@ -312,15 +309,27 @@ export default function StudentDashboardPage() {
                               })}
                             />
                           </div>
+                          {sub.grade === null ? (
+                            <button
+                              type="button"
+                              className={`btn ${mediaStyles.remove}`}
+                              aria-label={`Delete submission: ${sub.practiceTitle || sub.assignmentTitle}, ${formatDate(sub.submittedAt)}`}
+                              title="Delete submission"
+                              onClick={() => setDeleteTarget(sub)}
+                            >
+                              <Trash2 size={17} aria-hidden="true" />
+                            </button>
+                          ) : null}
+                          {sub.practiceNote ? <p className={mediaStyles.note}>{sub.practiceNote}</p> : null}
                           {sub.feedback ? (
-                            <div className="student-sub-feedback">
-                              <p className="label" style={{ marginBottom: "0.2rem", fontSize: "0.84rem" }}>
+                            <div className={mediaStyles.feedback}>
+                              <strong>
                                 {provenance.feedbackLabel}
-                              </p>
-                              <p className="meta">{sub.feedback}</p>
+                              </strong>
+                              <p>{sub.feedback}</p>
                             </div>
                           ) : sub.grade !== null ? (
-                            <p className="meta" style={{ fontStyle: "italic" }}>No written feedback</p>
+                            <p className={mediaStyles.note}>No written feedback</p>
                           ) : null}
                         </article>
                       );
@@ -336,7 +345,7 @@ export default function StudentDashboardPage() {
       <ConfirmModal
         open={deleteTarget !== null}
         title="Delete submission?"
-        description="This will permanently remove this submission. If the assignment allows resubmission, you can record and submit again."
+        description={deleteTarget?.practiceClassId ? "Remove this practice recording from your history and your teacher's inbox? You can send another recording from Open Mic." : "This will permanently remove this submission. If the assignment allows resubmission, you can record and submit again."}
         confirmLabel="Delete"
         destructive
         onCancel={() => setDeleteTarget(null)}

@@ -199,6 +199,11 @@ export const submissionCreateSchema = z.object({
   audioData: z.string().min(1, "Audio data is required."),
 });
 
+export const practiceCreateSchema = submissionCreateSchema.extend({
+  title: cleanTextSchema("Title", 0, 120, true),
+  note: cleanTextSchema("Note", 0, 500, true),
+});
+
 export const submissionPatchSchema = z
   .object({
     studentName: cleanTextSchema("Student name", 1, LIMITS.studentNameMax, true),
@@ -210,6 +215,7 @@ export const submissionPatchSchema = z
       .nullable()
       .optional(),
     feedback: cleanTextSchema("Feedback", 0, LIMITS.feedbackMax, true),
+    reviewed: z.boolean().optional(),
     rubricScores: z.array(rubricScoreSchema).optional(),
   })
   .superRefine((value, context) => {
@@ -277,7 +283,7 @@ export const feedbackCreateSchema = z.object({
 });
 
 export type ParsedAudio = {
-  mimeType: "audio/webm" | "audio/ogg" | "audio/mp4" | "audio/wav";
+  mimeType: "audio/webm" | "audio/ogg" | "audio/mp4" | "audio/wav" | "audio/mpeg";
   buffer: Buffer;
 };
 
@@ -291,6 +297,7 @@ export type Rubric = z.infer<typeof rubricSchema>;
 export type RubricScore = z.infer<typeof rubricScoreSchema>;
 
 const allowedAudioTypes = new Set<ParsedAudio["mimeType"]>([
+  "audio/mpeg",
   "audio/webm",
   "audio/ogg",
   "audio/mp4",
@@ -332,7 +339,7 @@ export function parseAudioDataUrl(dataUrl: string): ParsedAudio {
   const mimeType = parsed.mimeType as ParsedAudio["mimeType"];
   if (!allowedAudioTypes.has(mimeType)) {
     throw new HttpError(400, "Validation failed.", {
-      audioData: ["Unsupported audio type. Allowed: webm, ogg, mp4, wav."],
+      audioData: ["Unsupported audio type. Allowed: mp3, webm, ogg, mp4, wav."],
     });
   }
 

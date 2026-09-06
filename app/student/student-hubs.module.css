@@ -1,203 +1,130 @@
-.classesHero,
-.recordingsHero {
-  min-height: 250px;
-}
+/* Routine student screens share the teacher workspace's compact rhythm. */
+.hubPage.hubPage,
+.recordingsWrap.recordingsWrap,
+.classWrap.classWrap { width: min(1180px, calc(100% - 2rem)); }
 
-.classesVisual,
-.recordingsVisual {
+.classesHero.classesHero,
+.recordingsHero.recordingsHero,
+.classHero.classHero {
+  min-height: 190px;
+  padding: 18px 24px;
+  margin-top: 0;
+  display: block;
+}
+.classesHero [data-student-copy],
+.recordingsHero [data-student-copy],
+.classHero [data-student-copy] { max-width: calc(100% - 245px); }
+:global(.student-motion-scope) :is(.classesHero, .recordingsHero, .classHero) h1 {
+  margin: 8px 0 6px;
+  font-size: 40px;
+  font-weight: 900;
+  line-height: 1.06;
+  letter-spacing: -0.035em;
+}
+.classesHero :global(.meta),
+.recordingsHero :global(.meta),
+.classHero :global(.meta) { font-size: .83rem; overflow-wrap: anywhere; }
+.classesHero :global(.student-game-pill),
+.recordingsHero :global(.student-game-pill) { padding: 3px 8px; font-size: .67rem; }
+.hubLinks.hubLinks {
   position: relative;
-  align-self: stretch;
-  min-width: min(48%, 510px);
-  justify-content: center;
-}
-
-.hubLinks {
-  position: absolute;
-  top: -2.05rem;
-  right: 0;
-  z-index: 3;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 20px;
+  margin-top: 6px;
 }
-
-.oceanMascot {
-  width: min(100%, 500px);
-  height: 100%;
-  max-height: 230px;
-  object-fit: contain;
-  object-position: center bottom;
-  margin-top: 0.35rem;
-  filter: drop-shadow(7px 8px 0 color-mix(in srgb, var(--coral) 32%, transparent));
-}
-
-.recordingsWrap {
-  width: min(1080px, calc(100% - 2rem));
-}
-
-.recordingsHero {
-  margin-top: 0;
-}
-
-.recordingsMascot {
-  width: min(100%, 360px);
-  height: 230px;
-  object-fit: contain;
-  object-position: center bottom;
-  margin-top: 0.35rem;
-  filter: drop-shadow(7px 8px 0 color-mix(in srgb, var(--coral) 32%, transparent));
-}
-
-.recordingsBadge {
+.hubLinks :global(.student-text-link) { display: inline-flex; align-items: center; min-height: 44px; font-size: .82rem; }
+.classesHero .classesVisual,
+.recordingsHero .recordingsVisual {
   position: absolute;
-  right: 0.25rem;
-  bottom: 0.15rem;
-  z-index: 3;
-  display: inline-flex;
-  padding: 0.4rem 0.58rem;
-  border: 2px solid var(--text);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--mint) 62%, var(--surface));
-  color: var(--text);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.72rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  box-shadow: 4px 4px 0 var(--text);
-  transform: rotate(2deg);
+  right: 10px;
+  bottom: 0;
+  width: 350px;
+  height: 184px;
+  min-width: 0;
+  pointer-events: none;
 }
+.recordingsHero .recordingsVisual { width: 235px; }
+.oceanMascot,
+.recordingsMascot { width: 100%; height: 100%; object-fit: contain; object-position: center bottom; filter: drop-shadow(5px 5px 0 color-mix(in srgb, var(--coral) 28%, transparent)); }
+.classHero :global(.student-class-mascot) { position: absolute; right: 18px; bottom: 0; width: 185px; height: 180px; }
+.classHero :global(.student-back-link) { min-height: 44px; margin: -8px 0 0; }
 
-.recordingStats {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
+.recordingStats.recordingStats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .recordingStats > article {
-  min-height: 112px;
-  padding: 0.82rem 0.9rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 68px;
+  padding: 10px 16px;
 }
+.recordingStats :global(.student-console-value) { grid-column: 1; grid-row: 1; margin: 0; font-size: 2rem; line-height: 1; }
+.recordingStats :global(.student-console-label) { grid-column: 2; grid-row: 1; min-height: 0; margin: 0; font-size: .78rem; line-height: 1.25; flex-direction: row; }
+.recordingStats :global(.kpi-note) { display: none; }
+.recordingStats > article::after { width: 25px; height: 25px; }
+.recordingsWrap :global(.student-quest-section) { margin-top: 22px; gap: 0; }
+.recordingsWrap :global(.student-class-heading) { margin: 0 0 12px; font-size: 1.18rem; }
+.recordingsWrap :global(.student-assignment-group) { margin-top: 0; padding: 0; border: 0; background: transparent; box-shadow: none; overflow: visible; }
+.recordingsWrap :global(.student-assignment-group + .student-assignment-group) { margin-top: 16px; }
+.recordingsWrap :global(.student-assignment-header) { margin: 0 0 8px; gap: 12px; }
+.recordingsWrap :global(.student-assignment-title) { font-size: 1rem; }
+.recordingsWrap :global(.student-assignment-header .btn) { min-height: 44px; }
+.recordingsWrap :global(.student-submission-list) { gap: 8px; }
+.recordingsWrap :global(.student-submission-card) { box-shadow: 3px 3px 0 color-mix(in srgb, var(--primary) 12%, transparent); }
+.recordingsWrap :global(.student-submission-card)::before,
+.recordingsWrap :global(.student-submission-card)::after { display: none; }
 
-.recordingStats :global(.student-console-value) {
-  font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+.openMicBand {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 2px solid var(--text);
+  border-radius: 7px;
+  background: linear-gradient(112deg, color-mix(in srgb, var(--mango) 22%, var(--surface)) 0 62%, var(--surface) 62%);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--mango) 25%, transparent);
 }
+.openMicIcon { display: grid; place-items: center; width: 44px; height: 44px; background: var(--text); color: var(--surface); border-radius: 6px; transform: rotate(-4deg); }
+.openMicBand h2 { margin: 0 0 3px; font-size: 1.05rem; }
+.openMicBand p { margin: 0; font-size: .83rem; }
+.openMicBand :global(.btn) { min-height: 44px; }
+.classWrap :global(.student-assignment-row) { padding: 12px 16px; min-height: 88px; }
+.classWrap :global(.student-assignment-row h2) { font-size: 1rem; }
+.classWrap :global(.student-assignment-row .meta) { font-size: .78rem; }
+.classWrap :global(.student-assignment-open) { min-height: 44px; }
+.hubPage :global(.student-class-row) { padding-top: 12px; padding-bottom: 12px; min-height: 82px; }
 
 @media (max-width: 720px) {
-  .classesHero,
-  .recordingsHero {
-    min-height: 205px;
-    gap: 0.5rem;
-  }
-
-  .classesVisual,
-  .recordingsVisual {
-    min-width: 132px;
-  }
-
-  .hubLinks.hubLinks {
-    position: absolute;
-    top: -0.55rem;
-    right: 0;
-    display: flex;
-    width: min(44vw, 188px);
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.2rem 0.55rem;
-  }
-
-  .hubLinks :global(.student-text-link) {
-    min-height: 28px;
-    font-size: 0.7rem;
-    border-bottom-width: 2px;
-  }
-
-  .oceanMascot {
-    width: 245px;
-    max-width: none;
-    height: 165px;
-    margin-top: 1.75rem;
-    object-position: center bottom;
-    transform: translateX(3%);
-  }
-
-  .recordingsMascot {
-    width: 150px;
-    height: 160px;
-    margin-top: 1.35rem;
-  }
-
-  .recordingsBadge {
-    right: -0.15rem;
-    bottom: 0;
-    padding: 0.3rem 0.42rem;
-    font-size: 0.62rem;
-    box-shadow: 3px 3px 0 var(--text);
-  }
-
-  .recordingStats {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.45rem;
-  }
-
-  .recordingStats > article {
-    min-height: 92px;
-    padding: 0.65rem;
-  }
-
-  .recordingStats :global(.kpi-note) {
-    display: none;
-  }
-}
-
-@media (max-width: 520px) {
-  .classesHero.classesHero {
-    min-height: 330px;
-  }
-
-  .classesHero,
-  .recordingsHero {
-    padding: 1rem;
-  }
-
-  .classesHero > div:first-of-type,
-  .recordingsHero > div:first-of-type {
-    min-width: 0;
-  }
-
-  .classesVisual,
-  .recordingsVisual {
-    min-width: 105px;
-  }
-
-  .classesVisual.classesVisual {
-    position: static;
-    min-width: 0;
-  }
-
-  .classesVisual .hubLinks {
-    top: 0.45rem;
-    right: 1rem;
-  }
-
-  .oceanMascot {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    width: 300px;
-    height: 169px;
-    margin-top: 0;
-    object-position: right bottom;
-    transform: none;
-  }
-
-  .recordingsMascot {
-    width: 125px;
-    height: 145px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .oceanMascot,
-  .recordingsMascot {
-    animation: none;
-  }
+  .classesHero.classesHero,
+  .recordingsHero.recordingsHero,
+  .classHero.classHero { min-height: 182px; padding: 14px; }
+  .classesHero [data-student-copy],
+  .recordingsHero [data-student-copy],
+  .classHero [data-student-copy] { max-width: none; }
+  :global(.student-motion-scope) :is(.classesHero, .recordingsHero, .classHero) h1 { font-size: 30px; max-width: calc(100% - 85px); }
+  :global(.student-motion-scope) .classHero h1 { font-size: 28px; max-width: calc(100% - 112px); }
+  .classesHero :global(.meta), .recordingsHero :global(.meta), .classHero :global(.meta) { max-width: calc(100% - 95px); font-size: .76rem; }
+  .classesHero :global(.meta) { max-width: calc(100% - 120px); }
+  .hubLinks.hubLinks { gap: 4px 14px; margin-top: 5px; }
+  .hubLinks :global(.student-text-link) { font-size: .76rem; }
+  .classesHero .classesVisual { right: -35px; width: 170px; height: 115px; bottom: 45px; }
+  .recordingsHero .recordingsVisual { right: -8px; width: 110px; height: 127px; bottom: 46px; }
+  .classHero :global(.student-class-mascot) { right: -6px; width: 110px; height: 120px; }
+  .recordingStats.recordingStats { gap: 8px; }
+  .recordingStats > article { grid-template-columns: 1fr; gap: 5px; padding: 9px 10px; min-height: 83px; align-content: center; }
+  .recordingStats :global(.student-console-value) { grid-row: 1; font-size: 1.65rem; }
+  .recordingStats :global(.student-console-label) { grid-column: 1; grid-row: 2; font-size: .67rem; }
+  .recordingStats :global(.student-console-label svg) { display: none; }
+  .recordingsWrap :global(.student-class-heading) { font-size: 1.03rem; }
+  .recordingsWrap :global(.student-assignment-title) { font-size: .9rem; }
+  .recordingsWrap :global(.student-assignment-header .btn) { font-size: .74rem; padding: 8px; flex-shrink: 0; }
+  .openMicBand { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 12px; }
+  .openMicIcon { display: none; }
+  .openMicBand p { font-size: .78rem; }
+  .openMicBand :global(.btn) { padding-inline: 10px; }
+  .classWrap :global(.student-assignment-row) { padding: 12px; }
 }

@@ -1,0 +1,166 @@
+.student-flight-canvas,
+.student-flight-snapshot {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.student-flight-canvas {
+  z-index: 75;
+}
+.student-flight-snapshot {
+  z-index: 70;
+  overflow: hidden;
+  background: var(--background);
+}
+.student-flight-canvas[hidden],
+.student-flight-snapshot[hidden] {
+  display: none;
+}
+.student-flight-snapshot *,
+.student-flight-snapshot *::before,
+.student-flight-snapshot *::after {
+  animation: none !important;
+  transition: none !important;
+}
+.student-motion-scope {
+  isolation: isolate;
+}
+.student-motion-scope
+  :is(
+    .student-home-header,
+    .student-class-header,
+    .student-class-row,
+    .student-assignment-row
+  ) {
+  animation: none;
+}
+.student-motion-scope :is(.student-home-header, .student-class-header) {
+  border-radius: 8px;
+}
+.student-motion-scope :is(.student-home-header, .student-class-header) h1 {
+  letter-spacing: 0;
+  font-size: 46px;
+}
+.student-motion-scope .student-header-echo {
+  letter-spacing: 0;
+  font-size: 92px;
+}
+.student-motion-scope .student-text-link {
+  transition:
+    color 150ms,
+    border-color 150ms,
+    transform 150ms;
+}
+.student-motion-scope .student-text-link:hover {
+  color: var(--primary);
+  border-color: var(--mango);
+  transform: translateY(-2px);
+}
+.student-motion-scope :is(.student-class-row, .student-assignment-row) {
+  --flight-accent: var(--primary);
+  border-left: 5px solid var(--flight-accent);
+}
+.student-motion-scope
+  :is(.student-class-row, .student-assignment-row):nth-child(3n + 2) {
+  --flight-accent: var(--mint);
+}
+.student-motion-scope
+  :is(.student-class-row, .student-assignment-row):nth-child(3n) {
+  --flight-accent: var(--mango);
+}
+.student-motion-scope .student-class-row > svg:last-child {
+  transition: transform 200ms;
+}
+.student-motion-scope .student-class-row:hover > svg:last-child {
+  transform: translateX(5px);
+}
+.student-motion-scope [data-student-avatar] {
+  will-change: auto;
+}
+.student-motion-scope h1[tabindex="-1"]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 6px;
+}
+.student-motion-scope [data-student-hero="record"] h1 {
+  font-size: 40px;
+  letter-spacing: 0;
+}
+.student-motion-scope [data-student-hero="record"] {
+  padding-right: 210px;
+  min-height: 225px;
+}
+.student-motion-scope .student-assignment-hero-art {
+  position: absolute;
+  right: 16px;
+  bottom: 0;
+  width: 195px;
+  height: 200px;
+  object-fit: contain;
+  object-position: center bottom;
+  filter: drop-shadow(
+    6px 6px 0 color-mix(in srgb, var(--coral) 26%, transparent)
+  );
+}
+.student-motion-scope [data-student-moment="success"] {
+  animation: student-success-resolve 500ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.student-motion-scope [data-student-moment="success"] img {
+  animation: student-success-salute 650ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes student-success-resolve {
+  from {
+    opacity: 0.5;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes student-success-salute {
+  0% {
+    transform: translateY(18px) scale(0.92);
+  }
+  65% {
+    transform: translateY(-5px) scale(1.025);
+  }
+  100% {
+    transform: none;
+  }
+}
+@media (max-width: 720px) {
+  .student-motion-scope [data-student-hero="record"] h1 {
+    font-size: 30px;
+  }
+  .student-motion-scope :is(.student-home-header, .student-class-header) h1 {
+    font-size: 32px;
+  }
+  .student-motion-scope .student-header-echo {
+    font-size: 60px;
+  }
+}
+@media (max-width: 520px) {
+  .student-motion-scope [data-student-hero="record"] {
+    padding-right: 110px;
+    min-height: 185px;
+  }
+  .student-motion-scope .student-assignment-hero-art {
+    right: 0;
+    width: 112px;
+    height: 145px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .student-flight-canvas,
+  .student-flight-snapshot {
+    display: none !important;
+  }
+  .student-motion-scope *,
+  .student-motion-scope *::before,
+  .student-motion-scope *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -31,7 +31,7 @@ import { legacyAssignmentToGradingAssignment } from "@/lib/grading/legacy-adapte
 import type { FeedbackDiagnosticContext } from "@/lib/feedback-context";
 import { LIMITS, type Rubric, type RubricScore } from "@/lib/validation";
 import { AssignmentPointsBelowSavedGradeError } from "@/lib/assignment-errors";
-import { DuplicateSubmissionError, SubmissionLimitReachedError } from "@/lib/submission-errors";
+import { DuplicateSubmissionError, PracticeAccessChangedError, SubmissionLimitReachedError } from "@/lib/submission-errors";
 
 const QUERY_TIMEOUT_MS = 5000;
 
@@ -90,6 +90,11 @@ export type AssignmentDetailRow = AssignmentRow & {
 };
 
 export type SubmissionRow = {
+  durationSeconds?: number | null;
+  practiceClassId?: string | null;
+  practiceTitle?: string;
+  practiceNote?: string;
+  reviewedAt?: number | null;
   id: string;
   assignmentId: string;
   assignmentTitle: string;
@@ -113,6 +118,11 @@ export type GradebookRow = {
 };
 
 export type StudentSubmissionRow = {
+  durationSeconds?: number | null;
+  practiceClassId?: string | null;
+  practiceTitle?: string;
+  practiceNote?: string;
+  reviewedAt?: number | null;
   id: string;
   assignmentId: string;
   assignmentTitle: string;
@@ -299,6 +309,9 @@ export type StudentEnrolledRow = {
 };
 
 export type StudentAssignmentRow = {
+  practiceClassId?: string | null;
+  reviewedAt?: number | null;
+  durationSeconds?: number | null;
   assignmentId: string;
   assignmentTitle: string;
   maxPoints: number;
@@ -1480,6 +1493,17 @@ async function ensureInitialized() {
       await ensureColumn("submissions", "rubric_scores", "TEXT");
       await ensureColumn("submissions", "grade_source", "TEXT NOT NULL DEFAULT 'teacher'");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
+      await ensureColumn("submissions", "duration_seconds", "REAL CHECK(duration_seconds IS NULL OR duration_seconds > 0)");
+      // libSQL changes only the constraint; no table copy, dropped data, or FK bypass.
+      const submissionColumns = await rawExecute("PRAGMA table_info(submissions)");
+      if (submissionColumns.rows.some(row => row.name === "assignment_id" && Number(row.notnull) === 1)) {
+        await rawExecute("ALTER TABLE submissions ALTER COLUMN assignment_id TO assignment_id TEXT");
+      }
+      await ensureColumn("submissions", "practice_class_id", "TEXT REFERENCES classes(id) ON DELETE CASCADE CHECK ((assignment_id IS NOT NULL AND practice_class_id IS NULL) OR (assignment_id IS NULL AND practice_class_id IS NOT NULL))");
+      await ensureColumn("submissions", "practice_title", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn("submissions", "practice_note", "TEXT NOT NULL DEFAULT ''");
+      await ensureColumn("submissions", "reviewed_at", "INTEGER");
+      await rawExecute("CREATE INDEX IF NOT EXISTS idx_submissions_practice_class ON submissions(practice_class_id, submitted_at) WHERE practice_class_id IS NOT NULL");
       await ensureColumn("feedback_messages", "context_json", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn(
         "ai_review_allowance_reservations_v1",
@@ -2836,6 +2860,9 @@ export async function updateClassName(
 
 export async function deleteClassCascade(classId: string, ownerEmail: string): Promise<boolean> {
   const deletedAt = Date.now();
+  await query(`UPDATE submissions SET deleted_at = ? WHERE practice_class_id = ?
+    AND practice_class_id IN (SELECT id FROM classes WHERE id = ? AND LOWER(owner_email) = LOWER(?))
+    AND deleted_at IS NULL`, [deletedAt, classId, classId, ownerEmail]);
   await query(
     `UPDATE submissions
     SET deleted_at = ?
@@ -3177,23 +3204,37 @@ export async function deleteAssignmentCascade(assignmentId: string, ownerEmail: 
   return toNumber(result.rowsAffected) > 0;
 }
 
-export async function createSubmission(input: {
+export async function createSubmission<TAssignmentId extends string | null>(input: {
   id?: string;
-  assignmentId: string;
+  assignmentId: TAssignmentId;
+  practiceClassId?: string;
+  practiceTitle?: string;
+  practiceNote?: string;
   studentName: string;
   studentEmail: string;
   audioBlobUrl: string;
+  durationSeconds?: number;
 }): Promise<{
   id: string;
-  assignmentId: string;
+  assignmentId: TAssignmentId;
   studentName: string;
   studentEmail: string;
   audioBlobUrl: string;
   submittedAt: number;
+  durationSeconds: number | null;
 }> {
+  if (Boolean(input.assignmentId) === Boolean(input.practiceClassId)) throw new Error("A recording must belong to one assignment or one practice class.");
   await ensureInitialized();
   const transaction = await getDbClient().transaction("write");
   try {
+    if (input.practiceClassId) {
+      const access = await transaction.execute({
+        sql: `SELECT c.id FROM classes c JOIN roster r ON r.class_id = c.id
+          WHERE c.id = ? AND LOWER(r.student_email) = LOWER(?) AND c.deleted_at IS NULL LIMIT 1`,
+        args: [input.practiceClassId, input.studentEmail],
+      });
+      if (!access.rows.length) throw new PracticeAccessChangedError();
+    }
     const assignmentLimit = await transaction.execute({
       sql: `SELECT COALESCE(max_submissions, 0) as maxSubmissions
         FROM assignments
@@ -3219,12 +3260,12 @@ export async function createSubmission(input: {
     const duplicate = await transaction.execute({
       sql: `SELECT id, submitted_at as submittedAt
         FROM submissions
-        WHERE assignment_id = ?
+        WHERE (assignment_id = ? OR (assignment_id IS NULL AND practice_class_id = ?))
           AND LOWER(student_email) = LOWER(?)
           AND deleted_at IS NULL
         ORDER BY submitted_at DESC
         LIMIT 1`,
-      args: [input.assignmentId, input.studentEmail],
+      args: [input.assignmentId, input.practiceClassId ?? null, input.studentEmail],
     });
     const recent = duplicate.rows[0];
     if (recent && Date.now() - toNumber(recent.submittedAt) < 60_000) {
@@ -3237,12 +3278,14 @@ export async function createSubmission(input: {
       studentName: input.studentName,
       studentEmail: input.studentEmail,
       audioBlobUrl: input.audioBlobUrl,
+      durationSeconds: input.durationSeconds ?? null,
       submittedAt: Date.now(),
     };
     await transaction.execute({
       sql: `INSERT INTO submissions (
-        id, assignment_id, student_name, student_email, audio_data, audio_blob_url, submitted_at, deleted_at
-      ) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL)`,
+        id, assignment_id, student_name, student_email, audio_data, audio_blob_url, submitted_at, duration_seconds,
+        practice_class_id, practice_title, practice_note, deleted_at
+      ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL)`,
       args: [
         item.id,
         item.assignmentId,
@@ -3250,6 +3293,10 @@ export async function createSubmission(input: {
         item.studentEmail,
         item.audioBlobUrl,
         item.submittedAt,
+        item.durationSeconds,
+        input.practiceClassId ?? null,
+        input.practiceTitle ?? "",
+        input.practiceNote ?? "",
       ],
     });
     await transaction.execute({
@@ -3407,6 +3454,7 @@ export async function listSubmissionsByClassId(classId: string, ownerEmail?: str
       a.title as assignmentTitle,
       s.student_name as studentName,
       s.student_email as studentEmail,
+      s.duration_seconds as durationSeconds,
       s.submitted_at as submittedAt,
       COALESCE(s.feedback, '') as feedback,
       s.grade as grade,
@@ -3430,6 +3478,7 @@ export async function listSubmissionsByClassId(classId: string, ownerEmail?: str
     studentName: toStringValue(row.studentName),
     studentEmail: toStringValue(row.studentEmail),
     audioData: toProtectedAudioPath(toStringValue(row.id)),
+    durationSeconds: toNullableNumber(row.durationSeconds),
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
@@ -3443,18 +3492,21 @@ export async function listSubmissionsByStudentEmail(studentEmail: string): Promi
     `SELECT
       s.id as id,
       s.assignment_id as assignmentId,
-      a.title as assignmentTitle,
+      COALESCE(a.title, 'Open Mic') as assignmentTitle,
       c.id as classId,
       c.name as className,
       a.max_points as maxPoints,
       s.student_name as studentName,
+      s.duration_seconds as durationSeconds,
+      s.practice_class_id as practiceClassId, s.practice_title as practiceTitle,
+      s.practice_note as practiceNote, s.reviewed_at as reviewedAt,
       s.submitted_at as submittedAt,
       COALESCE(s.feedback, '') as feedback,
       s.grade as grade,
       s.grade_source as gradeSource
     FROM submissions s
-    JOIN assignments a ON a.id = s.assignment_id
-    JOIN classes c ON c.id = a.class_id
+    LEFT JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
     WHERE LOWER(s.student_email) = LOWER(?)
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
@@ -3471,10 +3523,36 @@ export async function listSubmissionsByStudentEmail(studentEmail: string): Promi
     maxPoints: toNumber(row.maxPoints),
     studentName: toStringValue(row.studentName),
     audioData: toStudentProtectedAudioPath(toStringValue(row.id)),
+    durationSeconds: toNullableNumber(row.durationSeconds),
+    practiceClassId: row.practiceClassId ? toStringValue(row.practiceClassId) : null,
+    practiceTitle: toStringValue(row.practiceTitle), practiceNote: toStringValue(row.practiceNote),
+    reviewedAt: toNullableNumber(row.reviewedAt),
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
     gradeSource: toStringValue(row.gradeSource) === "ai" ? "ai" : "teacher",
+  }));
+}
+
+export type PracticeSubmissionRow = SubmissionRow & { className: string; transcriptAvailable: boolean };
+
+export async function listPracticeSubmissions(classId: string, ownerEmail: string): Promise<PracticeSubmissionRow[]> {
+  const result = await query(`SELECT s.id, s.student_name as studentName, s.student_email as studentEmail,
+    s.practice_class_id as practiceClassId, s.practice_title as practiceTitle, s.practice_note as practiceNote,
+    s.duration_seconds as durationSeconds, s.submitted_at as submittedAt, s.reviewed_at as reviewedAt,
+    COALESCE(s.feedback, '') as feedback, c.name as className,
+    EXISTS (SELECT 1 FROM submission_transcripts st WHERE st.submission_id = s.id
+      AND LOWER(st.teacher_email) = LOWER(c.owner_email) AND TRIM(st.transcript) <> '') as transcriptAvailable
+    FROM submissions s JOIN classes c ON c.id = s.practice_class_id
+    WHERE c.id = ? AND LOWER(c.owner_email) = LOWER(?) AND c.deleted_at IS NULL AND s.deleted_at IS NULL
+    ORDER BY s.submitted_at DESC, s.id DESC`, [classId, ownerEmail]);
+  return result.rows.map(row => ({
+    id: toStringValue(row.id), assignmentId: "", assignmentTitle: "Open Mic", className: toStringValue(row.className),
+    studentName: toStringValue(row.studentName), studentEmail: toStringValue(row.studentEmail),
+    practiceClassId: toStringValue(row.practiceClassId), practiceTitle: toStringValue(row.practiceTitle), practiceNote: toStringValue(row.practiceNote),
+    audioData: toProtectedAudioPath(toStringValue(row.id)), durationSeconds: toNullableNumber(row.durationSeconds),
+    submittedAt: toNumber(row.submittedAt), reviewedAt: toNullableNumber(row.reviewedAt), feedback: toStringValue(row.feedback),
+    grade: null, gradeSource: "teacher", rubricScores: null, transcriptAvailable: Boolean(row.transcriptAvailable),
   }));
 }
 
@@ -3549,17 +3627,20 @@ export async function findSubmissionById(submissionId: string, ownerEmail?: stri
     `SELECT
       s.id as id,
       s.assignment_id as assignmentId,
-      a.title as assignmentTitle,
+      COALESCE(a.title, 'Open Mic') as assignmentTitle,
       s.student_name as studentName,
       s.student_email as studentEmail,
+      s.duration_seconds as durationSeconds,
+      s.practice_class_id as practiceClassId, s.practice_title as practiceTitle,
+      s.practice_note as practiceNote, s.reviewed_at as reviewedAt,
       s.submitted_at as submittedAt,
       COALESCE(s.feedback, '') as feedback,
       s.grade as grade,
       s.grade_source as gradeSource,
       s.rubric_scores as rubricScores
     FROM submissions s
-    JOIN assignments a ON a.id = s.assignment_id
-    JOIN classes c ON c.id = a.class_id
+    LEFT JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
     WHERE s.id = ?
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
@@ -3577,6 +3658,10 @@ export async function findSubmissionById(submissionId: string, ownerEmail?: stri
     studentName: toStringValue(row.studentName),
     studentEmail: toStringValue(row.studentEmail),
     audioData: toProtectedAudioPath(toStringValue(row.id)),
+    durationSeconds: toNullableNumber(row.durationSeconds),
+    practiceClassId: row.practiceClassId ? toStringValue(row.practiceClassId) : null,
+    practiceTitle: toStringValue(row.practiceTitle), practiceNote: toStringValue(row.practiceNote),
+    reviewedAt: toNullableNumber(row.reviewedAt),
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
     grade: toNullableNumber(row.grade),
@@ -3595,8 +3680,8 @@ export async function findSubmissionAccessById(
       s.student_email as studentEmail,
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl
     FROM submissions s
-    JOIN assignments a ON a.id = s.assignment_id
-    JOIN classes c ON c.id = a.class_id
+    LEFT JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
     WHERE s.id = ?
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
@@ -3624,8 +3709,8 @@ export async function findStudentSubmissionAudioAccessById(
       s.student_email as studentEmail,
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl
     FROM submissions s
-    JOIN assignments a ON a.id = s.assignment_id
-    JOIN classes c ON c.id = a.class_id
+    LEFT JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
     WHERE s.id = ?
       AND LOWER(s.student_email) = LOWER(?)
       AND s.deleted_at IS NULL
@@ -3646,17 +3731,18 @@ export async function findStudentSubmissionAudioAccessById(
 export async function updateSubmission(
   submissionId: string,
   ownerEmail: string,
-  input: { studentName: string; grade: number | null; feedback: string; rubricScores: RubricScore[] | null }
+  input: { studentName: string; grade: number | null; feedback: string; rubricScores: RubricScore[] | null; reviewedAt?: number | null }
 ) {
   await query(
     `UPDATE submissions
-    SET student_name = ?, grade = ?, feedback = ?, rubric_scores = ?, grade_source = 'teacher'
+    SET student_name = ?, grade = ?, feedback = ?, rubric_scores = ?, grade_source = 'teacher',
+      reviewed_at = CASE WHEN ? THEN ? ELSE reviewed_at END
     WHERE id = ?
       AND id IN (
         SELECT s.id
         FROM submissions s
-        JOIN assignments a ON a.id = s.assignment_id
-        JOIN classes c ON c.id = a.class_id
+        LEFT JOIN assignments a ON a.id = s.assignment_id
+        JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
         WHERE s.id = ?
           AND c.deleted_at IS NULL
           AND LOWER(c.owner_email) = LOWER(?)
@@ -3667,6 +3753,8 @@ export async function updateSubmission(
       input.grade,
       input.feedback,
       stringifyJsonValue(input.rubricScores),
+      input.reviewedAt !== undefined ? 1 : 0,
+      input.reviewedAt ?? null,
       submissionId,
       submissionId,
       ownerEmail,
@@ -4182,8 +4270,8 @@ export async function deleteSubmission(submissionId: string, ownerEmail: string)
       AND id IN (
         SELECT s.id
         FROM submissions s
-        JOIN assignments a ON a.id = s.assignment_id
-        JOIN classes c ON c.id = a.class_id
+        LEFT JOIN assignments a ON a.id = s.assignment_id
+        JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
         WHERE s.id = ?
           AND c.deleted_at IS NULL
           AND LOWER(c.owner_email) = LOWER(?)
@@ -7160,6 +7248,8 @@ export async function getAiBillingMonthlySummary(
 }
 
 export type SubmissionForAiGradeRow = {
+  practiceClassId?: string | null;
+  durationSeconds?: number | null;
   submissionId: string;
   assignmentId: string;
   assignmentTitle: string;
@@ -7557,8 +7647,9 @@ export async function findOwnedSubmissionForAiReview(
   const result = await query(
     `SELECT
       s.id as submissionId,
-      a.id as assignmentId,
-      a.title as assignmentTitle,
+      COALESCE(a.id, 'practice:' || c.id) as assignmentId,
+      s.practice_class_id as practiceClassId, s.duration_seconds as durationSeconds,
+      COALESCE(a.title, 'Open Mic') as assignmentTitle,
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl,
       COALESCE(a.description, '') as description,
       a.instructions as instructions,
@@ -7569,8 +7660,8 @@ export async function findOwnedSubmissionForAiReview(
       s.grade_source as finalGradeSource,
       COALESCE(s.feedback, '') as finalFeedback
     FROM submissions s
-    JOIN assignments a ON a.id = s.assignment_id
-    JOIN classes c ON c.id = a.class_id
+    LEFT JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
     WHERE s.id = ?
       AND s.deleted_at IS NULL
       AND a.deleted_at IS NULL
@@ -7582,6 +7673,8 @@ export async function findOwnedSubmissionForAiReview(
   const row = result.rows[0];
   if (!row) return null;
   return {
+    practiceClassId: row.practiceClassId ? toStringValue(row.practiceClassId) : null,
+    durationSeconds: toNullableNumber(row.durationSeconds),
     submissionId: toStringValue(row.submissionId),
     assignmentId: toStringValue(row.assignmentId),
     assignmentTitle: toStringValue(row.assignmentTitle),
@@ -7647,8 +7740,8 @@ const SUBMISSION_TRANSCRIPT_SELECT = `SELECT
   st.updated_at as updatedAt
 FROM submission_transcripts st
 JOIN submissions s ON s.id = st.submission_id
-JOIN assignments a ON a.id = s.assignment_id
-JOIN classes c ON c.id = a.class_id`;
+LEFT JOIN assignments a ON a.id = s.assignment_id
+JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)`;
 
 export async function findSubmissionTranscriptForOwner(
   submissionId: string,
@@ -7758,8 +7851,8 @@ async function upsertSubmissionTranscriptInTransaction(input: {
     )
     SELECT ?, s.id, LOWER(c.owner_email), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
     FROM submissions s
-    JOIN assignments a ON a.id = s.assignment_id
-    JOIN classes c ON c.id = a.class_id
+    LEFT JOIN assignments a ON a.id = s.assignment_id
+    JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
     WHERE s.id = ?
       AND LOWER(c.owner_email) = LOWER(?)
       AND s.deleted_at IS NULL
@@ -7971,8 +8064,8 @@ export async function copyConsumedReviewTranscriptToSubmission(input: {
             st.latency_ms as latencyMs
           FROM submission_transcripts st
           JOIN submissions s ON s.id = st.submission_id
-          JOIN assignments a ON a.id = s.assignment_id
-          JOIN classes c ON c.id = a.class_id
+          LEFT JOIN assignments a ON a.id = s.assignment_id
+          JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
           WHERE st.id = ?
             AND LOWER(st.teacher_email) = LOWER(?)
             AND st.semantic_key = ?
@@ -7997,8 +8090,8 @@ export async function copyConsumedReviewTranscriptToSubmission(input: {
             ag.latency_ms as latencyMs
           FROM ai_grading_attempts ag
           JOIN submissions s ON s.id = ag.submission_id
-          JOIN assignments a ON a.id = s.assignment_id
-          JOIN classes c ON c.id = a.class_id
+          LEFT JOIN assignments a ON a.id = s.assignment_id
+          JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
           WHERE ag.id = ?
             AND LOWER(ag.teacher_email) = LOWER(?)
             AND ag.cache_key = ?
@@ -9523,6 +9616,7 @@ export async function listStudentAssignmentSummaries(
        COALESCE(a.max_points, 100) as maxPoints,
        a.created_at as createdAt,
        s.id as submissionId,
+       s.duration_seconds as durationSeconds,
        s.submitted_at as submittedAt,
        s.grade as grade,
        COALESCE(s.feedback, '') as feedback
@@ -9539,7 +9633,7 @@ export async function listStudentAssignmentSummaries(
      ORDER BY s.submitted_at IS NULL, s.submitted_at DESC, a.created_at DESC`,
     [studentEmail, classId, ownerEmail]
   );
-  return result.rows.map((row) => ({
+  const assignments = result.rows.map((row) => ({
     assignmentId: toStringValue(row.assignmentId),
     assignmentTitle: toStringValue(row.assignmentTitle),
     maxPoints: toNumber(row.maxPoints),
@@ -9548,10 +9642,18 @@ export async function listStudentAssignmentSummaries(
     audioData: row.submissionId
       ? toProtectedAudioPath(toStringValue(row.submissionId))
       : null,
+    durationSeconds: toNullableNumber(row.durationSeconds),
     submittedAt: row.submittedAt ? toNumber(row.submittedAt) : null,
     grade: toNullableNumber(row.grade),
     feedback: toStringValue(row.feedback),
   }));
+  const practice = (await listPracticeSubmissions(classId, ownerEmail)).filter(item => item.studentEmail.toLowerCase() === studentEmail.toLowerCase());
+  return [...assignments, ...practice.map(item => ({
+    assignmentId: "", assignmentTitle: item.practiceTitle || "Open Mic", maxPoints: 0,
+    practiceClassId: item.practiceClassId, reviewedAt: item.reviewedAt, createdAt: item.submittedAt,
+    submissionId: item.id, audioData: item.audioData, durationSeconds: item.durationSeconds,
+    submittedAt: item.submittedAt, grade: null, feedback: item.feedback,
+  }))].sort((a, b) => (b.submittedAt ?? 0) - (a.submittedAt ?? 0));
 }
 
 const AI_DAILY_GENERATION_QUOTA_LEASE_MS = 16 * 60 * 1000;
