@@ -7,6 +7,8 @@ TryHabla is a Next.js app for language teachers to run speaking assignments:
 - export CSV gradebooks for PowerSchool import
 - collect product feedback from teachers and school teams
 
+**Portfolio review:** Start with the [security engineering case study](docs/portfolio-security-case-study.md) for the system architecture, implemented controls, incident investigation, evidence links, and known gaps.
+
 ## Requirements
 
 - Node.js 20+
