@@ -7,6 +7,7 @@ import ExternalBrowserNotice from "@/app/components/ExternalBrowserNotice";
 import SignInLink from "@/app/components/SignInLink";
 import PageTitle from "@/app/components/PageTitle";
 import { SITE_URL } from "@/app/constants";
+import { trackAnalyticsEvent } from "@/lib/analytics";
 import {
   buildTeacherRegistrationCallbackUrl,
   teacherReturnPathFromSearch,
@@ -80,6 +81,7 @@ export default function TeacherRegisterPage() {
         throw new Error(data.error || "Unable to update your role.");
       }
 
+      trackAnalyticsEvent("sign_up", { method: "teacher_self_service" });
       router.push(teacherReturnPath);
       router.refresh();
     } catch (error) {

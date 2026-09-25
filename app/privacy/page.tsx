@@ -23,7 +23,7 @@ export default function PrivacyPage() {
           that a school or district has approved TryHabla, and a signed school or district agreement
           may add different instructions.
         </p>
-        <p className="meta">Last updated: August 26, 2026</p>
+        <p className="meta">Last updated: September 25, 2026</p>
       </header>
 
       <article className="card legal-document">
@@ -59,6 +59,12 @@ export default function PrivacyPage() {
               browser settings such as theme or dismissed notices.
             </li>
             <li>
+              <strong>Public-site analytics, when enabled:</strong> page views and limited interaction
+              events on public marketing, teacher-registration, billing, and contact pages. TryHabla
+              does not send student names, emails, recordings, transcripts, assignment text, rubric
+              text, or classroom identifiers as analytics event parameters.
+            </li>
+            <li>
               <strong>Product billing information, only when paid features are used:</strong> Stripe
               billing status, AI-assisted recording allowance totals, and identifiers returned by
               Stripe.
@@ -70,6 +76,24 @@ export default function PrivacyPage() {
               activate product access, subscriptions, or AI credits.
             </li>
           </ul>
+        </section>
+
+        <section className="legal-section" aria-labelledby="privacy-analytics">
+          <h2 id="privacy-analytics">Public-site analytics</h2>
+          <p>
+            When Google Analytics or Google Tag Manager is enabled, TryHabla limits that
+            instrumentation to an explicit set of public acquisition pages plus teacher registration,
+            billing, and contact pages. Student workspace, assignment-submission, teacher classroom,
+            admin, and API routes are excluded from TryHabla&apos;s analytics event layer.
+          </p>
+          <p>
+            The limited events can include the page path, page title, navigation destination,
+            teacher-account creation, checkout start, subscription confirmation, and contact or school
+            lead submission. Google may also receive ordinary technical information associated with
+            web analytics, such as browser/device information, referrer information, and network
+            information. TryHabla configures its direct Google Analytics tag without Google Signals or
+            ad-personalization signals.
+          </p>
         </section>
 
         <section className="legal-section" aria-labelledby="privacy-ai">
@@ -138,8 +162,10 @@ export default function PrivacyPage() {
           <h2 id="privacy-sharing">Who information may be shared with</h2>
           <p>
             The application uses service providers to operate. Depending on deployment settings,
-            these can include Google or Microsoft for sign-in; Vercel for hosting and file storage;
-            Turso for the application database; Upstash for rate limiting; Resend or an operational
+            these can include Google or Microsoft for sign-in; Google Analytics and Google Tag
+            Manager for the limited public-site analytics described above when enabled; Vercel for
+            hosting and file storage; Turso for the application database; Upstash for rate limiting;
+            Resend or an operational
             notification service for messages; Stripe for optional product billing; PayPal only
             when a person chooses to make a separate voluntary donation; and
             configured AI infrastructure and model providers when AI is enabled.
@@ -171,8 +197,10 @@ export default function PrivacyPage() {
           <p>
             AI transcript and attempt records follow the related submission. Contact messages remain
             until an administrator deletes them. Account records and basic activity events do not
-            yet have an automatic deletion schedule. Service-provider logs and backups may follow
-            separate schedules that are still being verified for district use.
+            yet have an automatic deletion schedule. If public-site Google analytics is enabled,
+            analytics data follows the retention settings of the configured Google Analytics
+            property. Service-provider logs and backups may follow separate schedules that are still
+            being verified for district use.
           </p>
           <p>
             TryHabla does not promise permanent storage. A user-directed Google Drive export is a

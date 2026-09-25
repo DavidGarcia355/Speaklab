@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, CreditCard, LoaderCircle, TriangleAlert } from "lucide-react";
 import SignInLink from "@/app/components/SignInLink";
+import { trackAnalyticsEvent } from "@/lib/analytics";
 import {
   billingStatusConfirmsAccess,
   deriveBillingPresentation,
@@ -60,6 +61,7 @@ export default function BillingPanel() {
   const [checkoutReturn, setCheckoutReturn] = useState<CheckoutReturnState>("none");
   const [authFailure, setAuthFailure] = useState<401 | 403 | null>(null);
   const [error, setError] = useState("");
+  const didTrackSubscription = useRef(false);
   const hasLoadedStatus = status !== null;
   const accessConfirmed = status ? billingStatusConfirmsAccess(status) : false;
 
@@ -142,6 +144,16 @@ export default function BillingPanel() {
     };
   }, [accessConfirmed, checkoutReturn, hasLoadedStatus, loading, loadStatus]);
 
+  useEffect(() => {
+    if (checkoutReturn !== "confirmed" || didTrackSubscription.current) return;
+    didTrackSubscription.current = true;
+    trackAnalyticsEvent("subscription_confirmed", {
+      plan: "teacher",
+      value: 20,
+      currency: "USD",
+    });
+  }, [checkoutReturn]);
+
   async function openStripe(kind: "checkout" | "portal") {
     setAction(kind);
     setError("");
@@ -151,6 +163,10 @@ export default function BillingPanel() {
       if (!response.ok || !body.url) {
         throw new Error(body.error || "Stripe could not be opened right now.");
       }
+      trackAnalyticsEvent(kind === "checkout" ? "begin_checkout" : "billing_portal_open", {
+        plan: "teacher",
+        ...(kind === "checkout" ? { value: 20, currency: "USD" } : {}),
+      });
       window.location.assign(body.url);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Stripe could not be opened right now.");

@@ -7,6 +7,7 @@ import {
   SITE_URL,
 } from "@/app/constants";
 import SiteFooter from "@/app/components/SiteFooter";
+import GoogleAnalytics from "@/app/components/GoogleAnalytics";
 import "@/app/student/motion/student-motion.css";
 import "./globals.css";
 
@@ -53,6 +54,9 @@ export const metadata: Metadata = {
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
   },
+  verification: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+    ? { google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }
+    : undefined,
 };
 
 export default function RootLayout({
@@ -78,6 +82,7 @@ export default function RootLayout({
           {children}
           <SiteFooter />
         </div>
+        <GoogleAnalytics />
       </body>
     </html>
   );
