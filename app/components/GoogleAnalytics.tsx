@@ -12,6 +12,7 @@ import {
 
 const GA_ID = process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID?.trim() || "";
 const GTM_ID = process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID?.trim() || "";
+const DIRECT_GA_FALLBACK = Boolean(GA_ID && !GTM_ID);
 
 function setGaDisabled(disabled: boolean) {
   if (!GA_ID) return;
@@ -27,6 +28,8 @@ export default function GoogleAnalytics() {
 
     setGaDisabled(!pagePath);
     if (!pagePath) return;
+
+    if (!DIRECT_GA_FALLBACK) return;
 
     const gtag = ensureGoogleTag();
     gtag("config", GA_ID, {
@@ -75,7 +78,7 @@ export default function GoogleAnalytics() {
 
   return (
     <>
-      {GA_ID ? (
+      {DIRECT_GA_FALLBACK ? (
         <>
           <Script
             id="tryhabla-ga4-loader"
