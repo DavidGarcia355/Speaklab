@@ -9,6 +9,7 @@ import {
   parseAuthSupportCode,
 } from "@/lib/auth-diagnostics-shared";
 import type { FeedbackContextInput } from "@/lib/feedback-context";
+import { trackAnalyticsEvent } from "@/lib/analytics";
 
 type FeedbackForm = {
   name: string;
@@ -87,6 +88,9 @@ export default function FeedbackPage() {
         throw new Error(data.error || "Unable to submit feedback right now.");
       }
 
+      trackAnalyticsEvent("generate_lead", {
+        lead_type: intent === "schools" ? "schools" : intent === "auth" ? "auth_support" : "feedback",
+      });
       setStatus("Thanks. Your feedback was submitted successfully.");
       setForm(INITIAL_FORM);
     } catch (error) {
