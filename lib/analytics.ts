@@ -1,5 +1,9 @@
 export type AnalyticsParams = Record<string, string | number | boolean>;
 
+const GA_ID = process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID?.trim() || "";
+const GTM_ID = process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID?.trim() || "";
+const DIRECT_GA_FALLBACK = Boolean(GA_ID && !GTM_ID);
+
 const ANALYTICS_PATHS = new Set([
   "/",
   "/about",
@@ -70,8 +74,10 @@ export function trackAnalyticsEvent(name: string, params: AnalyticsParams = {}) 
     ...params,
   });
 
-  window.gtag?.("event", name, {
-    page_path: pagePath,
-    ...params,
-  });
+  if (DIRECT_GA_FALLBACK) {
+    window.gtag?.("event", name, {
+      page_path: pagePath,
+      ...params,
+    });
+  }
 }
