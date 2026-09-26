@@ -8,6 +8,7 @@ import {
 } from "@/app/constants";
 import SiteFooter from "@/app/components/SiteFooter";
 import GoogleAnalytics from "@/app/components/GoogleAnalytics";
+import { GOOGLE_SITE_VERIFICATION } from "@/lib/public-google-config";
 import "@/app/student/motion/student-motion.css";
 import "./globals.css";
 
@@ -54,8 +55,8 @@ export const metadata: Metadata = {
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
   },
-  verification: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
-    ? { google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }
+  verification: GOOGLE_SITE_VERIFICATION
+    ? { google: GOOGLE_SITE_VERIFICATION }
     : undefined,
 };
 
