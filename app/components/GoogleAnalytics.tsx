@@ -9,9 +9,13 @@ import {
   normalizeAnalyticsPath,
   trackAnalyticsEvent,
 } from "@/lib/analytics";
+import {
+  GOOGLE_ANALYTICS_ID,
+  GOOGLE_TAG_MANAGER_ID,
+} from "@/lib/public-google-config";
 
-const GA_ID = process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID?.trim() || "";
-const GTM_ID = process.env.NEXT_PUBLIC_GOOGLE_TAG_MANAGER_ID?.trim() || "";
+const GA_ID = GOOGLE_ANALYTICS_ID;
+const GTM_ID = GOOGLE_TAG_MANAGER_ID;
 const DIRECT_GA_FALLBACK = Boolean(GA_ID && !GTM_ID);
 
 function setGaDisabled(disabled: boolean) {
