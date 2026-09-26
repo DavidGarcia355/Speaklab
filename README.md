@@ -21,6 +21,25 @@ npm run dev
 
 Open `http://127.0.0.1:3000`.
 
+### macOS local mock setup
+
+For local development without external service credentials, create an ignored
+`.env.local` with `NEXTAUTH_URL=http://localhost:3000`, a randomly generated
+`AUTH_SECRET`, `ALLOW_TEACHER_SELF_REGISTRATION=true`,
+`LOCAL_DEV_BYPASS_AUTH=true`, `AI_GRADING_ENABLED=true`,
+`AI_BULK_GRADING_ENABLED=true`, and both `AI_TRANSCRIPTION_PROVIDER=mock` and
+`AI_GRADING_PROVIDER=mock`. Then run:
+
+```bash
+npm ci
+npm run ai:seed
+npm run dev:local
+```
+
+Open `http://localhost:3000/teacher`. Use `npm run dev:status` and
+`npm run dev:stop` to inspect or stop the local server. The local mock uses
+synthetic AI results; live integrations still require their own credentials.
+
 For repeatable local AI-grading testing on Windows, use:
 
 ```powershell
