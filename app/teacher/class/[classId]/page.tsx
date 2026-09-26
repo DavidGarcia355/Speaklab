@@ -1,5 +1,6 @@
 "use client";
 
+import VideoAccommodations from "@/app/teacher/components/VideoAccommodations";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -75,6 +76,8 @@ type AssignmentSummary = {
   maxSubmissions: number;
   maxRecordingSeconds: number;
   autoTranscribe: boolean;
+  videoMode: "off" | "optional" | "required";
+  autoGradeVideo: boolean;
   rubric: {
     title: string;
     criteria: {
@@ -98,6 +101,7 @@ type SubmissionItem = {
   studentName: string;
   studentEmail: string;
   audioData: string;
+  videoUrl?: string;
   durationSeconds?: number | null;
   submittedAt: number;
   feedback: string;
@@ -435,6 +439,10 @@ export default function ClassDetailPage() {
   const [assignmentMaxSubmissionsDraft, setAssignmentMaxSubmissionsDraft] = useState("");
   const [assignmentMaxRecordingSecondsDraft, setAssignmentMaxRecordingSecondsDraft] = useState("180");
   const [assignmentAutoTranscribeDraft, setAssignmentAutoTranscribeDraft] = useState(false);
+  const [assignmentVideoModeDraft, setAssignmentVideoModeDraft] = useState<"off" | "optional" | "required">("off");
+  const [assignmentAutoGradeVideoDraft, setAssignmentAutoGradeVideoDraft] = useState(false);
+  const [videoAvailable, setVideoAvailable] = useState(false);
+  const [videoAiAvailable, setVideoAiAvailable] = useState(false);
   const [assignmentAttachmentDraft, setAssignmentAttachmentDraft] = useState<AttachmentDraft>(null);
   const [assignmentAttachmentRemoved, setAssignmentAttachmentRemoved] = useState(false);
   const [assignmentSaving, setAssignmentSaving] = useState(false);
@@ -752,6 +760,12 @@ export default function ClassDetailPage() {
         if (active) setAiGradingEnabled(data.aiGradingEnabled === true);
         if (active) setAiBulkGradingEnabled(data.aiBulkGradingEnabled === true);
         if (active) setLocalAiTestMode(data.localAiTestMode === true);
+        const videoResponse = await fetch("/api/teacher/video-availability", { cache: "no-store" });
+        if (videoResponse.ok && active) {
+          const video = await videoResponse.json() as { enabled?: boolean; aiEnabled?: boolean };
+          setVideoAvailable(video.enabled === true);
+          setVideoAiAvailable(video.aiEnabled === true);
+        }
       } catch {
         if (active) setAiGradingEnabled(false);
         if (active && process.env.NODE_ENV !== "production") {
@@ -1876,6 +1890,8 @@ export default function ClassDetailPage() {
     setAssignmentMaxSubmissionsDraft(String(activeAssignment.maxSubmissions || ""));
     setAssignmentMaxRecordingSecondsDraft(String(activeAssignment.maxRecordingSeconds || 180));
     setAssignmentAutoTranscribeDraft(activeAssignment.autoTranscribe === true);
+    setAssignmentVideoModeDraft(activeAssignment.videoMode ?? "off");
+    setAssignmentAutoGradeVideoDraft(activeAssignment.autoGradeVideo === true);
     setAssignmentAttachmentDraft(null);
     setAssignmentAttachmentRemoved(false);
     setAssignmentError("");
@@ -1999,6 +2015,8 @@ export default function ClassDetailPage() {
               maxSubmissions: assignmentMaxSubmissionsDraft.trim() === "" ? 0 : Number(assignmentMaxSubmissionsDraft),
               maxRecordingSeconds: Number(assignmentMaxRecordingSecondsDraft) || 180,
               autoTranscribe: assignmentAutoTranscribeDraft,
+              videoMode: assignmentVideoModeDraft,
+              autoGradeVideo: assignmentVideoModeDraft !== "off" && assignmentAutoGradeVideoDraft,
               rubric: rubricPayload,
               attachmentName: assignmentAttachmentDraft?.fileName ?? (assignmentAttachmentRemoved ? "" : row.attachmentName),
               attachmentUrl: assignmentAttachmentRemoved ? "" : row.attachmentUrl,
@@ -2021,6 +2039,8 @@ export default function ClassDetailPage() {
           maxSubmissions: assignmentMaxSubmissionsDraft.trim() === "" ? 0 : Number(assignmentMaxSubmissionsDraft),
           maxRecordingSeconds: Number(assignmentMaxRecordingSecondsDraft) || 180,
           autoTranscribe: assignmentAutoTranscribeDraft,
+          videoMode: assignmentVideoModeDraft,
+          autoGradeVideo: assignmentVideoModeDraft !== "off" && assignmentAutoGradeVideoDraft,
           rubric: rubricPayload,
           attachment: attachmentPayload,
         }),
@@ -2037,6 +2057,8 @@ export default function ClassDetailPage() {
           maxSubmissions: number;
           maxRecordingSeconds: number;
           autoTranscribe: boolean;
+          videoMode: "off" | "optional" | "required";
+          autoGradeVideo: boolean;
           rubric: AssignmentSummary["rubric"];
           attachmentName: string;
           attachmentUrl: string;
@@ -2060,6 +2082,8 @@ export default function ClassDetailPage() {
                 maxSubmissions: data.item!.maxSubmissions,
                 maxRecordingSeconds: data.item!.maxRecordingSeconds,
                 autoTranscribe: data.item!.autoTranscribe,
+                videoMode: data.item!.videoMode,
+                autoGradeVideo: data.item!.autoGradeVideo,
                 rubric: data.item!.rubric,
                 attachmentName: data.item!.attachmentName,
                 attachmentUrl: data.item!.attachmentUrl,
@@ -2898,12 +2922,15 @@ export default function ClassDetailPage() {
                               </button>
                             </section>
                           ) : null}
-                          <AudioPlayer
-                            durationSeconds={submission.durationSeconds}
-                            src={submission.audioData}
-                            variant="compact"
-                            downloadFilename={downloadFilenameBase}
-                          />
+                          {submission.videoUrl ? (
+                            <video src={submission.videoUrl} controls playsInline preload="none"
+                              aria-label={`Video response from ${submission.studentName}`}
+                              style={{ width: "100%", maxWidth: 640 }} />
+                          ) : (
+                            <AudioPlayer durationSeconds={submission.durationSeconds}
+                              src={submission.audioData} variant="compact"
+                              downloadFilename={downloadFilenameBase} />
+                          )}
                           <GoogleDriveExportButton
                             submissionId={submission.id}
                             studentName={submission.studentName}
@@ -3404,6 +3431,25 @@ export default function ClassDetailPage() {
             <label className="label form-label-top" htmlFor="edit-assignment-max-recording">Max recording length (seconds)</label>
             <input id="edit-assignment-max-recording" className="input" type="number" min={10} max={300} step={1} inputMode="numeric" value={assignmentMaxRecordingSecondsDraft} onChange={(event) => setAssignmentMaxRecordingSecondsDraft(event.target.value)} />
             <p className="meta field-meta">10–300 seconds. Default 180.</p>
+            {videoAvailable || activeAssignment?.videoMode !== "off" ? (
+              <>
+                <label className="label form-label-top" htmlFor="edit-assignment-video-mode">Video responses</label>
+                <select id="edit-assignment-video-mode" className="input" value={assignmentVideoModeDraft}
+                  onChange={(event) => { setAssignmentVideoModeDraft(event.target.value as typeof assignmentVideoModeDraft); setAssignmentAutoGradeVideoDraft(false); }}>
+                  <option value="off">Audio only</option>
+                  <option value="optional" disabled={!videoAvailable}>Video optional</option>
+                  <option value="required" disabled={!videoAvailable}>Video required</option>
+                </select>
+                {assignmentVideoModeDraft !== "off" && videoAiAvailable ? (
+                  <label className="checkbox-row form-label-top">
+                    <input type="checkbox" checked={assignmentAutoGradeVideoDraft}
+                      onChange={(event) => setAssignmentAutoGradeVideoDraft(event.target.checked)} />
+                    Automatically prepare AI draft grades for video
+                  </label>
+                ) : null}
+              </>
+            ) : null}
+            {activeAssignment?.videoMode === "required" ? <VideoAccommodations assignmentId={activeAssignment.id} /> : null}
             {aiGradingEnabled || activeAssignment?.autoTranscribe ? (
               <>
                 <label className="checkbox-row form-label-top">

@@ -4,6 +4,10 @@ const mocks = vi.hoisted(() => ({
   claimJobs: vi.fn(),
   findAssignment: vi.fn(),
   findSubmission: vi.fn(),
+  findVideoMedia: vi.fn(),
+  gradeOne: vi.fn(),
+  videoAiEnabled: vi.fn(),
+  isVideoTeacherApproved: vi.fn(),
   isJobActive: vi.fn(),
   settleJob: vi.fn(),
   getAiConfig: vi.fn(),
@@ -16,15 +20,24 @@ vi.mock("@/lib/db", () => ({
   claimAutomaticTranscriptionJobs: mocks.claimJobs,
   findAssignmentById: mocks.findAssignment,
   findOwnedSubmissionForAiReview: mocks.findSubmission,
+  findSubmissionAccessById: mocks.findVideoMedia,
   isAutomaticTranscriptionJobActive: mocks.isJobActive,
   settleAutomaticTranscriptionJob: mocks.settleJob,
 }));
 
 vi.mock("@/lib/ai/config", () => ({
   getAiConfig: mocks.getAiConfig,
+  assertAiProviderConfig: mocks.assertProviderConfig,
   assertAiTranscriptionProviderConfig: mocks.assertProviderConfig,
   isAiTeacherDenied: mocks.isTeacherDenied,
 }));
+
+vi.mock("@/lib/video-policy", () => ({
+  videoAiEnabled: mocks.videoAiEnabled,
+  isVideoTeacherApproved: mocks.isVideoTeacherApproved,
+}));
+
+vi.mock("@/lib/ai/grade-one", () => ({ gradeOneSubmission: mocks.gradeOne }));
 
 vi.mock("@/lib/ai/transcript-one", () => ({
   transcribeOneSubmission: mocks.transcribeOne,
@@ -56,6 +69,10 @@ describe("automatic transcription worker", () => {
     mocks.isTeacherDenied.mockReturnValue(false);
     mocks.settleJob.mockResolvedValue(true);
     mocks.transcribeOne.mockResolvedValue({ status: "completed", item: { id: "tr_1" } });
+    mocks.findVideoMedia.mockResolvedValue({ videoBlobUrl: "videos/asg/video.webm" });
+    mocks.videoAiEnabled.mockReturnValue(true);
+    mocks.isVideoTeacherApproved.mockReturnValue(true);
+    mocks.gradeOne.mockResolvedValue({ status: "completed", attemptId: "ag_1" });
   });
 
   it("completes a queued transcript through the existing idempotent processor", async () => {
@@ -83,6 +100,17 @@ describe("automatic transcription worker", () => {
       leaseToken: job.leaseToken,
       status: "completed",
     }));
+  });
+
+  it("prepares a speech-based video draft without applying the grade", async () => {
+    mocks.findAssignment.mockResolvedValue({ id: job.assignmentId, autoTranscribe: false, autoGradeVideo: true });
+
+    await expect(processAutomaticTranscriptionJobs()).resolves.toMatchObject({ completed: 1 });
+    expect(mocks.gradeOne).toHaveBeenCalledWith(expect.objectContaining({
+      teacherEmail: job.teacherEmail,
+      deliveryMode: "suggestion_only",
+    }));
+    expect(mocks.transcribeOne).not.toHaveBeenCalled();
   });
 
   it("cancels without provider work when the assignment is deleted or switched off", async () => {

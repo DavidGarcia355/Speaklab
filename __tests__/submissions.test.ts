@@ -48,10 +48,10 @@ vi.mock("@/lib/rate-limit", () => ({
   enforceSubmissionRateLimit: mocks.mockEnforceSubmissionRateLimit,
 }));
 
-vi.mock("@/lib/validation", () => ({
+vi.mock("@/lib/validation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/validation")>()),
   parseAudioDataUrl: mocks.mockParseAudioDataUrl,
   parseOrThrow400: mocks.mockParseOrThrow400,
-  submissionCreateSchema: {},
 }));
 
 vi.mock("@/lib/env", () => ({

@@ -11,6 +11,7 @@ import {
   updateAssignment,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
+import { assertVideoAssignmentAllowed } from "@/lib/video-entitlement";
 import {
   assignmentUpdateSchema,
   parseAttachmentDataUrl,
@@ -49,6 +50,12 @@ export async function PATCH(
     }
 
     const body = parseOrThrow400(assignmentUpdateSchema, await request.json());
+    const nextVideoMode = body.videoMode ?? found.videoMode ?? "off";
+    const nextAutoGradeVideo = nextVideoMode !== "off" &&
+      (body.autoGradeVideo ?? found.autoGradeVideo ?? false);
+    await assertVideoAssignmentAllowed({ teacherEmail,
+      videoMode: nextVideoMode,
+      autoGradeVideo: nextAutoGradeVideo });
     const title = body.title ?? "";
     const description = body.description ?? found.description;
     const instructions = body.instructions ?? "";
@@ -91,6 +98,8 @@ export async function PATCH(
         attachmentUrl,
         attachmentContentType,
         autoTranscribe: body.autoTranscribe ?? found.autoTranscribe,
+        videoMode: nextVideoMode,
+        autoGradeVideo: nextAutoGradeVideo,
       });
     } catch (error) {
       if (newlyUploadedAttachment) {

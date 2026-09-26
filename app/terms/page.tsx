@@ -22,7 +22,7 @@ export default function TermsPage() {
           school or district has approved TryHabla. A signed agreement with a school or district will
           control if it conflicts with these terms.
         </p>
-        <p className="meta">Last updated: August 26, 2026</p>
+        <p className="meta">Last updated: September 24, 2026</p>
       </header>
 
       <article className="card legal-document">
@@ -108,6 +108,11 @@ export default function TermsPage() {
             as the only basis for a decision that materially affects a student. A teacher or school
             must decide whether AI is authorized before enabling it for student work.
           </p>
+          <p>
+            Where school-approved video is enabled, teachers may allow or require a camera response
+            for an assignment. Automatic video grading prepares a draft from the sound track; visual
+            performance remains for teacher review. A teacher must review and save the final grade.
+          </p>
         </section>
 
         <section className="legal-section" aria-labelledby="terms-payments">
@@ -130,6 +135,13 @@ export default function TermsPage() {
             minutes. Unused units do not roll over, and neither option has automatic overages.
             Reaching an allowance pauses AI transcription and grading while recording, playback,
             downloads, and manual grading remain available.
+          </p>
+          <p>
+            A verified Teacher subscription also includes up to 200 video uploads per Stripe billing
+            period where the school has approved video. Each video may be up to 20 MiB and the
+            assignment&apos;s recording limit, at most five minutes. Automatic speech-based AI draft
+            grading uses the existing 300 AI-assisted recording allowance. Video uploads pause at the
+            video limit, with no automatic overage charge.
           </p>
           <p>
             Teachers can review invoices, update payment details, or request cancellation through

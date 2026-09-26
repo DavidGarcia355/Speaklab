@@ -15,6 +15,7 @@ import {
   setUserDefaultLanguage,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
+import { assertVideoAssignmentAllowed } from "@/lib/video-entitlement";
 import {
   assignmentCreateSchema,
   parseAttachmentDataUrl,
@@ -37,6 +38,8 @@ export async function POST(
     }
 
     const body = parseOrThrow400(assignmentCreateSchema, await request.json());
+    await assertVideoAssignmentAllowed({ teacherEmail, videoMode: body.videoMode ?? "off",
+      autoGradeVideo: body.autoGradeVideo ?? false });
     const pendingAssignmentId = `asg_${crypto.randomUUID()}`;
     const title = body.title ?? "";
     const description = body.description ?? "";
@@ -94,6 +97,8 @@ export async function POST(
         attachmentUrl,
         attachmentContentType,
         autoTranscribe: body.autoTranscribe,
+        videoMode: body.videoMode,
+        autoGradeVideo: body.autoGradeVideo,
       });
     } catch (error) {
       if (newlyUploadedAttachment) {

@@ -89,6 +89,11 @@ export default function NewAssignmentPage() {
   const [maxSubmissions, setMaxSubmissions] = useState("");
   const [maxRecordingSeconds, setMaxRecordingSeconds] = useState("180");
   const [autoTranscribe, setAutoTranscribe] = useState(false);
+  const [videoMode, setVideoMode] = useState<"off" | "optional" | "required">("off");
+  const [autoGradeVideo, setAutoGradeVideo] = useState(false);
+  const [videoAvailable, setVideoAvailable] = useState(false);
+  const [videoAiAvailable, setVideoAiAvailable] = useState(false);
+  const [videoRemaining, setVideoRemaining] = useState<number | null>(null);
   const [aiTranscriptionEnabled, setAiTranscriptionEnabled] = useState(false);
   const [attachment, setAttachment] = useState<AttachmentDraft | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
@@ -147,6 +152,15 @@ export default function NewAssignmentPage() {
         } catch {
           setAiTranscriptionEnabled(false);
         }
+        try {
+          const videoResponse = await fetch("/api/teacher/video-availability", { cache: "no-store" });
+          if (videoResponse.ok) {
+            const availability = await videoResponse.json() as { enabled?: boolean; aiEnabled?: boolean; usage?: { remaining: number } };
+            setVideoAvailable(availability.enabled === true);
+            setVideoAiAvailable(availability.aiEnabled === true);
+            setVideoRemaining(availability.usage?.remaining ?? null);
+          }
+        } catch { setVideoAvailable(false); }
         setErrorMsg("");
       } catch (error) {
         const message = error instanceof Error ? error.message : "Class not found.";
@@ -265,6 +279,8 @@ export default function NewAssignmentPage() {
           maxSubmissions: parsedMaxSubmissions,
           maxRecordingSeconds: parsedMaxRecordingSeconds,
           autoTranscribe,
+          videoMode,
+          autoGradeVideo: videoMode !== "off" && autoGradeVideo,
           ...(rubricEnabled
             ? {
                 rubric: {
@@ -517,6 +533,29 @@ export default function NewAssignmentPage() {
             onChange={(event) => setMaxRecordingSeconds(event.target.value)}
           />
           <p className="meta field-meta">Between 10 and 300 seconds. Default is 180 (3 minutes).</p>
+
+          {videoAvailable ? (
+            <>
+              <label className="label form-label-top" htmlFor="assignment-video-mode">Video responses</label>
+              <select id="assignment-video-mode" className="input" value={videoMode}
+                onChange={(event) => { setVideoMode(event.target.value as typeof videoMode); setAutoGradeVideo(false); }}>
+                <option value="off">Audio only</option>
+                <option value="optional">Video optional for students</option>
+                <option value="required">Video required for students</option>
+              </select>
+              {videoMode !== "off" ? (
+                <>
+                  <p className="meta field-meta">Teacher plan: 200 videos per billing period{videoRemaining !== null ? ` (${videoRemaining} remaining)` : ""}, up to 20 MB and five minutes each.</p>
+                  {videoAiAvailable ? <label className="checkbox-row form-label-top">
+                    <input type="checkbox" checked={autoGradeVideo}
+                      onChange={(event) => setAutoGradeVideo(event.target.checked)} />
+                    Automatically prepare AI draft grades for video submissions
+                  </label> : null}
+                  <p className="meta field-meta">AI suggestions use the existing 300 recording allowance. Review every draft before assigning a final grade.</p>
+                </>
+              ) : null}
+            </>
+          ) : null}
 
           {aiTranscriptionEnabled ? (
             <>

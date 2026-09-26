@@ -2,7 +2,7 @@ import "server-only";
 import { BlobNotFoundError, del } from "@vercel/blob";
 import { getPrivateBlobCommandOptions } from "@/lib/audio-blob";
 
-export type BlobObjectClass = "audio" | "attachment";
+export type BlobObjectClass = "audio" | "attachment" | "video";
 
 function toDeletionTarget(value: string) {
   const trimmed = value.trim();
@@ -34,7 +34,7 @@ export async function deleteBlobObjects(
   for (const target of targets) {
     try {
       const commandOptions =
-        (options.objectClass === "audio" || options.objectClass === "attachment") &&
+        (options.objectClass === "audio" || options.objectClass === "attachment" || options.objectClass === "video") &&
         !isLegacyPublicBlobUrl(target)
           ? getPrivateBlobCommandOptions()
           : undefined;

@@ -12,6 +12,7 @@ import SignInLink from "@/app/components/SignInLink";
 import { STUDENT_AI_GRADING_DISCLOSURE } from "@/lib/ai/student-provenance";
 import PageTitle from "@/app/components/PageTitle";
 import SchoolNetworkNotice from "@/app/components/SchoolNetworkNotice";
+import VideoResponse from "./VideoResponse";
 import {
   cleanupFailedMediaRecorderStart,
   describeMicrophoneAccessFailure,
@@ -42,6 +43,8 @@ type AssignmentDetail = {
   maxSubmissions: number;
   maxRecordingSeconds: number;
   autoTranscribe: boolean;
+  videoMode: "off" | "optional" | "required";
+  autoGradeVideo: boolean;
   attachmentName: string;
   attachmentUrl: string;
   attachmentContentType: string;
@@ -187,6 +190,8 @@ export default function StudentAssignmentClient({
   const [studentName, setStudentName] = useState("");
   const [recordingUrl, setRecordingUrl] = useState("");
   const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
+  const [audioAccommodation, setAudioAccommodation] = useState(false);
+  const [videoBusy, setVideoBusy] = useState(false);
   const [recorderState, setRecorderState] = useState<RecorderState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
@@ -205,6 +210,15 @@ export default function StudentAssignmentClient({
   const [errorMsg, setErrorMsg] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
   const [studentEmail, setStudentEmail] = useState("");
+  useEffect(() => {
+    if (!assignment || assignment.videoMode !== "required" || (!studentEmail && !localAuthBypassEnabled)) return;
+    const controller = new AbortController();
+    fetch(`/api/student/assignments/${assignment.id}/video-eligibility`, { signal: controller.signal, cache: "no-store" })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => { if (!controller.signal.aborted) setAudioAccommodation(data?.audioAccommodation === true); })
+      .catch(() => { /* Required-video enforcement remains on if this check fails. */ });
+    return () => controller.abort();
+  }, [assignment, studentEmail, localAuthBypassEnabled]);
   const [callbackUrl, setCallbackUrl] = useState("/");
   const [submissionAccessState, setSubmissionAccessState] = useState<
     "idle" | "checking" | "allowed" | "blocked"
@@ -250,7 +264,8 @@ export default function StudentAssignmentClient({
           description: "A little practice goes a long way. Send your voice to your teacher.",
           instructions: "Practice something from class, try a new idea, or tell a short story. Add a title or note if you like, record or upload audio, then listen before sending.",
           targetLanguage: "", maxPoints: 0, maxSubmissions: 0, maxRecordingSeconds: 300,
-          autoTranscribe: false, attachmentName: "", attachmentUrl: "", attachmentContentType: "", createdAt: 0,
+          autoTranscribe: false, videoMode: "off", autoGradeVideo: false,
+          attachmentName: "", attachmentUrl: "", attachmentContentType: "", createdAt: 0,
         } : data.item);
       } catch (error) {
         setLoadErrorKind(errorKind === "none" ? "network" : errorKind);
@@ -917,6 +932,14 @@ export default function StudentAssignmentClient({
                 </div>
               </section>
 
+              {!practiceClassId && assignment.videoMode !== "off" ? (
+                <VideoResponse assignmentId={assignment.id} studentName={studentName}
+                  maxSeconds={maxRecSec} required={assignment.videoMode === "required" && !audioAccommodation} autoGrade={assignment.autoGradeVideo}
+                  onBusyChange={setVideoBusy}
+                  disabled={(!studentEmail && !localAuthBypassEnabled) || submissionAccessBlocked || atSubmissionLimit || recorderState === "recording" || recorderState === "requesting-permission" || recorderState === "submitting"}
+                  onSubmitted={() => setSubmissionCount((count) => count + 1)} />
+              ) : null}
+              {assignment.videoMode !== "required" || audioAccommodation ? <fieldset disabled={videoBusy} style={{ border: 0, padding: 0, margin: 0 }}>
               <section className={styles.step} aria-labelledby="record-step-title">
                 <div className={styles.stepHeader}>
                   <span className={styles.stepNumber} aria-hidden="true">02</span>
@@ -1058,6 +1081,7 @@ export default function StudentAssignmentClient({
                   )}
                 </div>
               </section>
+              </fieldset> : null}
             </div>
 
             <details className={styles.aiDisclosure}>
@@ -1076,6 +1100,10 @@ export default function StudentAssignmentClient({
                     send the recording to its configured AI transcription provider and save the transcript
                     for teacher review. This does not automatically grade the work.
                   </p>
+                ) : null}
+                {assignment.videoMode !== "off" ? (
+                  <p>Video responses are stored privately for your teacher to review. If automatic video grading is on,
+                    AI prepares a draft suggestion from the recording. Your teacher reviews the result and controls the final grade.</p>
                 ) : null}
               </div>
             </details>

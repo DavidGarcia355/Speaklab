@@ -11,8 +11,11 @@ import { DuplicateSubmissionError, PracticeAccessChangedError, SubmissionLimitRe
 export async function storeRecording(input: {
   assignmentId: string | null; practiceClassId?: string; practiceTitle?: string; practiceNote?: string;
   studentEmail: string; studentName: string; audioData: string; maxRecordingSeconds: number;
+  videoBlobUrl?: string; videoReservationId?: string;
+  verifiedAudio?: { buffer: Buffer; mimeType: "audio/webm" | "audio/mp4"; durationSeconds: number };
 }) {
-  const audio = parseAudioDataUrl(input.audioData);
+  if (input.videoBlobUrl && !input.verifiedAudio) throw new HttpError(400, "Verified video sound is required.");
+  const audio = input.verifiedAudio ?? parseAudioDataUrl(input.audioData);
   const durationSeconds = await assertRecordingDuration({ ...audio, maxRecordingSeconds: input.maxRecordingSeconds });
   const id = `sub_${crypto.randomUUID()}`;
   let audioBlobUrl: string;
@@ -26,6 +29,7 @@ export async function storeRecording(input: {
     return await createSubmission({
       id, assignmentId: input.assignmentId, studentName: input.studentName, studentEmail: input.studentEmail,
       audioBlobUrl, durationSeconds,
+      videoBlobUrl: input.videoBlobUrl, videoReservationId: input.videoReservationId,
       ...(input.practiceClassId ? { practiceClassId: input.practiceClassId, practiceTitle: input.practiceTitle, practiceNote: input.practiceNote } : {}),
     });
   } catch (error) {

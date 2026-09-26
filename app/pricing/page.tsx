@@ -31,6 +31,8 @@ const FREE_FEATURES = [
 
 const TEACHER_RULES = [
   "300 AI-assisted recordings in each Stripe billing period",
+  "Up to 200 private video responses per billing period where school-approved (20 MB each)",
+  "Optional AI draft grading of video speech uses the same 300-unit allowance",
   "A clean transcript is included; AI grading is optional",
   "Transcribing and grading the same recording uses one unit total",
   "Recordings can be up to five minutes each",

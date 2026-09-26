@@ -32,6 +32,7 @@ import type { FeedbackDiagnosticContext } from "@/lib/feedback-context";
 import { LIMITS, type Rubric, type RubricScore } from "@/lib/validation";
 import { AssignmentPointsBelowSavedGradeError } from "@/lib/assignment-errors";
 import { DuplicateSubmissionError, PracticeAccessChangedError, SubmissionLimitReachedError } from "@/lib/submission-errors";
+import { VIDEO_MONTHLY_LIMIT, VIDEO_UPLOAD_ATTEMPT_LIMIT, VIDEO_TRANSFER_BYTES_PER_MONTH, VIDEO_REQUESTS_PER_MONTH } from "@/lib/video-policy";
 
 const QUERY_TIMEOUT_MS = 5000;
 
@@ -67,8 +68,14 @@ export type AssignmentRow = {
   attachmentUrl: string;
   attachmentContentType: string;
   autoTranscribe: boolean;
+  videoMode: "off" | "optional" | "required";
+  autoGradeVideo: boolean;
   createdAt: number;
 };
+
+function parseVideoMode(value: unknown): AssignmentRow["videoMode"] {
+  return value === "required" || value === "optional" ? value : "off";
+}
 
 export type AutomaticTranscriptionJobRow = {
   id: string;
@@ -101,6 +108,7 @@ export type SubmissionRow = {
   studentName: string;
   studentEmail: string;
   audioData: string;
+  videoUrl?: string;
   submittedAt: number;
   feedback: string;
   grade: number | null;
@@ -131,6 +139,7 @@ export type StudentSubmissionRow = {
   maxPoints: number;
   studentName: string;
   audioData: string;
+  videoUrl?: string;
   submittedAt: number;
   feedback: string;
   grade: number | null;
@@ -734,8 +743,10 @@ function defaultRoleForEmail(email: string): UserRole {
 
 type SubmissionAccessRow = {
   id: string;
+  ownerEmail: string;
   studentEmail: string;
   audioBlobUrl: string;
+  videoBlobUrl: string;
 };
 
 function createDbClient(): Client {
@@ -992,6 +1003,35 @@ async function ensureInitialized() {
           grade INTEGER,
           grade_source TEXT NOT NULL DEFAULT 'teacher' CHECK (grade_source IN ('teacher', 'ai')),
           deleted_at INTEGER,
+          FOREIGN KEY(assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS video_audio_accommodations (
+          assignment_id TEXT NOT NULL,
+          student_email TEXT NOT NULL,
+          teacher_email TEXT NOT NULL,
+          granted_at INTEGER NOT NULL,
+          PRIMARY KEY(assignment_id, student_email),
+          FOREIGN KEY(assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS video_resource_usage (
+          teacher_email TEXT NOT NULL,
+          month_start INTEGER NOT NULL,
+          kind TEXT NOT NULL,
+          bytes INTEGER NOT NULL DEFAULT 0,
+          requests INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY(teacher_email, month_start, kind)
+        )`,
+        `CREATE TABLE IF NOT EXISTS video_upload_reservations (
+          id TEXT PRIMARY KEY,
+          assignment_id TEXT NOT NULL,
+          teacher_email TEXT NOT NULL,
+          student_email TEXT NOT NULL,
+          pathname TEXT NOT NULL UNIQUE,
+          period_start INTEGER NOT NULL,
+          period_end INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'completed', 'cancelled')),
+          created_at INTEGER NOT NULL,
+          submission_id TEXT,
           FOREIGN KEY(assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
         )`,
         `CREATE TABLE IF NOT EXISTS feedback_messages (
@@ -1488,8 +1528,11 @@ async function ensureInitialized() {
       await ensureColumn("assignments", "max_recording_seconds", "INTEGER NOT NULL DEFAULT 180");
       await ensureColumn("assignments", "target_language", "TEXT NOT NULL DEFAULT 'Spanish'");
       await ensureColumn("assignments", "auto_transcribe", "INTEGER NOT NULL DEFAULT 0");
+      await ensureColumn("assignments", "video_mode", "TEXT NOT NULL DEFAULT 'off'");
+      await ensureColumn("assignments", "auto_grade_video", "INTEGER NOT NULL DEFAULT 0");
       await ensureColumn("submissions", "student_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
+      await ensureColumn("submissions", "video_blob_url", "TEXT");
       await ensureColumn("submissions", "rubric_scores", "TEXT");
       await ensureColumn("submissions", "grade_source", "TEXT NOT NULL DEFAULT 'teacher'");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
@@ -2914,6 +2957,8 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
       COALESCE(a.attachment_url, '') as attachmentUrl,
       COALESCE(a.attachment_content_type, '') as attachmentContentType,
       COALESCE(a.auto_transcribe, 0) as autoTranscribe,
+      COALESCE(a.video_mode, 'off') as videoMode,
+      COALESCE(a.auto_grade_video, 0) as autoGradeVideo,
       a.created_at as createdAt,
       COUNT(s.id) as submissionCount
     FROM assignments a
@@ -2942,6 +2987,8 @@ export async function listAssignmentsByClassId(classId: string, ownerEmail?: str
     attachmentUrl: toStringValue(row.attachmentUrl),
     attachmentContentType: toStringValue(row.attachmentContentType),
     autoTranscribe: toNumber(row.autoTranscribe) === 1,
+    videoMode: parseVideoMode(row.videoMode),
+    autoGradeVideo: toNumber(row.autoGradeVideo) === 1,
     createdAt: toNumber(row.createdAt),
     submissionCount: toNumber(row.submissionCount),
   }));
@@ -2963,6 +3010,8 @@ export async function createAssignment(input: {
   attachmentUrl: string;
   attachmentContentType: string;
   autoTranscribe?: boolean;
+  videoMode?: "off" | "optional" | "required";
+  autoGradeVideo?: boolean;
 }): Promise<AssignmentRow> {
   await assertUniqueAssignmentTitle(input.classId, input.ownerEmail, input.title);
 
@@ -2981,13 +3030,15 @@ export async function createAssignment(input: {
     attachmentUrl: input.attachmentUrl,
     attachmentContentType: input.attachmentContentType,
     autoTranscribe: input.autoTranscribe === true,
+    videoMode: input.videoMode ?? "off",
+    autoGradeVideo: (input.videoMode ?? "off") !== "off" && input.autoGradeVideo === true,
     createdAt: Date.now(),
   };
   await query(
     `INSERT INTO assignments (
-      id, class_id, title, description, instructions, target_language, max_points, max_submissions, max_recording_seconds, rubric, attachment_name, attachment_url, attachment_content_type, auto_transcribe, created_at, deleted_at
+      id, class_id, title, description, instructions, target_language, max_points, max_submissions, max_recording_seconds, rubric, attachment_name, attachment_url, attachment_content_type, auto_transcribe, video_mode, auto_grade_video, created_at, deleted_at
     )
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
     WHERE EXISTS (
       SELECT 1 FROM classes c
       WHERE c.id = ?
@@ -3009,6 +3060,8 @@ export async function createAssignment(input: {
       item.attachmentUrl,
       item.attachmentContentType,
       item.autoTranscribe ? 1 : 0,
+      item.videoMode,
+      item.autoGradeVideo ? 1 : 0,
       item.createdAt,
       input.classId,
       input.ownerEmail,
@@ -3036,6 +3089,8 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
       COALESCE(a.attachment_url, '') as attachmentUrl,
       COALESCE(a.attachment_content_type, '') as attachmentContentType,
       COALESCE(a.auto_transcribe, 0) as autoTranscribe,
+      COALESCE(a.video_mode, 'off') as videoMode,
+      COALESCE(a.auto_grade_video, 0) as autoGradeVideo,
       a.created_at as createdAt
     FROM assignments a
     JOIN classes c ON c.id = a.class_id
@@ -3065,6 +3120,8 @@ export async function findAssignmentById(assignmentId: string, ownerEmail?: stri
     attachmentUrl: toStringValue(row.attachmentUrl),
     attachmentContentType: toStringValue(row.attachmentContentType),
     autoTranscribe: toNumber(row.autoTranscribe) === 1,
+    videoMode: parseVideoMode(row.videoMode),
+    autoGradeVideo: toNumber(row.autoGradeVideo) === 1,
     createdAt: toNumber(row.createdAt),
   };
 }
@@ -3085,6 +3142,8 @@ export async function updateAssignment(
     attachmentUrl: string;
     attachmentContentType: string;
     autoTranscribe?: boolean;
+    videoMode?: "off" | "optional" | "required";
+    autoGradeVideo?: boolean;
   }
 ): Promise<AssignmentDetailRow | null> {
   const current = await findAssignmentById(assignmentId, ownerEmail);
@@ -3092,6 +3151,8 @@ export async function updateAssignment(
 
   await assertUniqueAssignmentTitle(current.classId, ownerEmail, input.title, assignmentId);
   const nextAutoTranscribe = input.autoTranscribe ?? current.autoTranscribe;
+  const nextVideoMode = input.videoMode ?? current.videoMode;
+  const nextAutoGradeVideo = nextVideoMode !== "off" && (input.autoGradeVideo ?? current.autoGradeVideo);
   await ensureInitialized();
   const transaction = await getDbClient().transaction("write");
   try {
@@ -3114,7 +3175,7 @@ export async function updateAssignment(
 
     const result = await transaction.execute({
       sql: `UPDATE assignments
-        SET title = ?, description = ?, instructions = ?, target_language = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?, auto_transcribe = ?
+        SET title = ?, description = ?, instructions = ?, target_language = ?, max_points = ?, max_submissions = ?, max_recording_seconds = ?, rubric = ?, attachment_name = ?, attachment_url = ?, attachment_content_type = ?, auto_transcribe = ?, video_mode = ?, auto_grade_video = ?
         WHERE id = ?
           AND deleted_at IS NULL
           AND id IN (
@@ -3138,6 +3199,8 @@ export async function updateAssignment(
         input.attachmentUrl,
         input.attachmentContentType,
         nextAutoTranscribe ? 1 : 0,
+        nextVideoMode,
+        nextAutoGradeVideo ? 1 : 0,
         assignmentId,
         assignmentId,
         ownerEmail,
@@ -3147,7 +3210,7 @@ export async function updateAssignment(
       await transaction.rollback();
       return null;
     }
-    if (!nextAutoTranscribe) {
+    if (!nextAutoTranscribe && !nextAutoGradeVideo) {
       const now = Date.now();
       await transaction.execute({
         sql: `UPDATE automatic_transcription_jobs
@@ -3204,6 +3267,140 @@ export async function deleteAssignmentCascade(assignmentId: string, ownerEmail: 
   return toNumber(result.rowsAffected) > 0;
 }
 
+export async function reserveVideoUpload(input: {
+  assignmentId: string;
+  teacherEmail: string;
+  studentEmail: string;
+  contentType: "video/webm" | "video/mp4";
+  uploadId?: string;
+}): Promise<{ id: string; pathname: string } | null> {
+  const now = Date.now();
+  const allowance = await getAiReviewAllowanceSummary({ teacherEmail: input.teacherEmail, now });
+  if (allowance.status !== "teacher_period" || !allowance.periodStart || !allowance.periodEnd) return null;
+  await ensureInitialized();
+  const transaction = await getDbClient().transaction("write");
+  try {
+    const entitled = await transaction.execute({
+      sql: `SELECT 1 FROM stripe_billing_accounts
+        WHERE LOWER(teacher_email) = LOWER(?) AND subscription_status = 'active'
+          AND stripe_subscription_id = ? AND subscription_period_start = ?
+          AND subscription_period_end = ? AND subscription_period_start <= ?
+          AND subscription_period_end > ? LIMIT 1`,
+      args: [input.teacherEmail, allowance.stripeSubscriptionId, allowance.periodStart,
+        allowance.periodEnd, now, now],
+    });
+    if (!entitled.rows.length) { await transaction.rollback(); return null; }
+    const assignment = await transaction.execute({
+      sql: `SELECT 1 FROM assignments a JOIN classes c ON c.id = a.class_id
+        WHERE a.id = ? AND LOWER(c.owner_email) = LOWER(?) AND a.deleted_at IS NULL
+          AND c.deleted_at IS NULL AND a.video_mode IN ('optional', 'required') LIMIT 1`,
+      args: [input.assignmentId, input.teacherEmail],
+    });
+    if (!assignment.rows.length) { await transaction.rollback(); return null; }
+    const id = input.uploadId ? `vid_${input.uploadId}` : makeId("vid");
+    const prior = await transaction.execute({
+      sql: `SELECT pathname, student_email, assignment_id, status, created_at FROM video_upload_reservations WHERE id = ?`,
+      args: [id],
+    });
+    if (prior.rows.length) {
+      const row = prior.rows[0];
+      await transaction.rollback();
+      return toStringValue(row.student_email).toLowerCase() === input.studentEmail.toLowerCase() &&
+        row.assignment_id === input.assignmentId && row.status === "reserved" &&
+        toNumber(row.created_at) > now - 60 * 60_000
+        ? { id, pathname: toStringValue(row.pathname) } : null;
+    }
+    const count = await transaction.execute({
+      sql: `SELECT SUM(CASE WHEN status IN ('reserved', 'completed') THEN 1 ELSE 0 END) as used,
+        COUNT(*) as attempts FROM video_upload_reservations
+        WHERE LOWER(teacher_email) = LOWER(?) AND period_start = ? AND period_end = ?
+          `,
+      args: [input.teacherEmail, allowance.periodStart, allowance.periodEnd],
+    });
+    if (toNumber(count.rows[0]?.used) >= VIDEO_MONTHLY_LIMIT ||
+        toNumber(count.rows[0]?.attempts) >= VIDEO_UPLOAD_ATTEMPT_LIMIT) { await transaction.rollback(); return null; }
+    const ext = input.contentType === "video/mp4" ? "mp4" : "webm";
+    const pathname = `videos/${input.assignmentId}/${id}.${ext}`;
+    await transaction.execute({
+      sql: `INSERT INTO video_upload_reservations
+        (id, assignment_id, teacher_email, student_email, pathname, period_start, period_end, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?)`,
+      args: [id, input.assignmentId, input.teacherEmail, input.studentEmail, pathname,
+        allowance.periodStart, allowance.periodEnd, now],
+    });
+    await transaction.commit();
+    return { id, pathname };
+  } catch (error) {
+    if (!transaction.closed) await transaction.rollback();
+    throw error;
+  } finally { transaction.close(); }
+}
+
+export async function getVideoUsageSummary(teacherEmail: string) {
+  const allowance = await getAiReviewAllowanceSummary({ teacherEmail });
+  if (allowance.status !== "teacher_period" || !allowance.periodStart || !allowance.periodEnd) {
+    return { limit: VIDEO_MONTHLY_LIMIT, used: 0, remaining: 0, periodEnd: null };
+  }
+  const result = await query(
+    `SELECT COUNT(*) as used FROM video_upload_reservations
+      WHERE LOWER(teacher_email) = LOWER(?) AND period_start = ? AND period_end = ?
+        AND status IN ('reserved', 'completed')`,
+    [teacherEmail, allowance.periodStart, allowance.periodEnd],
+  );
+  const used = toNumber(result.rows[0]?.used);
+  return { limit: VIDEO_MONTHLY_LIMIT, used, remaining: Math.max(0, VIDEO_MONTHLY_LIMIT - used),
+    periodEnd: allowance.periodEnd };
+}
+
+export async function cancelVideoUpload(id: string, studentEmail: string) {
+  const result = await query(
+    `UPDATE video_upload_reservations SET status = 'cancelled'
+      WHERE id = ? AND LOWER(student_email) = LOWER(?) AND status = 'reserved'`,
+    [id, studentEmail],
+  );
+  return toNumber(result.rowsAffected) === 1;
+}
+
+export async function findVideoUploadReservation(id: string, studentEmail: string) {
+  const result = await query(
+    `SELECT pathname, assignment_id as assignmentId, period_end as periodEnd,
+      created_at as createdAt
+      FROM video_upload_reservations WHERE id = ? AND LOWER(student_email) = LOWER(?)
+        AND status = 'reserved' LIMIT 1`,
+    [id, studentEmail],
+  );
+  const row = result.rows[0];
+  return row ? { pathname: toStringValue(row.pathname), assignmentId: toStringValue(row.assignmentId),
+    periodEnd: toNumber(row.periodEnd), createdAt: toNumber(row.createdAt) } : null;
+}
+
+/** Reserve before any storage work. Failed reads remain charged to prevent retry abuse. */
+export async function reserveVideoResources(input: {
+  teacherEmail: string; kind: "playback" | "validation"; bytes: number; requests: number;
+}) {
+  if (!Number.isSafeInteger(input.bytes) || input.bytes < 0 ||
+      !Number.isSafeInteger(input.requests) || input.requests < 0) throw new Error("Invalid video budget reservation.");
+  const now = new Date();
+  const month = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  const result = await query(`INSERT INTO video_resource_usage (teacher_email, month_start, kind, bytes, requests)
+    SELECT ?, ?, ?, ?, ? WHERE ? <= ? AND ? <= ?
+    ON CONFLICT(teacher_email, month_start, kind) DO UPDATE
+      SET bytes = bytes + excluded.bytes, requests = requests + excluded.requests
+      WHERE bytes + excluded.bytes <= ? AND requests + excluded.requests <= ?`,
+    [input.teacherEmail.toLowerCase(), month, input.kind, input.bytes, input.requests,
+      input.bytes, VIDEO_TRANSFER_BYTES_PER_MONTH, input.requests, VIDEO_REQUESTS_PER_MONTH,
+      VIDEO_TRANSFER_BYTES_PER_MONTH, VIDEO_REQUESTS_PER_MONTH]);
+  return toNumber(result.rowsAffected) === 1;
+}
+
+export async function findCompletedVideoSubmission(id: string, assignmentId: string, studentEmail: string) {
+  const result = await query(`SELECT s.id, s.assignment_id as assignmentId, s.submitted_at as submittedAt
+    FROM video_upload_reservations v JOIN submissions s ON s.id = v.submission_id
+    WHERE v.id = ? AND v.assignment_id = ? AND LOWER(v.student_email) = LOWER(?)
+      AND v.status = 'completed' AND s.deleted_at IS NULL LIMIT 1`, [id, assignmentId, studentEmail]);
+  return result.rows[0] ?? null;
+}
+
 export async function createSubmission<TAssignmentId extends string | null>(input: {
   id?: string;
   assignmentId: TAssignmentId;
@@ -3213,6 +3410,8 @@ export async function createSubmission<TAssignmentId extends string | null>(inpu
   studentName: string;
   studentEmail: string;
   audioBlobUrl: string;
+  videoBlobUrl?: string;
+  videoReservationId?: string;
   durationSeconds?: number;
 }): Promise<{
   id: string;
@@ -3236,13 +3435,36 @@ export async function createSubmission<TAssignmentId extends string | null>(inpu
       if (!access.rows.length) throw new PracticeAccessChangedError();
     }
     const assignmentLimit = await transaction.execute({
-      sql: `SELECT COALESCE(max_submissions, 0) as maxSubmissions
+      sql: `SELECT COALESCE(max_submissions, 0) as maxSubmissions,
+        COALESCE(video_mode, 'off') as videoMode
         FROM assignments
         WHERE id = ? AND deleted_at IS NULL
         LIMIT 1`,
       args: [input.assignmentId],
     });
     const maxSubmissions = toNumber(assignmentLimit.rows[0]?.maxSubmissions);
+    const videoMode = parseVideoMode(assignmentLimit.rows[0]?.videoMode);
+    if (input.assignmentId && videoMode === "required" && !input.videoBlobUrl) {
+      const exemption = await transaction.execute({
+        sql: `SELECT 1 FROM video_audio_accommodations WHERE assignment_id = ? AND LOWER(student_email) = LOWER(?)`,
+        args: [input.assignmentId, input.studentEmail],
+      });
+      if (!exemption.rows.length) throw new Error("This assignment requires a video response.");
+    }
+    if (input.videoBlobUrl && videoMode === "off") {
+      throw new Error("Video is not enabled for this assignment.");
+    }
+    if (input.videoBlobUrl) {
+      const reservation = await transaction.execute({
+        sql: `SELECT 1 FROM video_upload_reservations
+          WHERE id = ? AND assignment_id = ? AND LOWER(student_email) = LOWER(?)
+            AND pathname = ? AND status = 'reserved' AND period_end > ?
+            AND created_at > ? LIMIT 1`,
+        args: [input.videoReservationId ?? "", input.assignmentId, input.studentEmail,
+          input.videoBlobUrl, Date.now(), Date.now() - 60 * 60_000],
+      });
+      if (!reservation.rows.length) throw new Error("Video upload authorization expired. Upload the video again.");
+    }
     if (maxSubmissions > 0) {
       const existingCount = await transaction.execute({
         sql: `SELECT COUNT(*) as count
@@ -3283,15 +3505,16 @@ export async function createSubmission<TAssignmentId extends string | null>(inpu
     };
     await transaction.execute({
       sql: `INSERT INTO submissions (
-        id, assignment_id, student_name, student_email, audio_data, audio_blob_url, submitted_at, duration_seconds,
+        id, assignment_id, student_name, student_email, audio_data, audio_blob_url, video_blob_url, submitted_at, duration_seconds,
         practice_class_id, practice_title, practice_note, deleted_at
-      ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL)`,
+      ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       args: [
         item.id,
         item.assignmentId,
         item.studentName,
         item.studentEmail,
         item.audioBlobUrl,
+        input.videoBlobUrl || null,
         item.submittedAt,
         item.durationSeconds,
         input.practiceClassId ?? null,
@@ -3299,6 +3522,14 @@ export async function createSubmission<TAssignmentId extends string | null>(inpu
         input.practiceNote ?? "",
       ],
     });
+    if (input.videoBlobUrl) {
+      const completed = await transaction.execute({
+        sql: `UPDATE video_upload_reservations SET status = 'completed', submission_id = ?
+          WHERE id = ? AND pathname = ? AND status = 'reserved'`,
+        args: [item.id, input.videoReservationId ?? "", input.videoBlobUrl],
+      });
+      if (toNumber(completed.rowsAffected) !== 1) throw new Error("Video upload was already submitted.");
+    }
     await transaction.execute({
       sql: `INSERT INTO automatic_transcription_jobs (
         id, submission_id, assignment_id, teacher_email, status, attempt_count,
@@ -3308,7 +3539,8 @@ export async function createSubmission<TAssignmentId extends string | null>(inpu
       SELECT ?, ?, a.id, c.owner_email, 'queued', 0, ?, '', 0, '', ?, ?, NULL
       FROM assignments a JOIN classes c ON c.id = a.class_id
       WHERE a.id = ? AND a.deleted_at IS NULL AND c.deleted_at IS NULL
-        AND COALESCE(a.auto_transcribe, 0) = 1`,
+        AND (COALESCE(a.auto_transcribe, 0) = 1
+          OR (COALESCE(a.auto_grade_video, 0) = 1 AND ? <> ''))`,
       args: [
         makeId("atj"),
         item.id,
@@ -3316,6 +3548,7 @@ export async function createSubmission<TAssignmentId extends string | null>(inpu
         item.submittedAt,
         item.submittedAt,
         item.assignmentId,
+        input.videoBlobUrl ?? "",
       ],
     });
     await transaction.commit();
@@ -3436,7 +3669,8 @@ export async function isAutomaticTranscriptionJobActive(input: {
       WHERE j.id = ?
         AND j.status = 'processing'
         AND j.lease_token = ?
-        AND COALESCE(a.auto_transcribe, 0) = 1
+        AND (COALESCE(a.auto_transcribe, 0) = 1
+          OR (COALESCE(a.auto_grade_video, 0) = 1 AND COALESCE(s.video_blob_url, '') <> ''))
         AND a.deleted_at IS NULL
         AND c.deleted_at IS NULL
         AND s.deleted_at IS NULL
@@ -3455,6 +3689,7 @@ export async function listSubmissionsByClassId(classId: string, ownerEmail?: str
       s.student_name as studentName,
       s.student_email as studentEmail,
       s.duration_seconds as durationSeconds,
+      s.video_blob_url as videoBlobUrl,
       s.submitted_at as submittedAt,
       COALESCE(s.feedback, '') as feedback,
       s.grade as grade,
@@ -3478,6 +3713,7 @@ export async function listSubmissionsByClassId(classId: string, ownerEmail?: str
     studentName: toStringValue(row.studentName),
     studentEmail: toStringValue(row.studentEmail),
     audioData: toProtectedAudioPath(toStringValue(row.id)),
+    videoUrl: row.videoBlobUrl ? `/api/submissions/${encodeURIComponent(toStringValue(row.id))}/video` : "",
     durationSeconds: toNullableNumber(row.durationSeconds),
     submittedAt: toNumber(row.submittedAt),
     feedback: toStringValue(row.feedback),
@@ -3498,6 +3734,7 @@ export async function listSubmissionsByStudentEmail(studentEmail: string): Promi
       a.max_points as maxPoints,
       s.student_name as studentName,
       s.duration_seconds as durationSeconds,
+      s.video_blob_url as videoBlobUrl,
       s.practice_class_id as practiceClassId, s.practice_title as practiceTitle,
       s.practice_note as practiceNote, s.reviewed_at as reviewedAt,
       s.submitted_at as submittedAt,
@@ -3523,6 +3760,7 @@ export async function listSubmissionsByStudentEmail(studentEmail: string): Promi
     maxPoints: toNumber(row.maxPoints),
     studentName: toStringValue(row.studentName),
     audioData: toStudentProtectedAudioPath(toStringValue(row.id)),
+    videoUrl: row.videoBlobUrl ? `/api/student/submissions/${encodeURIComponent(toStringValue(row.id))}/video` : "",
     durationSeconds: toNullableNumber(row.durationSeconds),
     practiceClassId: row.practiceClassId ? toStringValue(row.practiceClassId) : null,
     practiceTitle: toStringValue(row.practiceTitle), practiceNote: toStringValue(row.practiceNote),
@@ -3676,9 +3914,10 @@ export async function findSubmissionAccessById(
 ): Promise<SubmissionAccessRow | null> {
   const result = await query(
     `SELECT
-      s.id as id,
+      s.id as id, c.owner_email as ownerEmail,
       s.student_email as studentEmail,
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl
+      , COALESCE(s.video_blob_url, '') as videoBlobUrl
     FROM submissions s
     LEFT JOIN assignments a ON a.id = s.assignment_id
     JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
@@ -3694,8 +3933,10 @@ export async function findSubmissionAccessById(
   if (!row) return null;
   return {
     id: toStringValue(row.id),
+    ownerEmail: toStringValue(row.ownerEmail),
     studentEmail: toStringValue(row.studentEmail),
     audioBlobUrl: toStringValue(row.audioBlobUrl),
+    videoBlobUrl: toStringValue(row.videoBlobUrl),
   };
 }
 
@@ -3705,9 +3946,10 @@ export async function findStudentSubmissionAudioAccessById(
 ): Promise<SubmissionAccessRow | null> {
   const result = await query(
     `SELECT
-      s.id as id,
+      s.id as id, c.owner_email as ownerEmail,
       s.student_email as studentEmail,
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl
+      , COALESCE(s.video_blob_url, '') as videoBlobUrl
     FROM submissions s
     LEFT JOIN assignments a ON a.id = s.assignment_id
     JOIN classes c ON c.id = COALESCE(a.class_id, s.practice_class_id)
@@ -3723,8 +3965,10 @@ export async function findStudentSubmissionAudioAccessById(
   if (!row) return null;
   return {
     id: toStringValue(row.id),
+    ownerEmail: toStringValue(row.ownerEmail),
     studentEmail: toStringValue(row.studentEmail),
     audioBlobUrl: toStringValue(row.audioBlobUrl),
+    videoBlobUrl: toStringValue(row.videoBlobUrl),
   };
 }
 
@@ -4377,6 +4621,32 @@ export async function listStorageObjectsForHardDeleteBefore(cutoffTimestamp: num
     audioBlobUrls: audioResult.rows.map((row) => toStringValue(row.audioBlobUrl)).filter(Boolean),
     attachmentUrls: attachmentResult.rows.map((row) => toStringValue(row.attachmentUrl)).filter(Boolean),
   };
+}
+
+export async function listVideoObjectsForCleanup(input: {
+  retentionCutoff: number; deletedCutoff: number; orphanCutoff: number;
+}) {
+  const result = await query(`SELECT video_blob_url as pathname FROM submissions
+    WHERE video_blob_url IS NOT NULL AND video_blob_url <> ''
+      AND (submitted_at < ? OR (deleted_at IS NOT NULL AND deleted_at < ?))
+    UNION SELECT pathname FROM video_upload_reservations
+      WHERE status = 'reserved' AND created_at < ?
+    ORDER BY pathname LIMIT 100`, [input.retentionCutoff, input.deletedCutoff, input.orphanCutoff]);
+  return result.rows.map(row => toStringValue(row.pathname)).filter(Boolean);
+}
+
+export async function clearCleanedVideoReferences(input: {
+  paths: string[]; reservationCutoff: number;
+}) {
+  if (input.paths.length) {
+    const placeholders = input.paths.map(() => "?").join(",");
+    await query(`UPDATE submissions SET video_blob_url = NULL WHERE video_blob_url IN (${placeholders})`, input.paths);
+    await query(`UPDATE video_upload_reservations SET status = 'cancelled'
+      WHERE status = 'reserved' AND pathname IN (${placeholders})`, input.paths);
+  }
+  await query(`DELETE FROM video_upload_reservations
+    WHERE period_end < ? AND status IN ('completed', 'cancelled')`, [input.reservationCutoff]);
+  await query(`DELETE FROM video_resource_usage WHERE month_start < ?`, [Date.now() - 120 * 86400_000]);
 }
 
 function normalizeAiBillingScope(scope: AiBillingScope): AiBillingScope {
@@ -11692,4 +11962,29 @@ export async function saveAiGradingBatchDraft(input: {
   } finally {
     transaction.close();
   }
+}
+
+export async function hasVideoAudioAccommodation(assignmentId: string, studentEmail: string) {
+  const result = await query(`SELECT 1 FROM video_audio_accommodations WHERE assignment_id = ? AND LOWER(student_email) = LOWER(?)`, [assignmentId, studentEmail]);
+  return result.rows.length > 0;
+}
+
+export async function listVideoAudioAccommodations(assignmentId: string, teacherEmail: string) {
+  const result = await query(`SELECT v.student_email as studentEmail FROM video_audio_accommodations v
+    JOIN assignments a ON a.id = v.assignment_id JOIN classes c ON c.id = a.class_id
+    WHERE a.id = ? AND LOWER(c.owner_email) = LOWER(?) AND a.deleted_at IS NULL AND c.deleted_at IS NULL`, [assignmentId, teacherEmail]);
+  return result.rows.map(row => toStringValue(row.studentEmail));
+}
+
+export async function setVideoAudioAccommodation(assignmentId: string, teacherEmail: string, studentEmail: string, allowed: boolean) {
+  const owned = `SELECT a.id FROM assignments a JOIN classes c ON c.id = a.class_id
+    WHERE a.id = ? AND LOWER(c.owner_email) = LOWER(?) AND a.deleted_at IS NULL AND c.deleted_at IS NULL`;
+  const result = allowed
+    ? await query(`INSERT INTO video_audio_accommodations (assignment_id, student_email, teacher_email, granted_at)
+        SELECT id, ?, ?, ? FROM (${owned}) WHERE 1 ON CONFLICT(assignment_id, student_email)
+        DO UPDATE SET teacher_email = excluded.teacher_email, granted_at = excluded.granted_at`,
+        [studentEmail.toLowerCase(), teacherEmail, Date.now(), assignmentId, teacherEmail])
+    : await query(`DELETE FROM video_audio_accommodations WHERE student_email = ? AND assignment_id IN (${owned})`,
+        [studentEmail.toLowerCase(), assignmentId, teacherEmail]);
+  return toNumber(result.rowsAffected) > 0;
 }

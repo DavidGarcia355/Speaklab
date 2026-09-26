@@ -25,6 +25,7 @@ type StudentSubmission = StudentRecordingAssignment & {
   id: string;
   studentName: string;
   audioData: string;
+  videoUrl?: string;
   durationSeconds?: number | null;
   practiceClassId?: string | null;
   practiceTitle?: string;
@@ -297,7 +298,9 @@ export default function StudentDashboardPage() {
                             </div>
                           </div>
                           <div className={mediaStyles.player}>
-                            <AudioPlayer
+                            {sub.videoUrl ? <video src={sub.videoUrl} controls playsInline preload="none"
+                              aria-label={`Video response for ${sub.assignmentTitle}`}
+                              style={{ width: "100%", maxWidth: 640 }} /> : <AudioPlayer
                               durationSeconds={sub.durationSeconds}
                               src={sub.audioData}
                               variant="row"
@@ -307,7 +310,7 @@ export default function StudentDashboardPage() {
                                 submittedAt: sub.submittedAt,
                                 submissionId: sub.id,
                               })}
-                            />
+                            />}
                           </div>
                           {sub.grade === null ? (
                             <button
