@@ -1533,6 +1533,10 @@ async function ensureInitialized() {
       await ensureColumn("submissions", "student_email", "TEXT NOT NULL DEFAULT ''");
       await ensureColumn("submissions", "audio_blob_url", "TEXT");
       await ensureColumn("submissions", "video_blob_url", "TEXT");
+      await ensureColumn("submissions", "is_video_submission", "INTEGER NOT NULL DEFAULT 0");
+      // Preserve the grading privacy boundary after the original video expires.
+      await rawExecute(`UPDATE submissions SET is_video_submission = 1
+        WHERE COALESCE(video_blob_url, '') <> '' AND is_video_submission = 0`);
       await ensureColumn("submissions", "rubric_scores", "TEXT");
       await ensureColumn("submissions", "grade_source", "TEXT NOT NULL DEFAULT 'teacher'");
       await ensureColumn("submissions", "deleted_at", "INTEGER");
@@ -3505,9 +3509,9 @@ export async function createSubmission<TAssignmentId extends string | null>(inpu
     };
     await transaction.execute({
       sql: `INSERT INTO submissions (
-        id, assignment_id, student_name, student_email, audio_data, audio_blob_url, video_blob_url, submitted_at, duration_seconds,
+        id, assignment_id, student_name, student_email, audio_data, audio_blob_url, video_blob_url, is_video_submission, submitted_at, duration_seconds,
         practice_class_id, practice_title, practice_note, deleted_at
-      ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       args: [
         item.id,
         item.assignmentId,
@@ -3515,6 +3519,7 @@ export async function createSubmission<TAssignmentId extends string | null>(inpu
         item.studentEmail,
         item.audioBlobUrl,
         input.videoBlobUrl || null,
+        input.videoBlobUrl ? 1 : 0,
         item.submittedAt,
         item.durationSeconds,
         input.practiceClassId ?? null,
@@ -7518,6 +7523,7 @@ export async function getAiBillingMonthlySummary(
 }
 
 export type SubmissionForAiGradeRow = {
+  isVideoSubmission?: boolean;
   practiceClassId?: string | null;
   durationSeconds?: number | null;
   submissionId: string;
@@ -7559,6 +7565,7 @@ export async function listUngradedSubmissionsForAiGrade(
       a.id as assignmentId,
       a.title as assignmentTitle,
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl,
+      s.is_video_submission as isVideoSubmission,
       COALESCE(a.description, '') as description,
       a.instructions as instructions,
       COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as targetLanguage,
@@ -7615,6 +7622,7 @@ export async function listUngradedSubmissionsForAiGrade(
     assignmentId: toStringValue(row.assignmentId),
     assignmentTitle: toStringValue(row.assignmentTitle),
     audioBlobUrl: toStringValue(row.audioBlobUrl),
+    isVideoSubmission: toNumber(row.isVideoSubmission) === 1,
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
     targetLanguage: toStringValue(row.targetLanguage) || "Spanish",
@@ -7644,6 +7652,7 @@ export async function findSubmissionForAiGrade(
       a.id as assignmentId,
       a.title as assignmentTitle,
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl,
+      s.is_video_submission as isVideoSubmission,
       COALESCE(a.description, '') as description,
       a.instructions as instructions,
       COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as targetLanguage,
@@ -7673,6 +7682,7 @@ export async function findSubmissionForAiGrade(
     assignmentId: toStringValue(row.assignmentId),
     assignmentTitle: toStringValue(row.assignmentTitle),
     audioBlobUrl: toStringValue(row.audioBlobUrl),
+    isVideoSubmission: toNumber(row.isVideoSubmission) === 1,
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
     targetLanguage: toStringValue(row.targetLanguage) || "Spanish",
@@ -7921,6 +7931,7 @@ export async function findOwnedSubmissionForAiReview(
       s.practice_class_id as practiceClassId, s.duration_seconds as durationSeconds,
       COALESCE(a.title, 'Open Mic') as assignmentTitle,
       COALESCE(s.audio_blob_url, s.audio_data, '') as audioBlobUrl,
+      s.is_video_submission as isVideoSubmission,
       COALESCE(a.description, '') as description,
       a.instructions as instructions,
       COALESCE(NULLIF(TRIM(a.target_language), ''), 'Spanish') as targetLanguage,
@@ -7949,6 +7960,7 @@ export async function findOwnedSubmissionForAiReview(
     assignmentId: toStringValue(row.assignmentId),
     assignmentTitle: toStringValue(row.assignmentTitle),
     audioBlobUrl: toStringValue(row.audioBlobUrl),
+    isVideoSubmission: toNumber(row.isVideoSubmission) === 1,
     description: toStringValue(row.description),
     instructions: toStringValue(row.instructions),
     targetLanguage: toStringValue(row.targetLanguage) || "Spanish",

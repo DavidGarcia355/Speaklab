@@ -237,6 +237,7 @@ export async function transcribeOneSubmission(input: {
       audio.buffer,
       audio.contentType,
       assignment,
+      data.isVideoSubmission,
     );
     const assignmentFingerprint = processedAssignmentFingerprint(assignment);
     if (!semanticKey) {

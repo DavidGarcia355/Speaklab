@@ -36,3 +36,14 @@ Fresh local checks on implementation commit `b26b11b15f8978e188d05459679acfa78b2
 - Added-content scan for common private-key and credential formats: no matches; this is not a comprehensive secret-detection guarantee.
 
 Teacher identities and account-specific usage/billing details were removed from the public audit documents. Unrelated local Mac-development setup edits were preserved locally and excluded from this feature branch. These checks do not establish completed browser, real-service, financial, or legal release verification.
+
+
+## Transcript-only video grading follow-up
+
+Code tracing found the shared grading service could select a direct-audio Gemini route under compatible format/configuration settings. Video grading now forces the transcript route and independently refuses the direct-audio call. A durable video-origin marker is included in automatic, individual, and bulk review queries and survives video cleanup. Video review identities cannot reuse earlier audio-grading reviews, and video results remain suggestions for teacher review.
+
+This restriction applies to the **grading** model. Transcription is still external: production code defaults to OpenAI `gpt-4o-transcribe`, routed through Vercel AI Gateway on Vercel unless disabled. Gateway can also select a configured provider-prefixed transcription model. Actual deployed model settings, gateway routing, and retention approvals remain unverified. The branch does not implement local/self-hosted speech recognition and does not claim that all AI providers receive text only.
+
+Transcripts themselves can contain personal data. OpenAI's under-18 guidance applies its zero-data-retention condition to personal data below age 13 or the applicable digital-consent age, including text; changing the representation does not remove that requirement. Source: [official OpenAI guidance](https://developers.openai.com/api/docs/guides/safety-checks/under-18-api-guidance), checked September 26, 2026.
+
+Follow-up verification: all 122 test files / 993 tests passed, including forced-direct-route rejection, transcription-failure handling, distinct review identities, and persistent video-origin checks after cleanup. Lint, standalone TypeScript checks, and the production build passed. No real student recording was sent to a provider during these tests.

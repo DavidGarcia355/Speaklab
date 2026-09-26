@@ -392,7 +392,8 @@ export async function gradeOneSubmission(input: {
   processingStillAuthorized?: () => Promise<boolean>;
 }): Promise<GradeOneOutcome> {
   const { config, teacherEmail, data } = input;
-  const deliveryMode = input.deliveryMode ?? "apply";
+  const transcriptOnly = data.isVideoSubmission === true;
+  const deliveryMode = transcriptOnly ? "suggestion_only" : input.deliveryMode ?? "apply";
   const submissionId = data.submissionId;
 
   if (!data.audioBlobUrl) return { status: "skipped", reason: "no_audio" };
@@ -445,6 +446,7 @@ export async function gradeOneSubmission(input: {
       audio.buffer,
       audio.contentType,
       assignment,
+      data.isVideoSubmission,
     );
     const assignmentFingerprint = processedAssignmentFingerprint(assignment);
     const latestPersistedTranscript =
@@ -568,7 +570,7 @@ export async function gradeOneSubmission(input: {
       };
     }
     const audioRoute = routeAudioGrading({
-      config: gradingConfig,
+      config: transcriptOnly ? { ...gradingConfig, audioStrategy: "transcribe_then_grade" } : gradingConfig,
       assignment,
       contentType: audio.contentType,
       byteLength: audio.buffer.byteLength,
@@ -584,7 +586,7 @@ export async function gradeOneSubmission(input: {
         ? latestPersistedTranscript
         : null);
 
-    if (audioRoute.strategy === "gemini_direct" && !persistedTranscript) {
+    if (!transcriptOnly && audioRoute.strategy === "gemini_direct" && !persistedTranscript) {
       try {
         const direct = await runDirectAudioGradingPipeline({
           config: gradingConfig,

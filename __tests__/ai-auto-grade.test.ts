@@ -390,6 +390,48 @@ describe("automatic AI grade persistence", () => {
     expect(overallSuggestion.autoApplicable).toBe(true);
   });
 
+  it("keeps video grading transcript-only even when the shared router selects direct audio", async () => {
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "gemini_direct", model: gradingConfig.audioModel, upload: "inline",
+      requiresTeacherReview: false, reasons: [],
+    });
+    mocks.runGradingPipeline.mockResolvedValue(textResult());
+    const data = submission({ isVideoSubmission: true });
+    const outcome = await gradeOneSubmission({ config: aiConfig, teacherEmail: "teacher@example.com", data });
+
+    expect(outcome).toMatchObject({ status: "completed", gradeApplied: false });
+    expect(mocks.routeAudioGrading).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ audioStrategy: "transcribe_then_grade" }),
+    }));
+    expect(mocks.transcribeAudio).toHaveBeenCalledWith(expect.objectContaining({
+      buffer: expect.any(Buffer), contentType: "audio/wav",
+    }));
+    expect(mocks.runDirectAudioGradingPipeline).not.toHaveBeenCalled();
+    expect(mocks.runGradingPipeline).toHaveBeenCalledOnce();
+    const gradingInput = mocks.runGradingPipeline.mock.calls[0][0] as Record<string, unknown>;
+    expect(Object.keys(gradingInput).sort()).toEqual([
+      "assignment", "enhanced", "studentAnswer", "submissionId", "teacherEmail",
+    ]);
+    expect(gradingInput.studentAnswer).toBe("The answer explains the claim with supporting evidence.");
+    expect(mocks.finalizeAiGradeDelivery).not.toHaveBeenCalled();
+    expect(mocks.markAiGradingAttemptNotApplicable).toHaveBeenCalledOnce();
+    expect(processedRecordingKey(Buffer.from("same audio"), "audio/wav", legacyAssignmentToGradingAssignment(data), true))
+      .not.toBe(processedRecordingKey(Buffer.from("same audio"), "audio/wav", legacyAssignmentToGradingAssignment(submission())));
+  });
+
+  it("does not fall back to an audio grading model when video transcription fails", async () => {
+    mocks.routeAudioGrading.mockReturnValue({
+      strategy: "gemini_direct", model: gradingConfig.audioModel, upload: "inline",
+      requiresTeacherReview: false, reasons: [],
+    });
+    mocks.transcribeAudio.mockRejectedValueOnce(new Error("Transcription unavailable"));
+    const outcome = await gradeOneSubmission({ config: aiConfig, teacherEmail: "teacher@example.com",
+      data: submission({ isVideoSubmission: true }) });
+    expect(outcome.status).toBe("failed");
+    expect(mocks.runDirectAudioGradingPipeline).not.toHaveBeenCalled();
+    expect(mocks.runGradingPipeline).not.toHaveBeenCalled();
+  });
+
   it("applies a successful direct-audio result with numeric grade, feedback, and rubric", async () => {
     mocks.routeAudioGrading.mockReturnValue({
       strategy: "gemini_direct",

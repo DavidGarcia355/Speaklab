@@ -88,6 +88,13 @@ describe("video assignment persistence", () => {
     expect(await db.findSubmissionAccessById(item.id, "otherteacher@example.com")).toBeNull();
     expect(await db.findStudentSubmissionAudioAccessById(item.id, "mallory@example.com")).toBeNull();
     expect(await db.findSubmissionAccessById(item.id, owner)).toMatchObject({ videoBlobUrl: pathname });
+    // Deleting the video must never re-enable direct-audio grading of its retained sound track.
+    await db.clearCleanedVideoReferences({ paths: [pathname], reservationCutoff: now - 86400000 });
+    expect(await db.findSubmissionAccessById(item.id, owner)).toMatchObject({ videoBlobUrl: "" });
+    expect(await db.findSubmissionForAiGrade(item.id, owner)).toMatchObject({ isVideoSubmission: true });
+    expect(await db.findOwnedSubmissionForAiReview(item.id, owner)).toMatchObject({ isVideoSubmission: true });
+    expect(await db.listUngradedSubmissionsForAiGrade(assignment.id, owner))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ submissionId: item.id, isVideoSubmission: true })]));
     await client.execute({ sql: "UPDATE submissions SET deleted_at = ? WHERE id = ?", args: [now, item.id] });
     expect(await db.findSubmissionAccessById(item.id, owner)).toBeNull();
     expect(await db.findStudentSubmissionAudioAccessById(item.id, studentEmail)).toBeNull();

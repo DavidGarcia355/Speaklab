@@ -120,10 +120,11 @@ export default function PrivacyPage() {
             not remove TryHabla&apos;s responsibility for its own processing and notices.
           </p>
           <p>
-            On a video assignment, the teacher may enable automatic AI draft grading. The sound track extracted
-            from the submitted video, assignment instructions, and rubric may be sent through the configured
-            AI providers. TryHabla does not send video frames to the AI grader or use it to assess
-            appearance. The teacher reviews the video and chooses the final grade. Video AI requires
+            On a video assignment, the teacher may enable automatic AI draft grading. TryHabla extracts
+            the sound track on its server and sends that audio to the configured transcription provider.
+            The production default is OpenAI, routed through Vercel AI Gateway unless that route is disabled.
+            The grading model receives transcript text, assignment instructions, and the rubric;
+            it receives no video or audio recording. TryHabla does not use AI to assess appearance. The teacher reviews the video and chooses the final grade. Video AI requires
             separate school and provider approval before activation.
           </p>
           <p>

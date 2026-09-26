@@ -157,7 +157,7 @@ export default function VideoResponse(props: {
   return <section className="card panel-subtle" aria-label="Video response">
     <h3>Video response — {props.required ? "required" : "optional"}</h3>
     <p className="meta">Record with camera and microphone. Preview before submitting. Maximum {props.maxSeconds} seconds and 20 MB. Keep this tab open while recording.</p>
-    <p className="meta">{props.autoGrade ? "Automatic speech-based AI draft grading is on. Your teacher reviews the result; AI does not evaluate your appearance." : "Automatic AI grading of video is off for this assignment."}</p>
+    <p className="meta">{props.autoGrade ? "AI draft grading is on. The sound track is sent to a transcription provider; the grading model reads the transcript only. Your teacher reviews the result. Video is not sent to AI." : "Automatic AI grading of video is off for this assignment."}</p>
     {props.required ? <p className="meta">Cannot use video? Contact your teacher for an audio accommodation before submitting.</p> : null}
     {state === "recording" ? <p role="status">Recording video: {seconds} seconds</p> : null}
     <video ref={liveRef} autoPlay muted playsInline hidden={state !== "recording"} aria-label="Live camera preview" style={{ width: "100%", maxWidth: 640 }} />
