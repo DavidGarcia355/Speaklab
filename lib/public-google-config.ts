@@ -3,7 +3,7 @@
 // when dashboard env writes are unavailable; environment values can still override
 // them per deployment.
 
-const CHECKED_IN_GOOGLE_ANALYTICS_ID = "";
+const CHECKED_IN_GOOGLE_ANALYTICS_ID = "G-L8T1XVR1H8";
 const CHECKED_IN_GOOGLE_TAG_MANAGER_ID = "";
 const CHECKED_IN_GOOGLE_SITE_VERIFICATION = "";
 
