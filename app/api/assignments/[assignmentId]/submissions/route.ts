@@ -6,6 +6,9 @@ import {
   countStudentSubmissions,
   findAssignmentById,
   findTeacherFunnelRowByEmail,
+  findVideoUploadReservation,
+  findCompletedVideoSubmission,
+  hasVideoAudioAccommodation,
   upsertRosterEntry,
 } from "@/lib/db";
 import { HttpError, withApiHandler } from "@/lib/http";
@@ -15,6 +18,8 @@ import { parseOrThrow400, submissionCreateSchema } from "@/lib/validation";
 import {
   submissionLimitReachedMessage,
 } from "@/lib/submission-errors";
+import { verifyVideoUpload } from "@/lib/video-storage";
+import { isVideoTeacherApproved, videoFeatureEnabled } from "@/lib/video-policy";
 
 export const runtime = "nodejs";
 
@@ -38,6 +43,12 @@ export async function POST(
 
     await enforceSubmissionRateLimit(studentEmail);
 
+    const body = parseOrThrow400(submissionCreateSchema.partial({ audioData: true }), await request.json());
+    if (body.videoReservationId) {
+      const existing = await findCompletedVideoSubmission(body.videoReservationId, assignmentId, studentEmail);
+      if (existing) return NextResponse.json({ item: existing });
+    }
+
     if (assignment.maxSubmissions > 0) {
       const existing = await countStudentSubmissions(assignmentId, studentEmail);
       if (existing >= assignment.maxSubmissions) {
@@ -45,11 +56,35 @@ export async function POST(
       }
     }
 
-    const body = parseOrThrow400(submissionCreateSchema, await request.json());
+    if (assignment.videoMode === "required" && !body.videoReservationId &&
+        !await hasVideoAudioAccommodation(assignmentId, studentEmail)) {
+      throw new HttpError(400, "This assignment requires a video response.");
+    }
+    let videoBlobUrl: string | undefined;
+    let verifiedAudio: Awaited<ReturnType<typeof verifyVideoUpload>> | undefined;
+    if (body.videoReservationId) {
+      if (!videoFeatureEnabled() || !isVideoTeacherApproved(assignment.ownerEmail) || assignment.videoMode === "off") {
+        throw new HttpError(403, "Video is not available for this assignment.");
+      }
+      const reservation = await findVideoUploadReservation(body.videoReservationId, studentEmail);
+      if (!reservation || reservation.assignmentId !== assignmentId ||
+          reservation.periodEnd <= Date.now() || reservation.createdAt <= Date.now() - 60 * 60_000) {
+        throw new HttpError(403, "Video upload authorization expired. Upload again.");
+      }
+      verifiedAudio = await verifyVideoUpload(reservation.pathname, assignment.maxRecordingSeconds, assignment.ownerEmail);
+      videoBlobUrl = reservation.pathname;
+    }
     const studentName = body.studentName ?? "";
     const created = await storeRecording({
-      assignmentId, studentName, studentEmail, audioData: body.audioData,
+      assignmentId, studentName, studentEmail, audioData: body.audioData ?? "",
       maxRecordingSeconds: assignment.maxRecordingSeconds,
+      videoBlobUrl, videoReservationId: body.videoReservationId, verifiedAudio,
+    }).catch(async (error: unknown) => {
+      if (body.videoReservationId) {
+        const existing = await findCompletedVideoSubmission(body.videoReservationId, assignmentId, studentEmail);
+        if (existing) return { ...existing, submittedAt: Number(existing.submittedAt) };
+      }
+      throw error;
     });
 
     let teacherJoinedAt: number | undefined;

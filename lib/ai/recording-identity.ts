@@ -28,17 +28,19 @@ export function processedAssignmentFingerprint(assignment: GradingAssignment) {
 /**
  * Stable identity for one teacher-visible processing unit. Keep the v2 prefix
  * and assignment-version inputs unchanged so existing 30/300 allowance rows
- * remain reusable after standalone transcription is introduced.
+ * remain reusable after standalone transcription is introduced. Video reviews
+ * use a separate namespace so a prior direct-audio grade cannot be reused.
  */
 export function processedRecordingKey(
   buffer: Buffer,
   contentType: string,
   assignment: GradingAssignment,
+  isVideoSubmission = false,
 ) {
   const identity = assignmentIdentity(assignment);
   if (!identity) return "";
   return createHash("sha256")
-    .update("ai-billing-result-v2\0", "utf8")
+    .update(isVideoSubmission ? "ai-video-transcript-result-v1\0" : "ai-billing-result-v2\0", "utf8")
     .update(contentType.trim().toLowerCase(), "utf8")
     .update("\0", "utf8")
     .update(identity, "utf8")

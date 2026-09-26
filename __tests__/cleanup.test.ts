@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getEnv: vi.fn(),
   listStorageObjectsForHardDeleteBefore: vi.fn(),
+  listVideoObjectsForCleanup: vi.fn(),
+  clearCleanedVideoReferences: vi.fn(),
   hardDeleteSoftDeletedBefore: vi.fn(),
   deleteBlobObjects: vi.fn(),
   flushPendingAiBillingUsage: vi.fn(),
@@ -14,6 +16,8 @@ vi.mock("@/lib/env", () => ({
 
 vi.mock("@/lib/db", () => ({
   listStorageObjectsForHardDeleteBefore: mocks.listStorageObjectsForHardDeleteBefore,
+  listVideoObjectsForCleanup: mocks.listVideoObjectsForCleanup,
+  clearCleanedVideoReferences: mocks.clearCleanedVideoReferences,
   hardDeleteSoftDeletedBefore: mocks.hardDeleteSoftDeletedBefore,
 }));
 
@@ -53,6 +57,8 @@ describe("cleanup cron route", () => {
   beforeEach(() => {
     mocks.getEnv.mockReset();
     mocks.listStorageObjectsForHardDeleteBefore.mockReset();
+    mocks.listVideoObjectsForCleanup.mockReset();
+    mocks.clearCleanedVideoReferences.mockReset();
     mocks.hardDeleteSoftDeletedBefore.mockReset();
     mocks.deleteBlobObjects.mockReset();
     mocks.flushPendingAiBillingUsage.mockReset();
@@ -78,6 +84,7 @@ describe("cleanup cron route", () => {
       audioBlobUrls: ["submissions/asg/sub.webm"],
       attachmentUrls: ["assignment-attachments/asg/file.pdf"],
     });
+    mocks.listVideoObjectsForCleanup.mockResolvedValue([]);
     mocks.hardDeleteSoftDeletedBefore.mockResolvedValue({
       submissionsDeleted: 1,
       assignmentsDeleted: 1,
@@ -140,6 +147,7 @@ describe("cleanup cron route", () => {
 
   it("returns a retryable failure and preserves database references when any blob deletion fails", async () => {
     mocks.deleteBlobObjects
+      .mockResolvedValueOnce({ attempted: 0, deleted: 0, alreadyMissing: 0, failed: 0, skipped: 0 })
       .mockResolvedValueOnce({
         attempted: 1,
         deleted: 0,
@@ -180,7 +188,20 @@ describe("cleanup cron route", () => {
     expect(mocks.hardDeleteSoftDeletedBefore).not.toHaveBeenCalled();
   });
 
-  it("returns 503 without deleting storage or records when billing needs reconciliation", async () => {
+  it("keeps video references when private video deletion fails", async () => {
+    mocks.listVideoObjectsForCleanup.mockResolvedValue(["videos/asg/video.webm"]);
+    mocks.deleteBlobObjects
+      .mockResolvedValueOnce({ attempted: 1, deleted: 0, alreadyMissing: 0, failed: 1, skipped: 0 });
+    const { GET } = await import("@/app/api/cron/cleanup/route");
+    const response = await GET(new Request("http://localhost/api/cron/cleanup", {
+      headers: { authorization: "Bearer cron-secret" },
+    }));
+    expect(response.status).toBe(503);
+    expect(mocks.clearCleanedVideoReferences).not.toHaveBeenCalled();
+    expect(mocks.hardDeleteSoftDeletedBefore).not.toHaveBeenCalled();
+  });
+
+  it("cleans video but preserves billing source records when reconciliation is blocked", async () => {
     mocks.flushPendingAiBillingUsage.mockResolvedValue({
       attempted: 1,
       queued: 0,
@@ -219,11 +240,12 @@ describe("cleanup cron route", () => {
       billingUsage: { attemptedUnreported: 2, expiredUnqueued: 1 },
     });
     expect(mocks.listStorageObjectsForHardDeleteBefore).not.toHaveBeenCalled();
-    expect(mocks.deleteBlobObjects).not.toHaveBeenCalled();
+    expect(mocks.deleteBlobObjects).toHaveBeenCalledWith([], { objectClass: "video" });
+    expect(mocks.clearCleanedVideoReferences).toHaveBeenCalled();
     expect(mocks.hardDeleteSoftDeletedBefore).not.toHaveBeenCalled();
   });
 
-  it("blocks retention deletion when ambiguous legacy billing rows exist", async () => {
+  it("cleans video while preserving ambiguous legacy billing source rows", async () => {
     mocks.flushPendingAiBillingUsage.mockResolvedValue({
       attempted: 0,
       queued: 0,
@@ -259,7 +281,8 @@ describe("cleanup cron route", () => {
       billingUsage: { legacyCreditPeriods: 1, legacyUsageRows: 2 },
     });
     expect(mocks.listStorageObjectsForHardDeleteBefore).not.toHaveBeenCalled();
-    expect(mocks.deleteBlobObjects).not.toHaveBeenCalled();
+    expect(mocks.deleteBlobObjects).toHaveBeenCalledWith([], { objectClass: "video" });
+    expect(mocks.clearCleanedVideoReferences).toHaveBeenCalled();
     expect(mocks.hardDeleteSoftDeletedBefore).not.toHaveBeenCalled();
   });
 
@@ -295,7 +318,7 @@ describe("cleanup cron route", () => {
       ok: false,
       error: expect.stringContaining("cleanup completed"),
     });
-    expect(mocks.deleteBlobObjects).toHaveBeenCalledTimes(2);
+    expect(mocks.deleteBlobObjects).toHaveBeenCalledTimes(3);
     expect(mocks.hardDeleteSoftDeletedBefore).toHaveBeenCalledOnce();
   });
 
@@ -312,7 +335,8 @@ describe("cleanup cron route", () => {
     expect(response.status).toBe(503);
     expect(response.headers.get("Retry-After")).toBe("300");
     expect(mocks.listStorageObjectsForHardDeleteBefore).not.toHaveBeenCalled();
-    expect(mocks.deleteBlobObjects).not.toHaveBeenCalled();
+    expect(mocks.deleteBlobObjects).toHaveBeenCalledWith([], { objectClass: "video" });
+    expect(mocks.clearCleanedVideoReferences).toHaveBeenCalled();
     expect(mocks.hardDeleteSoftDeletedBefore).not.toHaveBeenCalled();
   });
 });

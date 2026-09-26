@@ -10,7 +10,7 @@ describe("public legal surface", () => {
 
     expect(markup).toContain("Privacy notice");
     expect(markup).toContain("TryHabla is operated by David Garcia.");
-    expect(markup).toContain("Last updated: August 26, 2026");
+    expect(markup).toContain("Last updated: September 25, 2026");
     expect(markup).toContain("Information TryHabla handles");
     expect(markup).toContain("Optional AI transcription and grading");
     expect(markup).toContain("recorded answer");

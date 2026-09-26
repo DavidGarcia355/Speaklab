@@ -51,7 +51,8 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong>Submission information:</strong> a student-entered name, account email,
-              audio recording, submission time, grade, rubric score, and teacher feedback.
+              audio recording, an optional or teacher-required camera video where authorized for the classroom,
+              submission time, grade, rubric score, and teacher feedback.
             </li>
             <li>
               <strong>Support and operations information:</strong> contact-form messages, basic
@@ -117,6 +118,14 @@ export default function PrivacyPage() {
             teachers remain responsible for classroom grading decisions. The teacher or school is
             responsible for deciding whether AI is authorized for the activity. That decision does
             not remove TryHabla&apos;s responsibility for its own processing and notices.
+          </p>
+          <p>
+            On a video assignment, the teacher may enable automatic AI draft grading. TryHabla extracts
+            the sound track on its server and sends that audio to the configured transcription provider.
+            The production default is OpenAI, routed through Vercel AI Gateway unless that route is disabled.
+            The grading model receives transcript text, assignment instructions, and the rubric;
+            it receives no video or audio recording. TryHabla does not use AI to assess appearance. The teacher reviews the video and chooses the final grade. Video AI requires
+            separate school and provider approval before activation.
           </p>
           <p>
             As of this notice&apos;s update date, the production service identifies OpenAI as its
@@ -201,6 +210,14 @@ export default function PrivacyPage() {
             analytics data follows the retention settings of the configured Google Analytics
             property. Service-provider logs and backups may follow separate schedules that are still
             being verified for district use.
+          </p>
+          <p>
+            Where video is enabled, private video files are deleted after the configured video
+            retention period of up to 90 days. Files become eligible for deletion at that point; scheduled
+            cleanup normally removes them within the next 24 hours. Unsubmitted uploads become eligible
+            after 24 hours and are normally removed within 48 hours. Failed deletions are retried;
+            outages or cleanup backlogs can delay removal. The submission record, sound track, grades, and feedback may remain
+            under the classroom and deletion schedule above. Service-provider backups may last longer.
           </p>
           <p>
             TryHabla does not promise permanent storage. A user-directed Google Drive export is a

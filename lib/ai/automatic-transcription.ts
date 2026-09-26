@@ -3,17 +3,21 @@ import "server-only";
 import {
   claimAutomaticTranscriptionJobs,
   findAssignmentById,
+  findSubmissionAccessById,
   findOwnedSubmissionForAiReview,
   isAutomaticTranscriptionJobActive,
   settleAutomaticTranscriptionJob,
   type AutomaticTranscriptionJobRow,
 } from "@/lib/db";
 import {
+  assertAiProviderConfig,
   assertAiTranscriptionProviderConfig,
   getAiConfig,
   isAiTeacherDenied,
 } from "@/lib/ai/config";
 import { transcribeOneSubmission } from "@/lib/ai/transcript-one";
+import { gradeOneSubmission } from "@/lib/ai/grade-one";
+import { isVideoTeacherApproved, videoAiEnabled } from "@/lib/video-policy";
 
 const MAX_ATTEMPTS = 4;
 const PERMANENT_CODES = new Set([
@@ -69,7 +73,11 @@ async function settle(
 
 async function processJob(job: AutomaticTranscriptionJobRow) {
   const assignment = await findAssignmentById(job.assignmentId, job.teacherEmail);
-  if (!assignment || !assignment.autoTranscribe) {
+  const media = assignment?.autoGradeVideo
+    ? await findSubmissionAccessById(job.submissionId, job.teacherEmail)
+    : null;
+  const gradeVideo = Boolean(media?.videoBlobUrl && assignment?.autoGradeVideo);
+  if (!assignment || (!assignment.autoTranscribe && !gradeVideo)) {
     await settle(job, "cancelled", "automatic_transcription_disabled");
     return "cancelled" as const;
   }
@@ -79,30 +87,47 @@ async function processJob(job: AutomaticTranscriptionJobRow) {
     return "cancelled" as const;
   }
 
+  if (gradeVideo && (!videoAiEnabled() || !isVideoTeacherApproved(job.teacherEmail))) {
+    await settle(job, "paused", "video_ai_approval_required");
+    return "paused" as const;
+  }
+
   const config = getAiConfig();
   if (!config.enabled || isAiTeacherDenied(job.teacherEmail, config)) {
     await settle(job, "paused", "automatic_transcription_unavailable");
     return "paused" as const;
   }
   try {
-    assertAiTranscriptionProviderConfig(config);
+    if (gradeVideo) assertAiProviderConfig(config);
+    else assertAiTranscriptionProviderConfig(config);
   } catch {
     await settle(job, "paused", "automatic_transcription_unconfigured");
     return "paused" as const;
   }
 
-  const outcome = await transcribeOneSubmission({
-    config,
-    teacherEmail: job.teacherEmail,
-    data,
-    processingStillAuthorized: () => isAutomaticTranscriptionJobActive({
-      id: job.id,
-      leaseToken: job.leaseToken,
-    }),
-  });
+  const outcome = gradeVideo
+    ? await gradeOneSubmission({ config, teacherEmail: job.teacherEmail, data,
+        deliveryMode: "suggestion_only",
+        processingStillAuthorized: async () => videoAiEnabled() && isVideoTeacherApproved(job.teacherEmail) &&
+          Boolean((await findAssignmentById(job.assignmentId, job.teacherEmail))?.autoGradeVideo) &&
+          await isAutomaticTranscriptionJobActive({ id: job.id, leaseToken: job.leaseToken }),
+      })
+    : await transcribeOneSubmission({
+        config,
+        teacherEmail: job.teacherEmail,
+        data,
+        processingStillAuthorized: () => isAutomaticTranscriptionJobActive({
+          id: job.id,
+          leaseToken: job.leaseToken,
+        }),
+      });
   if (outcome.status === "completed") {
     await settle(job, "completed");
     return "completed" as const;
+  }
+  if (outcome.status === "skipped") {
+    await settle(job, "failed", outcome.reason);
+    return "failed" as const;
   }
   if (PAUSED_CODES.has(outcome.code)) {
     await settle(job, "paused", outcome.code);

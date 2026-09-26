@@ -118,6 +118,7 @@ async function finalizeCompletedAiGrade(input: {
   reviewReservationId?: string;
   deliveryMode: GradeOneDeliveryMode;
   batchSuggestion?: BatchSuggestionDelivery;
+  processingStillAuthorized?: () => Promise<boolean>;
   suggestion: {
     suggestedScore: number | null;
     rubricScores: AiGradingAttemptRow["rubricScores"];
@@ -142,6 +143,10 @@ async function finalizeCompletedAiGrade(input: {
       resultVisible: false,
     };
   };
+
+  if (input.processingStillAuthorized && !(await input.processingStillAuthorized())) {
+    return withholdResult("Automatic grading was disabled before delivery.");
+  }
 
   if (input.deliveryMode === "suggestion_only") {
     if (input.batchSuggestion) {
@@ -267,6 +272,7 @@ async function deliverReusableAiReview(input: {
   teacherEmail: string;
   deliveryMode: GradeOneDeliveryMode;
   batchSuggestion?: BatchSuggestionDelivery;
+  processingStillAuthorized?: () => Promise<boolean>;
 }): Promise<GradeOneOutcome> {
   const { source, data, teacherEmail } = input;
   if (source.submissionId === data.submissionId && data.finalGrade !== null) {
@@ -350,6 +356,7 @@ async function deliverReusableAiReview(input: {
     allowUnmeteredAccess: true,
     deliveryMode: input.deliveryMode,
     batchSuggestion: input.batchSuggestion,
+    processingStillAuthorized: input.processingStillAuthorized,
   });
   if (!delivery.resultVisible) {
     return {
@@ -382,9 +389,11 @@ export async function gradeOneSubmission(input: {
   enhanced?: boolean;
   deliveryMode?: GradeOneDeliveryMode;
   batchSuggestion?: BatchSuggestionDelivery;
+  processingStillAuthorized?: () => Promise<boolean>;
 }): Promise<GradeOneOutcome> {
   const { config, teacherEmail, data } = input;
-  const deliveryMode = input.deliveryMode ?? "apply";
+  const transcriptOnly = data.isVideoSubmission === true;
+  const deliveryMode = transcriptOnly ? "suggestion_only" : input.deliveryMode ?? "apply";
   const submissionId = data.submissionId;
 
   if (!data.audioBlobUrl) return { status: "skipped", reason: "no_audio" };
@@ -396,6 +405,9 @@ export async function gradeOneSubmission(input: {
   const baseStore = createDatabaseGradingStore();
   let providerBudgetReserved = isLocalMockAi(config);
   const ensureProviderBudget = async () => {
+    if (input.processingStillAuthorized && !(await input.processingStillAuthorized())) {
+      throw Object.assign(new Error("Automatic grading was cancelled."), { code: "processing_cancelled" });
+    }
     if (providerBudgetReserved) return true;
     const reserved = await reserveGenerationBudget({ config });
     if (reserved) providerBudgetReserved = true;
@@ -422,6 +434,9 @@ export async function gradeOneSubmission(input: {
   let consumedTranscriptSource: SubmissionTranscriptRow | null = null;
 
   try {
+    if (input.processingStillAuthorized && !(await input.processingStillAuthorized())) {
+      return { status: "failed", code: "processing_cancelled", message: "Automatic grading was cancelled." };
+    }
     const audio =
       config.transcriptionProvider === "mock"
         ? { buffer: Buffer.from("mock audio"), contentType: "audio/webm" }
@@ -431,6 +446,7 @@ export async function gradeOneSubmission(input: {
       audio.buffer,
       audio.contentType,
       assignment,
+      data.isVideoSubmission,
     );
     const assignmentFingerprint = processedAssignmentFingerprint(assignment);
     const latestPersistedTranscript =
@@ -538,6 +554,7 @@ export async function gradeOneSubmission(input: {
             teacherEmail,
             deliveryMode,
             batchSuggestion: input.batchSuggestion,
+    processingStillAuthorized: input.processingStillAuthorized,
           });
         }
       }
@@ -553,7 +570,7 @@ export async function gradeOneSubmission(input: {
       };
     }
     const audioRoute = routeAudioGrading({
-      config: gradingConfig,
+      config: transcriptOnly ? { ...gradingConfig, audioStrategy: "transcribe_then_grade" } : gradingConfig,
       assignment,
       contentType: audio.contentType,
       byteLength: audio.buffer.byteLength,
@@ -569,7 +586,7 @@ export async function gradeOneSubmission(input: {
         ? latestPersistedTranscript
         : null);
 
-    if (audioRoute.strategy === "gemini_direct" && !persistedTranscript) {
+    if (!transcriptOnly && audioRoute.strategy === "gemini_direct" && !persistedTranscript) {
       try {
         const direct = await runDirectAudioGradingPipeline({
           config: gradingConfig,
@@ -677,6 +694,7 @@ export async function gradeOneSubmission(input: {
           reviewReservationId: reviewReservationId ?? undefined,
           deliveryMode,
           batchSuggestion: input.batchSuggestion,
+    processingStillAuthorized: input.processingStillAuthorized,
         });
         if (!resultVisible) {
           return {
@@ -797,6 +815,7 @@ export async function gradeOneSubmission(input: {
       reviewReservationId: reviewReservationId ?? undefined,
       deliveryMode,
       batchSuggestion: input.batchSuggestion,
+    processingStillAuthorized: input.processingStillAuthorized,
     });
 
     if (!resultVisible) {
@@ -817,6 +836,9 @@ export async function gradeOneSubmission(input: {
       gradeApplied,
     };
   } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "processing_cancelled") {
+      return { status: "failed", code: "processing_cancelled", message: "Automatic grading was cancelled." };
+    }
     const publicError = toPublicAiError(error);
     if (publicError.code === "provider_budget_exhausted") {
       return { status: "failed", code: publicError.code, message: publicError.message };

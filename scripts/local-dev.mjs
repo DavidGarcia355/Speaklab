@@ -44,6 +44,26 @@ function powershell(script) {
 }
 
 function portProcess() {
+  if (process.platform !== "win32") {
+    try {
+      const output = execFileSync("lsof", ["-nP", `-tiTCP:${port}`, "-sTCP:LISTEN"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      const pid = Number(output.split("\n")[0]);
+      if (!Number.isInteger(pid)) return null;
+      const commandLine = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+        encoding: "utf8",
+      }).trim();
+      const cwd = execFileSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).split("\n").find((line) => line.startsWith("n"))?.slice(1);
+      return { pid, commandLine, cwd };
+    } catch {
+      return null;
+    }
+  }
   const output = powershell(
     `Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess`
   );
@@ -59,7 +79,8 @@ function portProcess() {
 function isHablaNext(processInfo) {
   const commandLine = processInfo?.commandLine?.replaceAll("\\", "/").toLowerCase() ?? "";
   const projectRoot = path.resolve(root).replaceAll("\\", "/").toLowerCase();
-  return commandLine.includes(projectRoot) && commandLine.includes("next");
+  const cwd = processInfo?.cwd?.replaceAll("\\", "/").toLowerCase() ?? "";
+  return (commandLine.includes(projectRoot) || cwd === projectRoot) && commandLine.includes("next");
 }
 
 function lanAddresses() {
@@ -118,7 +139,8 @@ if (command === "stop") {
   if (!isHablaNext(proc)) {
     fail(`Port 3000 is owned by PID ${proc.pid}, but it does not look like Habla. Stop it manually if intended.`);
   }
-  powershell(`Stop-Process -Id ${proc.pid} -Force`);
+  if (process.platform === "win32") powershell(`Stop-Process -Id ${proc.pid} -Force`);
+  else process.kill(proc.pid, "SIGTERM");
   console.log(`Stopped Habla dev server PID ${proc.pid}.`);
   process.exit(0);
 }
@@ -135,7 +157,7 @@ if (isHablaNext(proc)) {
 if (proc) {
   console.log(`Port ${port} is already used by PID ${proc.pid}.`);
   console.log(proc.commandLine || "(command line unavailable)");
-  fail("Stop that process or run npm.cmd run dev:stop if it is Habla.");
+  fail("Stop that process or run npm run dev:stop if it is Habla.");
 }
 
 const lock = lockStatus();
@@ -143,13 +165,16 @@ if (lock.stale) {
   fs.rmSync(path.join(root, ".next", "dev", "lock"), { force: true });
   console.log("Removed stale .next/dev/lock.");
 } else if (lock.exists) {
-  fail("A Next dev lock exists and appears active. Run npm.cmd run dev:status.");
+  fail("A Next dev lock exists and appears active. Run npm run dev:status.");
 }
 
 printState();
 printUrls();
 console.log("Starting Habla on port 3000...");
-const child = spawn("cmd.exe", ["/d", "/s", "/c", `npm.cmd run dev -- --hostname 0.0.0.0 --port ${port}`], {
+const windows = process.platform === "win32";
+const child = spawn(windows ? "cmd.exe" : "npm", windows
+  ? ["/d", "/s", "/c", `npm.cmd run dev -- --hostname 0.0.0.0 --port ${port}`]
+  : ["run", "dev", "--", "--hostname", "0.0.0.0", "--port", String(port)], {
   cwd: root,
   stdio: "inherit",
   shell: false,

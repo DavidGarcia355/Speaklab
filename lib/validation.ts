@@ -117,6 +117,8 @@ const rubricScoreSchema = z.object({
 
 export const assignmentCreateSchema = z.object({
   autoTranscribe: z.boolean().optional().default(false),
+  videoMode: z.enum(["off", "optional", "required"]).optional().default("off"),
+  autoGradeVideo: z.boolean().optional().default(false),
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true).default(""),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
@@ -162,6 +164,8 @@ export const assignmentCreateSchema = z.object({
 
 export const assignmentUpdateSchema = z.object({
   autoTranscribe: z.boolean().optional(),
+  videoMode: z.enum(["off", "optional", "required"]).optional(),
+  autoGradeVideo: z.boolean().optional(),
   title: cleanTextSchema("Assignment name", 1, LIMITS.assignmentNameMax),
   description: cleanTextSchema("Assignment description", 0, LIMITS.assignmentDescriptionMax, true),
   instructions: cleanTextSchema("Assignment instructions", 1, LIMITS.assignmentInstructionsMax),
@@ -197,6 +201,7 @@ export const assignmentUpdateSchema = z.object({
 export const submissionCreateSchema = z.object({
   studentName: cleanTextSchema("Student name", 1, LIMITS.studentNameMax),
   audioData: z.string().min(1, "Audio data is required."),
+  videoReservationId: z.string().max(100).optional(),
 });
 
 export const practiceCreateSchema = submissionCreateSchema.extend({
